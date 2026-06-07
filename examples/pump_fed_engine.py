@@ -1,3 +1,22 @@
+"""
+Pump-fed liquid rocket engine example.
+
+Demonstrates:
+
+- Liquid rocket feed-system modeling
+- Turbopumps and turbomachinery maps
+- Real-fluid thermodynamic properties
+- Pressure losses and flow distribution
+- Combustion chamber performance
+- Rocket nozzle expansion
+- Integrated propulsion-system simulation
+- Coupled fluid and propulsion networks
+
+Run with:
+
+    uv run python examples/pump_fed_engine.py
+"""
+
 import numpy as np
 
 from fullflow import *

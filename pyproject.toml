@@ -1,6 +1,6 @@
 [project]
 name = "fullflow"
-version = "0.1.0"
+version = "0.1.1"
 description = "A Python framework for fluid, thermal, and propulsion network simulation."
 readme = "README.md"
 license = "GPL-3.0-only"
@@ -47,6 +47,8 @@ dependencies = [
     "rich>=15.0.0",
     "rocketcea>=1.2.3",
     "thermoprop>=0.3.3",
+    "pandas>=3.0.3",
+    "openpyxl>=3.1.5",
 ]
 
 [project.urls]

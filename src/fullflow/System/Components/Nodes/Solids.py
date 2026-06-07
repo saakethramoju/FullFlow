@@ -8,47 +8,14 @@ if TYPE_CHECKING:
     from fullflow.System import Network, State
 
 
-
 class Solid(Component):
     """
     Lumped solid thermal node.
 
-    Residual
-    --------
-        q_net = 0
+    Positive heat_rate means net heat added to the solid node [W].
 
-    Optional Biot Number
-    --------------------
+    Optional Biot number:
         Bi = h * Lc / k
-
-    where Bi << 1 indicates that the lumped-temperature assumption is
-    reasonable. A common rule of thumb is Bi < 0.1.
-
-    Parameters
-    ----------
-    temperature : State
-        Lumped solid temperature [K].
-
-    mass : float, optional
-        Solid mass [kg].
-
-    specific_heat : State, optional
-        Solid specific heat [J/kg-K].
-
-    heat_rate : State | float
-        Net heat rate into the solid node [W].
-
-    characteristic_length : State | float, optional
-        Solid characteristic length Lc [m], usually volume/surface area.
-
-    thermal_conductivity : State | float, optional
-        Solid thermal conductivity [W/m-K].
-
-    convection_coefficient : State | float, optional
-        Representative external convection coefficient [W/m²-K].
-
-    biot_number : State, optional
-        Output Biot number [-].
     """
 
     def __init__(
@@ -64,6 +31,13 @@ class Solid(Component):
         biot_number: State | None = None,
         heat_rate: State | float = 0.0,
     ):
+        # Store whether the user actually requested Biot-number evaluation.
+        self._has_biot_inputs = (
+            characteristic_length is not None
+            and thermal_conductivity is not None
+            and convection_coefficient is not None
+        )
+
         self.setup()
 
     @property
@@ -75,11 +49,7 @@ class Solid(Component):
         return [self.heat_rate.value]
 
     def evaluate_states(self):
-        if (
-            self.characteristic_length is None
-            or self.thermal_conductivity is None
-            or self.convection_coefficient is None
-        ):
+        if not self._has_biot_inputs:
             return
 
         Lc = self.characteristic_length.value
@@ -89,6 +59,16 @@ class Solid(Component):
         if Lc <= 0.0:
             raise ValueError(
                 f"{self.name}: characteristic_length must be greater than zero. Got {Lc}."
+            )
+
+        if k <= 0.0:
+            raise ValueError(
+                f"{self.name}: thermal_conductivity must be greater than zero. Got {k}."
+            )
+
+        if h < 0.0:
+            raise ValueError(
+                f"{self.name}: convection_coefficient must be nonnegative. Got {h}."
             )
 
         self.biot_number.value = h * Lc / k

@@ -9,4 +9,4 @@ from fullflow.Utilities import *
 
 
 def main() -> None:
-    print("FullFlow")
+    print("Welcome to FullFlow")
