@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+title: FullFlow
+message: "If you use FullFlow in academic or engineering work, please cite it using this metadata."
+type: software
+authors:
+  - family-names: Ramoju
+    given-names: Saaketh
+version: 0.1.0
+date-released: 2026-06-07
+license: GPL-3.0-only
+repository-code: "https://github.com/saakethramoju/FullFlow"
+url: "https://pypi.org/project/fullflow/"
+abstract: "FullFlow is a Python framework for fluid, thermal, and propulsion network simulation."
+keywords:
+  - fluid dynamics
+  - thermodynamics
+  - heat transfer
+  - rocket propulsion
+  - network simulation

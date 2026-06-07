@@ -30,3 +30,6 @@ jobs:
 
       - name: Import package
         run: uv run python -c "import fullflow; import fullflow.System; import fullflow.Solvers; print('FullFlow import ok')"
+
+      - name: Run tests
+        run: uv run pytest

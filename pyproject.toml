@@ -1,41 +1,51 @@
 [project]
 name = "fullflow"
 version = "0.1.0"
-description = "A fluid, thermal, and propulsion network simulation framework."
+description = "A Python framework for fluid, thermal, and propulsion network simulation."
 readme = "README.md"
-requires-python = ">=3.11"
-license = "GPL-3.0-or-later"
-
+license = "GPL-3.0-only"
 authors = [
     { name = "Saaketh Ramoju", email = "skramoju@gmail.com" }
 ]
+requires-python = ">=3.11"
 
 keywords = [
-    "fluid",
-    "flow",
-    "thermodynamics",
-    "heat-transfer",
-    "rocket",
-    "propulsion",
-    "simulation",
+    "fluid-dynamics",
+    "fluid-network",
     "network-analysis",
+    "thermodynamics",
+    "thermal-analysis",
+    "heat-transfer",
+    "propulsion",
+    "rocket-propulsion",
+    "rocket-engine",
+    "compressible-flow",
+    "turbomachinery",
+    "simulation",
+    "engineering",
+    "scientific-computing",
 ]
 
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
+    "Intended Audience :: Education",
+    "Intended Audience :: Developers",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Topic :: Scientific/Engineering :: Information Analysis",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
-    "Topic :: Scientific/Engineering",
+    "Operating System :: OS Independent",
 ]
 
 dependencies = [
     "numpy>=2.4.6",
+    "scipy>=1.17.1",
     "rich>=15.0.0",
     "rocketcea>=1.2.3",
-    "scipy>=1.17.1",
     "thermoprop>=0.3.3",
 ]
 
@@ -43,6 +53,12 @@ dependencies = [
 Homepage = "https://github.com/saakethramoju/FullFlow"
 Repository = "https://github.com/saakethramoju/FullFlow"
 Issues = "https://github.com/saakethramoju/FullFlow/issues"
+Changelog = "https://github.com/saakethramoju/FullFlow/blob/main/CHANGELOG.md"
+PyPI = "https://pypi.org/project/fullflow/"
+
+[tool.fullflow.credits]
+thermophysical_properties = "Thermophysical property support provided through ThermoProp."
+rocket_performance = "Rocket performance utilities use RocketCEA."
 
 [project.scripts]
 fullflow = "fullflow:main"
@@ -50,3 +66,8 @@ fullflow = "fullflow:main"
 [build-system]
 requires = ["uv_build>=0.11.18,<0.12.0"]
 build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]
