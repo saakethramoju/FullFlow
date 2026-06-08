@@ -12,10 +12,69 @@ class Solid(Component):
     """
     Lumped solid thermal node.
 
-    Positive heat_rate means net heat added to the solid node [W].
+    `Solid` represents a lumped-capacitance thermal mass whose temperature is
+    solved from a steady-state energy balance. The component is intended for
+    conjugate heat transfer networks where conduction, convection, radiation,
+    and other thermal components contribute heat to a common solid node.
 
-    Optional Biot number:
-        Bi = h * Lc / k
+    Positive heat rates add energy to the solid. Negative heat rates remove
+    energy from the solid.
+
+    Residuals
+    ---------
+    energy_balance : float
+        Enforces steady-state thermal equilibrium:
+
+        `heat_rate = 0`
+
+        The heat rate is typically formed by summing all heat transfer
+        mechanisms connected to the node.
+
+    Relations
+    ---------
+    Optional Biot number calculation:
+
+    `Bi = h * Lc / k`
+
+    where:
+
+    * `Bi` is the Biot number [-]
+    * `h` is the convection coefficient [W/m²-K]
+    * `Lc` is the characteristic length [m]
+    * `k` is the thermal conductivity [W/m-K]
+
+    As a general guideline, `Bi < 0.1` indicates that the lumped-temperature
+    assumption is likely reasonable.
+
+    Iteration Variables
+    -------------------
+    temperature : State
+        Solid temperature.
+
+    Parameters
+    ----------
+    name : str
+        Component name.
+    network : Network
+        Network that owns this component.
+    temperature : State
+        Solid temperature [K].
+    mass : float, optional
+        Solid mass [kg].
+    specific_heat : State, optional
+        Solid specific heat capacity [J/kg-K].
+    characteristic_length : State or float, optional
+        Characteristic length used for Biot number evaluation [m].
+    thermal_conductivity : State or float, optional
+        Solid thermal conductivity used for Biot number evaluation [W/m-K].
+    convection_coefficient : State or float, optional
+        Representative convection coefficient used for Biot number evaluation
+        [W/m²-K].
+    biot_number : State, optional
+        Output Biot number [-].
+    heat_rate : State or float, optional
+        Net heat rate into the solid node [W]. Positive values add heat to the
+        solid. Defaults to 0.
     """
 
     def __init__(

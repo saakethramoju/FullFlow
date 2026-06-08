@@ -9,6 +9,40 @@ if TYPE_CHECKING:
 
 
 class MainCombustionChamber(Component):
+    """
+    Lumped main combustion chamber mass-balance component.
+
+    `MainCombustionChamber` solves for chamber pressure by enforcing steady-state
+    mass conservation between the incoming propellant flow rates and the outgoing
+    nozzle mass flow rate.
+
+    Residuals
+    ---------
+    mass_balance : float
+        Enforces steady-state chamber mass conservation:
+
+        `fuel_mass_flow + oxidizer_mass_flow - nozzle_mass_flow = 0`
+
+    Iteration Variables
+    -------------------
+    chamber_pressure : State
+        Main combustion chamber pressure.
+
+    Parameters
+    ----------
+    name : str
+        Component name.
+    network : Network
+        Network that owns this component.
+    chamber_pressure : State
+        Main combustion chamber pressure [Pa].
+    oxidizer_mass_flow : State, optional
+        Oxidizer mass flow rate entering the chamber [kg/s].
+    fuel_mass_flow : State, optional
+        Fuel mass flow rate entering the chamber [kg/s].
+    nozzle_mass_flow : State, optional
+        Combustion gas mass flow rate leaving through the nozzle [kg/s].
+    """
 
     def __init__(self, 
                  name: str, 
