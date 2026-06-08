@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.2
+
+### Documentation
+
+* Added comprehensive NumPy-style docstrings throughout FullFlow components.
+* Standardized component documentation format across the library.
+* Added governing equations, residual definitions, iteration variable descriptions, and parameter documentation where applicable.
+* Improved MkDocStrings compatibility for automatic API reference generation.
+* Improved generated documentation readability and consistency.
+
 ## 0.1.1
 
 ### Added
