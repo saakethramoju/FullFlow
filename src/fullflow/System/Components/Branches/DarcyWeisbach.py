@@ -17,9 +17,31 @@ def _effective_area_from_mass_flow(
     density: float,
 ) -> float:
     """
-    Computes an equivalent CdA/effective area from:
+    Compute an equivalent effective area from mass flow.
 
-        mdot = CdA * sqrt(2 * rho * abs(dP))
+    `_effective_area_from_mass_flow` computes the equivalent `CdA` or effective
+    flow area that would produce the supplied mass flow for a given pressure
+    drop and density.
+
+    Parameters
+    ----------
+    mass_flow : float
+        Mass flow rate
+    pressure_drop : float
+        Pressure drop
+    density : float
+        Fluid density
+
+    Returns
+    -------
+    effective_area : float
+        Equivalent effective area
+
+    Notes
+    -----
+    Effective area is evaluated from:
+
+        ``mass_flow = effective_area * sqrt(2 * density * abs(pressure_drop))``
     """
     if abs(pressure_drop) < 1e-12:
         return 0.0
@@ -31,6 +53,55 @@ def _effective_area_from_mass_flow(
 
 
 class GravityPressureChange(Component):
+    """
+    Hydrostatic pressure change from elevation.
+
+    `GravityPressureChange` computes downstream pressure from upstream pressure,
+    fluid density, gravitational acceleration, and elevation change. Positive
+    elevation change is upward, so pressure decreases as elevation increases.
+
+    If mass flow is assigned, the component also computes an equivalent
+    effective area for the resulting pressure drop.
+
+    Parameters
+    ----------
+    name : str
+        Component name
+    network : Network
+        Network that owns this component
+    upstream_pressure : State or float
+        Upstream pressure
+    density : State or float
+        Fluid density
+    elevation_change : State or float
+        Elevation change
+    gravitional_acceleration : State or float, optional
+        Gravitational acceleration
+    downstream_pressure : State, optional
+        Downstream pressure
+    mass_flow : State, optional
+        Mass flow rate
+    effective_area : State, optional
+        Equivalent effective area
+
+    Outputs
+    -------
+    downstream_pressure : State, optional
+        Downstream pressure
+    effective_area : State, optional
+        Equivalent effective area
+
+    Notes
+    -----
+    Downstream pressure is evaluated from:
+
+        ``downstream_pressure = upstream_pressure
+        - density * gravitational_acceleration * elevation_change``
+
+    Equivalent effective area is evaluated from:
+
+        ``mass_flow = effective_area * sqrt(2 * density * abs(pressure_drop))``
+    """
 
     def __init__(
         self,
@@ -75,6 +146,71 @@ class GravityPressureChange(Component):
             )
 
 class DarcyWeisbach(Component):
+    """
+    Darcy-Weisbach pressure-loss branch.
+
+    `DarcyWeisbach` solves mass flow as an iteration variable using the
+    Darcy-Weisbach pressure-loss relation. The predicted mass flow is computed
+    from the pressure drop, density, friction factor, length, and hydraulic
+    diameter, and the residual drives the solved mass flow toward that value.
+
+    Residuals
+    ---------
+    mass_flow_balance : float
+        Enforces consistency between solved and predicted mass flow
+
+        ``mass_flow - predicted_mass_flow = 0``
+
+    Iteration Variables
+    -------------------
+    mass_flow : State
+        Branch mass flow rate
+
+    Parameters
+    ----------
+    name : str
+        Component name
+    network : Network
+        Network that owns this component
+    mass_flow : State
+        Branch mass flow rate
+    upstream_pressure : State
+        Upstream pressure
+    downstream_pressure : State
+        Downstream pressure
+    length : float
+        Branch length
+    cross_sectional_area : float
+        Flow cross-sectional area
+    hydraulic_diameter : float
+        Hydraulic diameter
+    density : State
+        Fluid density
+    friction_factor : State or float, optional
+        Darcy friction factor
+    effective_area : State, optional
+        Equivalent effective area
+
+    Outputs
+    -------
+    effective_area : State, optional
+        Equivalent effective area
+
+    Notes
+    -----
+    The Darcy-Weisbach coefficient is evaluated from:
+
+        ``Kf = 8 * f * L / (density * pi^2 * hydraulic_diameter^5)``
+
+    Predicted mass flow is evaluated from:
+
+        ``predicted_mass_flow = sign(pressure_drop)
+        * sqrt(abs(pressure_drop) / Kf)``
+
+    Effective area is evaluated from:
+
+        ``mass_flow = effective_area * sqrt(2 * density * abs(pressure_drop))``
+    """
 
     def __init__(
         self,
@@ -129,7 +265,40 @@ class DarcyWeisbach(Component):
 
 
 class RectanglePoiseuille(Component):
+    """
+    Poiseuille number correlation for rectangular ducts.
 
+    `RectanglePoiseuille` computes an approximate Poiseuille number for a
+    rectangular duct from its height and width. The result can be used by
+    laminar duct-flow pressure-loss or friction-factor calculations.
+
+    Parameters
+    ----------
+    name : str
+        Component name
+    network : Network
+        Network that owns this component
+    height : float
+        Rectangle height
+    width : float
+        Rectangle width
+
+    Outputs
+    -------
+    poiseuille_number : State, optional
+        Computed Poiseuille number
+
+    Notes
+    -----
+    The aspect ratio is evaluated from the smaller half-dimension divided by
+    the larger half-dimension:
+
+        ``x = b / a``
+
+    The Poiseuille number is evaluated from:
+
+        ``Po = A0 + A1 * x + A2 * x^2 + A3 * x^3 + A4 * x^4``
+    """
     def __init__(
         self,
         name: str,
@@ -158,7 +327,40 @@ class RectanglePoiseuille(Component):
 
 
 class EllipsePoiseuille(Component):
+    """
+    Poiseuille number correlation for elliptical ducts.
 
+    `EllipsePoiseuille` computes an approximate Poiseuille number for an
+    elliptical duct from its semi-major and semi-minor axes. The result can be
+    used by laminar duct-flow pressure-loss or friction-factor calculations.
+
+    Parameters
+    ----------
+    name : str
+        Component name
+    network : Network
+        Network that owns this component
+    semi_major_axis : float
+        Ellipse semi-major axis
+    semi_minor_axis : float
+        Ellipse semi-minor axis
+
+    Outputs
+    -------
+    poiseuille_number : State, optional
+        Computed Poiseuille number
+
+    Notes
+    -----
+    The aspect ratio is evaluated from the smaller semi-axis divided by the
+    larger semi-axis:
+
+        ``x = b / a``
+
+    The Poiseuille number is evaluated from:
+
+        ``Po = A0 + A1 * x + A2 * x^2 + A3 * x^3 + A4 * x^4``
+    """
     def __init__(
         self,
         name: str,
@@ -187,8 +389,44 @@ class EllipsePoiseuille(Component):
 
 
 
-class CircularAnnulus(Component):
+class CircularAnnulusPoiseuille(Component):
+    """
+    Poiseuille number correlation for circular annuli.
 
+    `CircularAnnulusPoiseuille` computes an approximate Poiseuille number for a circular
+    annulus from its inner and outer diameters. The result can be used by
+    laminar annular duct-flow pressure-loss or friction-factor calculations.
+
+    Parameters
+    ----------
+    name : str
+        Component name
+    network : Network
+        Network that owns this component
+    inner_diameter : float
+        Annulus inner diameter
+    outer_diameter : float
+        Annulus outer diameter
+
+    Outputs
+    -------
+    poiseuille_number : State, optional
+        Computed Poiseuille number
+
+    Notes
+    -----
+    The diameter ratio is evaluated from:
+
+        ``x = inner_diameter / outer_diameter``
+
+    For small diameter ratios, the Poiseuille number is evaluated from:
+
+        ``Po = A0 * x^A1``
+
+    Otherwise, the Poiseuille number is evaluated from:
+
+        ``Po = A0 + A1 * x + A2 * x^2 + A3 * x^3 + A4 * x^4``
+    """
     def __init__(
         self,
         name: str,
@@ -224,14 +462,34 @@ class CircularAnnulus(Component):
 
 class HydraulicDiameter(Component):
     """
-    Computes hydraulic diameter from flow area and wetted perimeter.
+    Hydraulic diameter from flow area and wetted perimeter.
 
-    Dh = 4A / Pw
+    `HydraulicDiameter` computes hydraulic diameter from cross-sectional flow
+    area and wetted perimeter. The result is commonly used as the characteristic
+    diameter for Reynolds number, Nusselt number, and duct-flow correlations.
 
-    This is the geometry diameter used for Reynolds number, Nusselt number,
-    and most duct-flow correlations. Positive hydraulic_diameter is required.
+    Parameters
+    ----------
+    name : str
+        Component name
+    network : Network
+        Network that owns this component
+    cross_sectional_area : State or float
+        Flow cross-sectional area
+    wetted_perimeter : State or float
+        Wetted perimeter
+
+    Outputs
+    -------
+    hydraulic_diameter : State, optional
+        Hydraulic diameter
+
+    Notes
+    -----
+    Hydraulic diameter is evaluated from:
+
+        ``hydraulic_diameter = 4 * cross_sectional_area / wetted_perimeter``
     """
-
     def __init__(
         self,
         name: str,

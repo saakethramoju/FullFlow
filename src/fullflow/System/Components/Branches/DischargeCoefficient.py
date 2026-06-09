@@ -18,12 +18,6 @@ class DischargeCoefficient(Component):
     sign of the mass flow follows the sign of the pressure difference, allowing
     reverse flow when downstream pressure exceeds upstream pressure.
 
-    Relations
-    ---------
-    Restriction mass flow:
-
-    `mass_flow = sign(P1 - P2) * Cd * A * sqrt(2 * rho * abs(P1 - P2))`
-
     Parameters
     ----------
     name : str
@@ -45,6 +39,12 @@ class DischargeCoefficient(Component):
     -------
     mass_flow : State, optional
         Computed mass flow rate
+
+    Notes
+    -----
+    Restriction mass flow is evaluated from:
+
+        ``mass_flow = sign(P1 - P2) * Cd * A * sqrt(2 * rho * abs(P1 - P2))``
     """
 
     def __init__(
@@ -83,12 +83,6 @@ class SeriesCdA(Component):
     effective area. This is useful when several restrictions are arranged in
     series and should be represented as one equivalent restriction.
 
-    Relations
-    ---------
-    Series effective area:
-
-    `1 / effective_area_eq^2 = sum(1 / effective_area_i^2)`
-
     Parameters
     ----------
     name : str
@@ -102,8 +96,13 @@ class SeriesCdA(Component):
     -------
     effective_area : State, optional
         Equivalent effective area
-    """
 
+    Notes
+    -----
+    Series effective area is evaluated from:
+
+        ``1 / effective_area_eq^2 = sum(1 / effective_area_i^2)``
+    """
     def __init__(
         self,
         name: str,
@@ -137,12 +136,6 @@ class ParallelCdA(Component):
     arranged in parallel and should be represented as one equivalent
     restriction.
 
-    Relations
-    ---------
-    Parallel effective area:
-
-    `effective_area_eq = sum(effective_area_i)`
-
     Parameters
     ----------
     name : str
@@ -156,8 +149,13 @@ class ParallelCdA(Component):
     -------
     effective_area : State, optional
         Equivalent effective area
-    """
 
+    Notes
+    -----
+    Parallel effective area is evaluated from:
+
+        ``effective_area_eq = sum(effective_area_i)``
+    """
     def __init__(
         self,
         name: str,
@@ -174,40 +172,24 @@ class ParallelCdA(Component):
         )
 
 
+
 class CavitatingVenturi(Component):
     """
     Cavitating liquid venturi model.
 
     `CavitatingVenturi` computes mass flow through a liquid venturi using a
-    noncavitating restriction model or a cavitating/choked venturi model. The
-    active mode is selected using a critical downstream-to-upstream pressure
-    ratio.
+    noncavitating restriction model or a cavitating venturi model. The active
+    mode is selected using a critical downstream-to-upstream pressure ratio.
 
     In cavitating mode, the throat pressure is assumed to be pinned to the
     vapor pressure corresponding to the upstream fluid state. If upstream
     temperature and critical temperature are both assigned, cavitation is
     disabled above the critical temperature.
 
-    Notes
-    -----
     Cavitation onset and stable cavitating flow are not identical. Incipient
     cavitation begins when the throat pressure first reaches saturation
     pressure, while fully established cavitating flow depends on geometry and
     empirical behavior.
-
-    Relations
-    ---------
-    Noncavitating mass flow:
-
-    `mass_flow = sign(P1 - P2) * Cd_noncav * A_t * sqrt(2 * rho * abs(P1 - P2))`
-
-    Cavitating mass flow:
-
-    `mass_flow = Cd_cav * A_t * sqrt(2 * rho * (P1 - vapor_pressure))`
-
-    Cavitating mode criterion:
-
-    `downstream_pressure / upstream_pressure < critical_pressure_ratio`
 
     Parameters
     ----------
@@ -242,6 +224,20 @@ class CavitatingVenturi(Component):
         Computed venturi mass flow rate
     is_cavitating : bool, optional
         Whether cavitating mode is active
+
+    Notes
+    -----
+    Noncavitating mass flow is evaluated from:
+
+        ``mass_flow = sign(P1 - P2) * Cd_noncav * A_t * sqrt(2 * rho * abs(P1 - P2))``
+
+    Cavitating mass flow is evaluated from:
+
+        ``mass_flow = Cd_cav * A_t * sqrt(2 * rho * (P1 - vapor_pressure))``
+
+    Cavitating mode is activated when:
+
+        ``downstream_pressure / upstream_pressure < critical_pressure_ratio``
     """
 
     def __init__(

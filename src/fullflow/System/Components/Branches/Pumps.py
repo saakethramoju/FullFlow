@@ -10,6 +10,98 @@ if TYPE_CHECKING:
 
 
 class ConstantDensityPump(Component):
+    """
+    Constant-density pump pressure-rise component.
+
+    `ConstantDensityPump` models a pump for an approximately incompressible
+    fluid with constant density. The component solves volumetric flow as an
+    iteration variable by matching the predicted discharge total pressure to the
+    assigned discharge total pressure.
+
+    If upstream total enthalpy is assigned, the component also computes
+    discharge total enthalpy from shaft power and mass flow.
+
+    Residuals
+    ---------
+    pressure_balance : float
+        Enforces consistency between predicted and assigned discharge pressure
+
+        ``predicted_discharge_total_pressure - discharge_total_pressure = 0``
+
+    Iteration Variables
+    -------------------
+    volumetric_flow : State
+        Pump volumetric flow rate
+
+    Parameters
+    ----------
+    name : str
+        Component name
+    network : Network
+        Network that owns this component
+    rotor_speed : State
+        Pump rotor speed
+    head_rise : State
+        Pump head rise
+    volumetric_flow : State
+        Pump volumetric flow rate
+    density : State
+        Fluid density
+    torque : State
+        Shaft torque
+    upstream_total_pressure : State
+        Upstream total pressure
+    discharge_total_pressure : State
+        Discharge total pressure
+    upstream_total_enthalpy : State, optional
+        Upstream total enthalpy
+    gravitational_acceleration : float, optional
+        Gravitational acceleration
+
+    Outputs
+    -------
+    discharge_total_enthalpy : State, optional
+        Discharge total enthalpy
+    efficiency : State, optional
+        Pump efficiency
+    shaft_power : State, optional
+        Shaft power
+    mass_flow : State, optional
+        Pump mass flow rate
+
+    Notes
+    -----
+    Angular speed is evaluated from:
+
+        ``omega = pi * rotor_speed / 30``
+
+    Shaft power is evaluated from:
+
+        ``shaft_power = torque * omega``
+
+    Hydraulic power is evaluated from:
+
+        ``hydraulic_power = density * gravity * head_rise * volumetric_flow``
+
+    Discharge total pressure is evaluated from:
+
+        ``discharge_total_pressure = upstream_total_pressure
+        + density * gravity * head_rise``
+
+    Efficiency is evaluated from:
+
+        ``efficiency = hydraulic_power / shaft_power``
+
+    Mass flow is evaluated from:
+
+        ``mass_flow = density * volumetric_flow``
+
+    If upstream total enthalpy is assigned, discharge total enthalpy is
+    evaluated from:
+
+        ``discharge_total_enthalpy = upstream_total_enthalpy
+        + shaft_power / mass_flow``
+    """
 
     def __init__(self,
                  name: str, 
@@ -91,6 +183,109 @@ class ConstantDensityPump(Component):
 
 
 class PolytropicPump(Component):
+    """
+    Polytropic pump pressure-rise component.
+
+    `PolytropicPump` models a pump with changing density between the inlet and
+    discharge states. The component solves mass flow as an iteration variable by
+    matching a polytropic pressure-rise estimate to the assigned discharge total
+    pressure.
+
+    Residuals
+    ---------
+    pressure_balance : float
+        Enforces consistency between predicted and assigned discharge pressure
+
+        ``predicted_discharge_total_pressure - discharge_total_pressure = 0``
+
+    Iteration Variables
+    -------------------
+    mass_flow : State
+        Pump mass flow rate
+
+    Parameters
+    ----------
+    name : str
+        Component name
+    network : Network
+        Network that owns this component
+    rotor_speed : State
+        Pump rotor speed
+    head_rise : State
+        Pump head rise
+    mass_flow : State
+        Pump mass flow rate
+    upstream_density : State
+        Upstream fluid density
+    downstream_density : State
+        Downstream fluid density
+    torque : State
+        Shaft torque
+    upstream_total_pressure : State
+        Upstream total pressure
+    discharge_total_pressure : State
+        Discharge total pressure
+    upstream_total_enthalpy : State
+        Upstream total enthalpy
+    gravitational_acceleration : float, optional
+        Gravitational acceleration
+
+    Outputs
+    -------
+    discharge_total_enthalpy : State, optional
+        Discharge total enthalpy
+    efficiency : State, optional
+        Pump efficiency
+    shaft_power : State, optional
+        Shaft power
+    inlet_volumetric_flow : State, optional
+        Inlet volumetric flow rate
+    outlet_volumetric_flow : State, optional
+        Outlet volumetric flow rate
+
+    Notes
+    -----
+    Angular speed is evaluated from:
+
+        ``omega = pi * rotor_speed / 30``
+
+    Shaft power is evaluated from:
+
+        ``shaft_power = torque * omega``
+
+    Specific head work is evaluated from:
+
+        ``H_specific = gravity * head_rise``
+
+    Hydraulic power is evaluated from:
+
+        ``hydraulic_power = mass_flow * H_specific``
+
+    Efficiency is evaluated from:
+
+        ``efficiency = hydraulic_power / shaft_power``
+
+    Discharge total enthalpy is evaluated from:
+
+        ``discharge_total_enthalpy = upstream_total_enthalpy
+        + H_specific / efficiency``
+
+    The polytropic exponent factor is evaluated from:
+
+        ``beta = 1 / (1 - log(downstream_density / upstream_density)
+        / log(discharge_total_pressure / upstream_total_pressure))``
+
+    Predicted discharge total pressure is evaluated from:
+
+        ``predicted_discharge_total_pressure = downstream_density
+        * (H_specific / beta + upstream_total_pressure / upstream_density)``
+
+    Inlet and outlet volumetric flow rates are evaluated from:
+
+        ``inlet_volumetric_flow = mass_flow / upstream_density``
+
+        ``outlet_volumetric_flow = mass_flow / downstream_density``
+    """
 
     def __init__(self,
                  name: str, 
@@ -192,27 +387,127 @@ class PolytropicPump(Component):
 
 class SimpleEulerCentrifugalPump(Component):
     """
-    Simple centrifugal pump map based on Euler turbomachinery velocity triangles.
+    Simple Euler centrifugal pump map.
 
-    Process
+    `SimpleEulerCentrifugalPump` computes centrifugal pump head rise, torque,
+    shaft power, stagnation pressure rise, and mass flow using ideal Euler
+    turbomachinery velocity triangles with hydraulic, mechanical, volumetric,
+    and slip-factor corrections.
+
+    Parameters
+    ----------
+    name : str
+        Component name
+    network : Network
+        Network that owns this component
+    rotor_speed : State
+        Pump rotor speed
+    volumetric_flow : State
+        Delivered volumetric flow rate
+    density : State
+        Fluid density
+    impeller_inlet_tip_radius : float
+        Impeller inlet tip radius
+    impeller_outlet_tip_radius : float
+        Impeller outlet tip radius
+    inlet_annular_flow_area : float
+        Inlet annular flow area
+    outlet_annular_flow_area : float
+        Outlet annular flow area
+    inlet_blade_angle : float
+        Inlet blade angle
+    outlet_blade_angle : float
+        Outlet blade angle
+    angle_units : str, optional
+        Blade angle units
+    gravitational_acceleration : float, optional
+        Gravitational acceleration
+    slip_factor : float, optional
+        Slip factor
+    hydraulic_efficiency : float or State, optional
+        Hydraulic efficiency
+    mechanical_efficiency : float or State, optional
+        Mechanical efficiency
+    volumetric_efficiency : float or State, optional
+        Volumetric efficiency
+
+    Outputs
     -------
-    1. Compute blade speeds from rotor speed and impeller radii.
-    2. Use volumetric efficiency to estimate internal impeller flow.
-    3. Use blade angles to estimate tangential velocity components.
-    4. Compute ideal Euler head.
-    5. Apply hydraulic efficiency to get actual delivered head.
-    6. Compute shaft power from ideal Euler power plus mechanical/volumetric losses.
+    head_rise : State, optional
+        Delivered pump head rise
+    torque : State, optional
+        Required shaft torque
+    shaft_power : State, optional
+        Required shaft power
+    stagnation_pressure_rise : State, optional
+        Stagnation pressure rise
+    mass_flow : State, optional
+        Pump mass flow rate
 
     Notes
     -----
-    - head_rise is the actual delivered head.
-    - torque is the required shaft torque.
-    - shaft_power is the required shaft input power.
-    - ConstantDensityPump.efficiency should now evaluate approximately to:
+    Angular speed is evaluated from:
 
-          eta_h * eta_m * eta_v
+        ``omega = pi * rotor_speed / 30``
+
+    Blade speeds are evaluated from:
+
+        ``U1 = omega * impeller_inlet_tip_radius``
+
+        ``U2 = omega * impeller_outlet_tip_radius``
+
+    Internal impeller flow is evaluated from:
+
+        ``Q_impeller = volumetric_flow / volumetric_efficiency``
+
+    Meridional through-flow velocities are evaluated from:
+
+        ``Cm1 = Q_impeller / inlet_annular_flow_area``
+
+        ``Cm2 = Q_impeller / outlet_annular_flow_area``
+
+    Tangential velocity components are evaluated from:
+
+        ``V_theta1 = U1 - Cm1 / tan(inlet_blade_angle)``
+
+        ``V_theta2 = slip_factor * U2 - Cm2 / tan(outlet_blade_angle)``
+
+    Ideal Euler specific work is evaluated from:
+
+        ``specific_work_euler = U2 * V_theta2 - U1 * V_theta1``
+
+    Ideal Euler head is evaluated from:
+
+        ``H_euler = specific_work_euler / gravity``
+
+    Delivered head is evaluated from:
+
+        ``head_rise = hydraulic_efficiency * H_euler``
+
+    Shaft power is evaluated from:
+
+        ``shaft_power = density * gravity * H_euler * volumetric_flow
+        / (mechanical_efficiency * volumetric_efficiency)``
+
+    Shaft torque is evaluated from:
+
+        ``torque = shaft_power / omega``
+
+    Stagnation pressure rise is evaluated from:
+
+        ``stagnation_pressure_rise = density * gravity * head_rise``
+
+    Mass flow is evaluated from:
+
+        ``mass_flow = density * volumetric_flow```
+
+    The efficiency computed by `ConstantDensityPump` should evaluate
+    approximately to:
+
+        ``efficiency = hydraulic_efficiency
+        * mechanical_efficiency
+        * volumetric_efficiency``
     """
-
     def __init__(self, 
                  name: str, 
                  network: Network,

@@ -21,37 +21,6 @@ class IsentropicCompressibleOrifice(Component):
     between unchoked and choked flow based on the downstream-to-upstream
     pressure ratio.
 
-    Notes
-    -----
-    1) Assumes ideal-gas flow.
-    2) Uses upstream total pressure and upstream total temperature.
-    3) Uses downstream static pressure as the back pressure.
-    4) Supports reverse flow by applying the sign of the pressure difference.
-    5) Total enthalpy is calculated from ideal-gas constant-cp behavior.
-
-    Relations
-    ---------
-    Total enthalpy:
-
-    `total_enthalpy = cp * T0`
-
-    `cp = gamma * R / (gamma - 1)`
-
-    Critical pressure ratio:
-
-    `P_back / P0 = (2 / (gamma + 1)) ** (gamma / (gamma - 1))`
-
-    Choked mass flow:
-
-    `mass_flow = sign * CdA * P0 * sqrt((gamma / (R * T0))
-    * (2 / (gamma + 1)) ** ((gamma + 1) / (gamma - 1)))`
-
-    Unchoked mass flow:
-
-    `mass_flow = sign * CdA * P0 * sqrt((2 * gamma / (R * T0 * (gamma - 1)))
-    * ((P_back / P0) ** (2 / gamma)
-    - (P_back / P0) ** ((gamma + 1) / gamma)))`
-
     Parameters
     ----------
     name : str
@@ -79,6 +48,38 @@ class IsentropicCompressibleOrifice(Component):
         Computed mass flow rate
     total_enthalpy : State, optional
         Upstream total enthalpy
+
+    Notes
+    -----
+    This component assumes ideal-gas flow. It uses upstream total pressure,
+    upstream total temperature, and downstream static pressure as the back
+    pressure.
+
+    Reverse flow is supported by applying the sign of the pressure difference.
+    Total enthalpy is calculated from ideal-gas constant-cp behavior.
+
+    Total enthalpy is evaluated from:
+
+        ``total_enthalpy = cp * T0``
+
+        ``cp = gamma * R / (gamma - 1)``
+
+    The critical pressure ratio is evaluated from:
+
+        ``P_back / P0 = (2 / (gamma + 1)) ** (gamma / (gamma - 1))``
+
+    Choked mass flow is evaluated from:
+
+        ``mass_flow = sign * CdA * P0
+        * sqrt((gamma / (R * T0))
+        * (2 / (gamma + 1)) ** ((gamma + 1) / (gamma - 1)))``
+
+    Unchoked mass flow is evaluated from:
+
+        ``mass_flow = sign * CdA * P0
+        * sqrt((2 * gamma / (R * T0 * (gamma - 1)))
+        * ((P_back / P0) ** (2 / gamma)
+        - (P_back / P0) ** ((gamma + 1) / gamma)))``
     """
     def __init__(self,
                  name: str,
@@ -146,57 +147,6 @@ class IsentropicAreaChange(Component):
     component can operate in pressure mode or area mode depending on which
     downstream quantity is provided.
 
-    Notes
-    -----
-    1) Forward flow only.
-    2) Isentropic, adiabatic, inviscid area change.
-    3) Ideal gas with constant specific heat ratio.
-    4) Ratios are downstream to upstream.
-    5) If downstream static pressure is provided, this component uses pressure mode.
-    6) If downstream area is provided and downstream static pressure is not
-       provided, this component uses area mode.
-    7) If both downstream static pressure and downstream area are provided,
-       pressure mode takes priority and downstream area is overwritten with the
-       isentropically consistent area.
-    8) In pressure mode, downstream Mach is calculated from the isentropic
-       pressure relation.
-    9) In area mode, downstream Mach is calculated from the area-Mach relation
-       using the selected subsonic or supersonic branch.
-    10) Mass flow is calculated from the upstream static state, upstream Mach,
-        and upstream area.
-    11) Total enthalpy is calculated from the ideal-gas stagnation temperature.
-    12) This is an explicit component; it does not add residuals to force
-        consistency with an independently solved downstream node.
-    13) To ensure consistency with a downstream node when solving based on exit
-        area, assign the downstream node directly from this component's outputs
-        or ratio outputs.
-    14) This component does not model shocks, friction, heat transfer, choking
-        losses, or non-isentropic pressure loss.
-
-    Relations
-    ---------
-    Total temperature:
-
-    `T0 = T * (1 + (gamma - 1) / 2 * M**2)`
-
-    Total pressure:
-
-    `P0 = P * (1 + (gamma - 1) / 2 * M**2) ** (gamma / (gamma - 1))`
-
-    Area-Mach relation:
-
-    `A / A_star = (1 / M) * ((2 / (gamma + 1))
-    * (1 + (gamma - 1) / 2 * M**2))
-    ** ((gamma + 1) / (2 * (gamma - 1)))`
-
-    Mass flow:
-
-    `mass_flow = P1 * sqrt(gamma / (R * T1)) * A1 * M1`
-
-    Total enthalpy:
-
-    `total_enthalpy = gamma * R * T0 / (gamma - 1)`
-
     Parameters
     ----------
     name : str
@@ -236,6 +186,48 @@ class IsentropicAreaChange(Component):
         Downstream-to-upstream velocity ratio
     density_ratio : State, optional
         Downstream-to-upstream density ratio
+
+    Notes
+    -----
+    This component assumes forward flow only. It models an isentropic,
+    adiabatic, inviscid area change for an ideal gas with constant specific heat
+    ratio. Ratios are downstream to upstream.
+
+    If downstream static pressure is provided, this component uses pressure
+    mode. If downstream area is provided and downstream static pressure is not
+    provided, this component uses area mode. If both are provided, pressure mode
+    takes priority and downstream area is overwritten with the isentropically
+    consistent area.
+
+    In pressure mode, downstream Mach number is calculated from the isentropic
+    pressure relation. In area mode, downstream Mach number is calculated from
+    the area-Mach relation using the selected subsonic or supersonic branch.
+
+    This is an explicit component. It does not add residuals to force
+    consistency with an independently solved downstream node.
+
+    Total temperature is evaluated from:
+
+        ``T0 = T * (1 + (gamma - 1) / 2 * M**2)``
+
+    Total pressure is evaluated from:
+
+        ``P0 = P * (1 + (gamma - 1) / 2 * M**2) ** (gamma / (gamma - 1))``
+
+    The area-Mach relation is:
+
+        ``A / A_star = (1 / M)
+        * ((2 / (gamma + 1))
+        * (1 + (gamma - 1) / 2 * M**2))
+        ** ((gamma + 1) / (2 * (gamma - 1)))``
+
+    Mass flow is evaluated from:
+
+        ``mass_flow = P1 * sqrt(gamma / (R * T1)) * A1 * M1``
+
+    Total enthalpy is evaluated from:
+
+        ``total_enthalpy = gamma * R * T0 / (gamma - 1)``
     """
     def __init__(
         self,
@@ -405,7 +397,6 @@ class IsentropicAreaChange(Component):
 
 
 
-
 class CompressibleFlowTube(Component):
     """
     Compressible flow tube with longitudinal inertia and friction.
@@ -415,78 +406,12 @@ class CompressibleFlowTube(Component):
     supports forward and reverse flow through the longitudinal inertia sign
     convention.
 
-    Notes
-    -----
-    1) Forward and reverse flow are supported by the longitudinal inertia sign
-       convention.
-    2) Constant friction factor.
-    3) Ideal gas or weakly compressible fluid properties supplied externally.
-    4) Circular duct.
-    5) This component solves mass flow as an iteration variable using a steady
-       momentum residual.
-    6) Upstream and downstream static pressures, densities, and temperatures are
-       provided by the connected nodes.
-    7) Static temperatures are only used for total temperature calculation.
-    8) If upstream static enthalpy is provided, total enthalpy is calculated from
-       upstream static enthalpy and upstream velocity.
-    9) If upstream speed of sound is provided, upstream Mach number is calculated.
-    10) If downstream speed of sound is provided, downstream Mach number is
-        calculated.
-    11) If specific heat ratio and upstream speed of sound are provided,
-        upstream total pressure and total temperature are calculated.
-    12) If specific heat ratio and downstream speed of sound are provided,
-        downstream total pressure and total temperature are calculated.
-    13) Total pressure calculations assume locally isentropic conversion between
-        static and stagnation properties.
-    14) The friction term is based on the supplied friction factor, length,
-        diameter, density, and mass flow.
-    15) This is not a choked-flow model; choking should be handled by a separate
-        component or regime switch.
-    16) To ensure consistency, upstream and downstream node properties should be
-        solved by the network, while this branch supplies the momentum residual
-        connecting those nodes.
-
-    Relations
+    Residuals
     ---------
-    Flow area:
+    momentum_balance : float
+        Enforces steady one-dimensional momentum balance through the tube
 
-    `A = pi / 4 * D**2`
-
-    Velocity:
-
-    `u = mass_flow / (density * A)`
-
-    Total enthalpy:
-
-    `total_enthalpy = static_enthalpy + 0.5 * u**2`
-
-    Mach number:
-
-    `M = u / a`
-
-    Total temperature:
-
-    `T0 = T * (1 + 0.5 * (gamma - 1) * M**2)`
-
-    Total pressure:
-
-    `P0 = P * (1 + 0.5 * (gamma - 1) * M**2) ** (gamma / (gamma - 1))`
-
-    Momentum residual:
-
-    `residual = pressure_force - friction_force - inertia_force`
-
-    Pressure force:
-
-    `pressure_force = (P1 - P2) * A`
-
-    Friction coefficient:
-
-    `Kf = 8 * f * L / (rho * pi**2 * D**5)`
-
-    Friction force:
-
-    `friction_force = Kf * mass_flow * abs(mass_flow) * A`
+        ``pressure_force - friction_force - inertia_force = 0``
 
     Iteration Variables
     -------------------
@@ -544,6 +469,51 @@ class CompressibleFlowTube(Component):
         Downstream total pressure
     downstream_total_temperature : State, optional
         Downstream total temperature
+
+    Notes
+    -----
+    Forward and reverse flow are supported by the longitudinal inertia sign
+    convention. The friction factor is treated as constant. Fluid properties are
+    supplied externally by the connected nodes.
+
+    This is not a choked-flow model. Choking should be handled by a separate
+    component or regime switch.
+
+    Flow area is evaluated from:
+
+        ``A = pi / 4 * D**2``
+
+    Velocity is evaluated from:
+
+        ``u = mass_flow / (density * A)``
+
+    Total enthalpy is evaluated from:
+
+        ``total_enthalpy = static_enthalpy + 0.5 * u**2``
+
+    Mach number is evaluated from:
+
+        ``M = u / a``
+
+    Total temperature is evaluated from:
+
+        ``T0 = T * (1 + 0.5 * (gamma - 1) * M**2)``
+
+    Total pressure is evaluated from:
+
+        ``P0 = P * (1 + 0.5 * (gamma - 1) * M**2) ** (gamma / (gamma - 1))``
+
+    Pressure force is evaluated from:
+
+        ``pressure_force = (P1 - P2) * A``
+
+    Friction coefficient is evaluated from:
+
+        ``Kf = 8 * f * L / (rho * pi**2 * D**5)``
+
+    Friction force is evaluated from:
+
+        ``friction_force = Kf * mass_flow * abs(mass_flow) * A``
     """
     def __init__(
         self,
@@ -644,7 +614,6 @@ class CompressibleFlowTube(Component):
 
 
 
-
 class ChokedFannoFlow(Component):
     """
     Choked Fanno flow model for ideal-gas duct flow.
@@ -652,76 +621,6 @@ class ChokedFannoFlow(Component):
     `ChokedFannoFlow` computes the upstream state required for a constant-area
     adiabatic duct with friction to choke at the downstream end. The downstream
     state is treated as the Fanno star state.
-
-    Notes
-    -----
-    1) Forward flow only.
-    2) Constant friction factor.
-    3) Ideal gas.
-    4) Circular duct.
-    5) If M1 is provided, it will be used to calculate ratios.
-    6) If M1 is not provided, it will be calculated from friction factor,
-       length, and diameter.
-    7) Ratios are all downstream to upstream.
-    8) Supersonic flow tends to be biased towards shorter tubes, larger
-       diameters, or smaller friction factors.
-    9) Total enthalpy can only be given if static enthalpy is provided.
-    10) To ensure consistency with upstream node, the downstream node should be
-        directly assigned based on the ratio outputs from this class and should
-        not be an iterative node.
-
-    Relations
-    ---------
-    Flow area:
-
-    `A = pi / 4 * D**2`
-
-    Friction length:
-
-    `fL_over_D = f * L / D`
-
-    Mass flux:
-
-    `mass_flux = rho1 * M1 * a1`
-
-    Mass flow:
-
-    `mass_flow = mass_flux * A`
-
-    Total enthalpy:
-
-    `total_enthalpy = upstream_static_enthalpy + 0.5 * velocity1**2`
-
-    Upstream velocity:
-
-    `velocity1 = M1 * a1`
-
-    Static temperature ratio:
-
-    `T2 / T1 = (1 + 0.5 * (gamma - 1) * M1**2)
-    / (1 + 0.5 * (gamma - 1) * M2**2)`
-
-    Density ratio:
-
-    `rho2 / rho1 = (M1 / M2) * sqrt(1 / (T2 / T1))`
-
-    Static pressure ratio:
-
-    `P2 / P1 = (rho2 / rho1) * (T2 / T1)`
-
-    Velocity ratio:
-
-    `v2 / v1 = 1 / (rho2 / rho1)`
-
-    Total pressure ratio:
-
-    `P02 / P01 = (M1 / M2) * (T2 / T1) ** ((gamma + 1) / (2 * (1 - gamma)))`
-
-    Fanno function:
-
-    `fL_over_D_to_choke = (1 - M**2) / (gamma * M**2)
-    + (gamma + 1) / (2 * gamma)
-    * log(((gamma + 1) * M**2) / (2 + (gamma - 1) * M**2))`
 
     Parameters
     ----------
@@ -774,6 +673,66 @@ class ChokedFannoFlow(Component):
         Friction factor required to choke for the current geometry
     fL_over_D_to_choke : State, optional
         Fanno friction length required to choke
+
+    Notes
+    -----
+    This component assumes forward flow only, constant friction factor, ideal-gas
+    behavior, and a circular duct. Ratios are downstream to upstream.
+
+    If upstream Mach number is provided, it is used to calculate ratios. If it
+    is not provided, it is calculated from friction factor, length, and diameter.
+
+    Flow area is evaluated from:
+
+        ``A = pi / 4 * D**2``
+
+    Friction length is evaluated from:
+
+        ``fL_over_D = f * L / D``
+
+    Mass flux is evaluated from:
+
+        ``mass_flux = rho1 * M1 * a1``
+
+    Mass flow is evaluated from:
+
+        ``mass_flow = mass_flux * A``
+
+    Total enthalpy is evaluated from:
+
+        ``total_enthalpy = upstream_static_enthalpy + 0.5 * velocity1**2``
+
+    Upstream velocity is evaluated from:
+
+        ``velocity1 = M1 * a1``
+
+    Static temperature ratio is evaluated from:
+
+        ``T2 / T1 = (1 + 0.5 * (gamma - 1) * M1**2)
+        / (1 + 0.5 * (gamma - 1) * M2**2)``
+
+    Density ratio is evaluated from:
+
+        ``rho2 / rho1 = (M1 / M2) * sqrt(1 / (T2 / T1))``
+
+    Static pressure ratio is evaluated from:
+
+        ``P2 / P1 = (rho2 / rho1) * (T2 / T1)``
+
+    Velocity ratio is evaluated from:
+
+        ``v2 / v1 = 1 / (rho2 / rho1)``
+
+    Total pressure ratio is evaluated from:
+
+        ``P02 / P01 = (M1 / M2)
+        * (T2 / T1) ** ((gamma + 1) / (2 * (1 - gamma)))``
+
+    The Fanno function is evaluated from:
+
+        ``fL_over_D_to_choke = (1 - M**2) / (gamma * M**2)
+        + (gamma + 1) / (2 * gamma)
+        * log(((gamma + 1) * M**2) / (2 + (gamma - 1) * M**2))``
     """
     def __init__(
         self,
@@ -931,7 +890,6 @@ class ChokedFannoFlow(Component):
 
 
 
-
 class ChokedRayleighFlow(Component):
     """
     Choked Rayleigh flow model for ideal-gas heat addition.
@@ -939,113 +897,6 @@ class ChokedRayleighFlow(Component):
     `ChokedRayleighFlow` computes the Rayleigh choking state for frictionless
     constant-area flow with heat addition. The downstream state is treated as the
     Rayleigh star state, so the downstream Mach number is one.
-
-    Notes
-    -----
-    1) Forward flow only.
-    2) Frictionless Rayleigh flow.
-    3) Ideal gas with constant specific heat ratio.
-    4) Constant-area duct.
-    5) Downstream state is the Rayleigh star state, so M2 = 1.
-    6) If upstream Mach number is provided, the component explicitly computes
-       the Rayleigh choking ratios and required heat addition to reach the star
-       state.
-    7) If upstream Mach number is not provided, the specified heat_rate is used
-       to infer the upstream Mach number that would choke at the downstream
-       state.
-    8) This component models Rayleigh choking through heat addition. Positive
-       heat_rate adds energy to the flow.
-    9) Ratios are downstream-to-upstream, where downstream corresponds to the
-       Rayleigh star state.
-    10) Total enthalpy changes according to `q = heat_rate / mass_flow`.
-    11) Total pressure decreases through Rayleigh flow because heat transfer
-        generates entropy.
-    12) For subsonic flow, heat addition accelerates the flow toward choking.
-    13) For supersonic flow, heat addition decelerates the flow toward choking.
-    14) If upstream Mach number is provided, the heat_rate input is treated
-        diagnostically and does not determine the Mach number.
-    15) If upstream Mach number is not provided, the heat_rate determines the
-        upstream Mach number through the Rayleigh choking relation.
-    16) To ensure consistency with upstream node, the downstream node should be
-        directly assigned based on the ratio outputs from this class and should
-        not be an iterative node.
-
-    Relations
-    ---------
-    Flow area:
-
-    `A = pi / 4 * D**2`
-
-    Specific heat at constant pressure:
-
-    `cp = gamma * R / (gamma - 1)`
-
-    Mass flux:
-
-    `mass_flux = rho1 * M1 * a1`
-
-    Mass flow:
-
-    `mass_flow = mass_flux * A`
-
-    Upstream total temperature:
-
-    `T01 = T1 * (1 + 0.5 * (gamma - 1) * M1**2)`
-
-    Total temperature ratio to star:
-
-    `T01 / T0star = ((1 + gamma) / (1 + gamma * M1**2))**2
-    * M1**2
-    * ((1 + (gamma - 1) / 2 * M1**2)
-    / (1 + (gamma - 1) / 2))`
-
-    Heat per mass to choke:
-
-    `heat_per_mass_to_choke = cp * (T0star - T01)`
-
-    Heat rate to choke:
-
-    `heat_rate_to_choke = mass_flow * heat_per_mass_to_choke`
-
-    Heat per mass:
-
-    `heat_per_mass = heat_rate / mass_flow`
-
-    Total enthalpy in:
-
-    `total_enthalpy_in = upstream_static_enthalpy + 0.5 * velocity1**2`
-
-    Total enthalpy out:
-
-    `total_enthalpy_out = total_enthalpy_in + heat_per_mass`
-
-    Static pressure ratio:
-
-    `Pstar / P1 = (1 + gamma * M1**2) / (1 + gamma)`
-
-    Static temperature ratio:
-
-    `Tstar / T1 = (((1 + gamma) * M1) / (1 + gamma * M1**2)) ** 2`
-
-    Density ratio:
-
-    `rhostar / rho1 = (1 + gamma) * M1**2 / (1 + gamma * M1**2)`
-
-    Velocity ratio:
-
-    `vstar / v1 = 1 / (rhostar / rho1)`
-
-    Total pressure ratio to star:
-
-    `P01 / P0star = ((2 + (gamma - 1) * M1**2) / (1 + gamma))
-    ** (gamma / (gamma - 1))
-    * ((1 + gamma) / (1 + gamma * M1**2))`
-
-    Choking heat-rate relation used when upstream Mach number is not provided:
-
-    `heat_rate = C * (1 - M1**2)**2 / M1`
-
-    `C = rho1 * a1 * A * cp * T1 / (2 * (1 + gamma))`
 
     Parameters
     ----------
@@ -1104,6 +955,89 @@ class ChokedRayleighFlow(Component):
         Heat rate required to reach choking
     heat_per_mass_to_choke : State, optional
         Heat addition per unit mass required to reach choking
+
+    Notes
+    -----
+    This component assumes forward flow only, frictionless Rayleigh flow,
+    ideal-gas behavior, and a constant-area duct. Positive heat rate adds energy
+    to the flow. Ratios are downstream to upstream, where downstream corresponds
+    to the Rayleigh star state.
+
+    If upstream Mach number is provided, the heat rate input is treated
+    diagnostically and does not determine the Mach number. If upstream Mach
+    number is not provided, heat rate determines the upstream Mach number
+    through the Rayleigh choking relation.
+
+    Flow area is evaluated from:
+
+        ``A = pi / 4 * D**2``
+
+    Specific heat at constant pressure is evaluated from:
+
+        ``cp = gamma * R / (gamma - 1)``
+
+    Mass flux is evaluated from:
+
+        ``mass_flux = rho1 * M1 * a1``
+
+    Mass flow is evaluated from:
+
+        ``mass_flow = mass_flux * A``
+
+    Upstream total temperature is evaluated from:
+
+        ``T01 = T1 * (1 + 0.5 * (gamma - 1) * M1**2)``
+
+    Total temperature ratio to star is evaluated from:
+
+        ``T01 / T0star = ((1 + gamma) / (1 + gamma * M1**2))**2
+        * M1**2
+        * ((1 + (gamma - 1) / 2 * M1**2)
+        / (1 + (gamma - 1) / 2))``
+
+    Heat per mass to choke is evaluated from:
+
+        ``heat_per_mass_to_choke = cp * (T0star - T01)``
+
+    Heat rate to choke is evaluated from:
+
+        ``heat_rate_to_choke = mass_flow * heat_per_mass_to_choke``
+
+    Heat per mass is evaluated from:
+
+        ``heat_per_mass = heat_rate / mass_flow``
+
+    Total enthalpy out is evaluated from:
+
+        ``total_enthalpy_out = total_enthalpy_in + heat_per_mass``
+
+    Static pressure ratio is evaluated from:
+
+        ``Pstar / P1 = (1 + gamma * M1**2) / (1 + gamma)``
+
+    Static temperature ratio is evaluated from:
+
+        ``Tstar / T1 = (((1 + gamma) * M1) / (1 + gamma * M1**2)) ** 2``
+
+    Density ratio is evaluated from:
+
+        ``rhostar / rho1 = (1 + gamma) * M1**2 / (1 + gamma * M1**2)``
+
+    Velocity ratio is evaluated from:
+
+        ``vstar / v1 = 1 / (rhostar / rho1)``
+
+    Total pressure ratio to star is evaluated from:
+
+        ``P01 / P0star = ((2 + (gamma - 1) * M1**2) / (1 + gamma))
+        ** (gamma / (gamma - 1))
+        * ((1 + gamma) / (1 + gamma * M1**2))``
+
+    Choking heat rate is evaluated from:
+
+        ``heat_rate = C * (1 - M1**2)**2 / M1``
+
+        ``C = rho1 * a1 * A * cp * T1 / (2 * (1 + gamma))``
     """
     def __init__(
         self,
@@ -1355,7 +1289,6 @@ class ChokedRayleighFlow(Component):
 
 
 
-
 class StationaryNormalShock(Component):
     """
     Stationary normal shock model for ideal-gas flow.
@@ -1364,63 +1297,6 @@ class StationaryNormalShock(Component):
     property ratios for a stationary shock in an inertial reference frame. The
     component can use either upstream Mach number or static pressure ratio as
     the defining input.
-
-    Notes
-    -----
-    1) Forward flow only.
-    2) Only applies if the shock is stationary in the inertial reference frame.
-       Otherwise, the inlet Mach number must be transformed with a Galilean
-       velocity transformation.
-    3) Assumed to be ideal gas.
-    4) If Mach number is assigned, it is better to simply use the outputs from
-       this class instead of iteration on the downstream node.
-
-    Relations
-    ---------
-    Downstream-to-upstream static pressure ratio:
-
-    `P2 / P1 = 1 + (2 * gamma / (gamma + 1)) * (M1**2 - 1)`
-
-    Upstream-to-downstream static pressure ratio:
-
-    `P1 / P2 = 1 / (P2 / P1)`
-
-    Upstream Mach number from static pressure ratio:
-
-    `M1 = sqrt(1 + ((gamma + 1) / (2 * gamma)) * (P2 / P1 - 1))`
-
-    Downstream Mach number:
-
-    `M2 = sqrt((M1**2 + 2 / (gamma - 1))
-    / ((2 * gamma / (gamma - 1)) * M1**2 - 1))`
-
-    Static temperature ratio:
-
-    `T2 / T1 = (1 + 0.5 * (gamma - 1) * M1**2)
-    / (1 + 0.5 * (gamma - 1) * M2**2)`
-
-    Density ratio:
-
-    `rho2 / rho1 = (P2 / P1) / (T2 / T1)`
-
-    Velocity ratio:
-
-    `v2 / v1 = 1 / (rho2 / rho1)`
-
-    Total pressure ratio:
-
-    `P02 / P01 = (((gamma + 1) * M1**2)
-    / (2 + (gamma - 1) * M1**2)) ** (gamma / (gamma - 1))
-    * ((gamma + 1) / (2 * gamma * M1**2 - (gamma - 1)))
-    ** (1 / (gamma - 1))`
-
-    Total temperature ratio:
-
-    `T02 / T01 = 1`
-
-    Sonic area ratio:
-
-    `A2_star / A1_star = 1 / (P02 / P01)`
 
     Parameters
     ----------
@@ -1451,6 +1327,58 @@ class StationaryNormalShock(Component):
         Downstream-to-upstream total temperature ratio
     sonic_area_ratio : State, optional
         Downstream-to-upstream sonic area ratio
+
+    Notes
+    -----
+    This component assumes forward flow only and ideal-gas behavior. It applies
+    only if the shock is stationary in the inertial reference frame. Otherwise,
+    the inlet Mach number must be transformed with a Galilean velocity
+    transformation.
+
+    Downstream-to-upstream static pressure ratio is evaluated from:
+
+        ``P2 / P1 = 1 + (2 * gamma / (gamma + 1)) * (M1**2 - 1)``
+
+    Upstream-to-downstream static pressure ratio is evaluated from:
+
+        ``P1 / P2 = 1 / (P2 / P1)``
+
+    Upstream Mach number from static pressure ratio is evaluated from:
+
+        ``M1 = sqrt(1 + ((gamma + 1) / (2 * gamma)) * (P2 / P1 - 1))``
+
+    Downstream Mach number is evaluated from:
+
+        ``M2 = sqrt((M1**2 + 2 / (gamma - 1))
+        / ((2 * gamma / (gamma - 1)) * M1**2 - 1))``
+
+    Static temperature ratio is evaluated from:
+
+        ``T2 / T1 = (1 + 0.5 * (gamma - 1) * M1**2)
+        / (1 + 0.5 * (gamma - 1) * M2**2)``
+
+    Density ratio is evaluated from:
+
+        ``rho2 / rho1 = (P2 / P1) / (T2 / T1)``
+
+    Velocity ratio is evaluated from:
+
+        ``v2 / v1 = 1 / (rho2 / rho1)``
+
+    Total pressure ratio is evaluated from:
+
+        ``P02 / P01 = (((gamma + 1) * M1**2)
+        / (2 + (gamma - 1) * M1**2)) ** (gamma / (gamma - 1))
+        * ((gamma + 1) / (2 * gamma * M1**2 - (gamma - 1)))
+        ** (1 / (gamma - 1))``
+
+    Total temperature ratio is evaluated from:
+
+        ``T02 / T01 = 1``
+
+    Sonic area ratio is evaluated from:
+
+        ``A2_star / A1_star = 1 / (P02 / P01)``
     """
     def __init__(self, 
                  name: str, 

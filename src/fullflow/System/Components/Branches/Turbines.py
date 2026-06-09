@@ -13,20 +13,126 @@ if TYPE_CHECKING:
 
 class TurboMap(Component):
     """
-    Generic one-dimensional turbomachinery performance map.
+    One-dimensional turbomachinery performance map.
 
-    Uses separate geometric parameters for each coefficient:
+    `TurboMap` evaluates a one-dimensional turbomachinery map using normalized
+    flow, head, and torque coefficients. The component computes the current flow
+    coefficient from rotor speed, volumetric flow, and the flow geometric
+    parameter, then interpolates normalized head and torque coefficients from
+    the supplied map data.
 
-        flow_coefficient =
-            volumetric_flow / (omega * flow_geometric_parameter**3)
+    The dimensional head rise and torque are recovered from the interpolated
+    map coefficients.
 
-        head_coefficient =
-            head_rise / (omega**2 * head_geometric_parameter**2 / g)
+    Parameters
+    ----------
+    name : str
+        Component name
+    network : Network
+        Network that owns this component
+    rotor_speed : State
+        Rotor speed
+    volumetric_flow : State
+        Volumetric flow rate
+    density : State
+        Fluid density
+    flow_geometric_parameter : State
+        Geometric parameter for flow coefficient
+    head_geometric_parameter : State
+        Geometric parameter for head coefficient
+    torque_geometric_parameter : State
+        Geometric parameter for torque coefficient
+    design_flow_coefficient : float
+        Design-point flow coefficient
+    design_head_coefficient : float
+        Design-point head coefficient
+    design_torque_coefficient : float
+        Design-point torque coefficient
+    normalized_flow_coefficient_map : list or tuple or ndarray or Series
+        Normalized flow coefficient map values
+    normalized_head_coefficient_map : list or tuple or ndarray or Series
+        Normalized head coefficient map values
+    normalized_torque_coefficient_map : list or tuple or ndarray or Series
+        Normalized torque coefficient map values
+    gravitational_acceleration : float, optional
+        Gravitational acceleration
 
-        torque_coefficient =
-            torque / (density * omega**2 * torque_geometric_parameter**5)
+    Outputs
+    -------
+    normalized_flow_coefficient : State, optional
+        Normalized flow coefficient
+    normalized_head_coefficient : State, optional
+        Normalized head coefficient
+    normalized_torque_coefficient : State, optional
+        Normalized torque coefficient
+    flow_coefficient : State, optional
+        Flow coefficient
+    head_coefficient : State, optional
+        Head coefficient
+    torque_coefficient : State, optional
+        Torque coefficient
+    head_rise : State, optional
+        Head rise
+    torque : State, optional
+        Torque
+
+    Notes
+    -----
+    Angular speed is evaluated from:
+
+        ``omega = pi * rotor_speed / 30``
+
+    The flow coefficient is evaluated from:
+
+        ``flow_coefficient = volumetric_flow
+        / (omega * flow_geometric_parameter^3)``
+
+    The normalized flow coefficient is evaluated from:
+
+        ``normalized_flow_coefficient = flow_coefficient
+        / design_flow_coefficient``
+
+    The normalized head coefficient is interpolated from the map:
+
+        ``normalized_head_coefficient =
+        interp(normalized_flow_coefficient,
+        normalized_flow_coefficient_map,
+        normalized_head_coefficient_map)``
+
+    The normalized torque coefficient is interpolated from the map:
+
+        ``normalized_torque_coefficient =
+        interp(normalized_flow_coefficient,
+        normalized_flow_coefficient_map,
+        normalized_torque_coefficient_map)``
+
+    The head coefficient is evaluated from:
+
+        ``head_coefficient = normalized_head_coefficient
+        * design_head_coefficient``
+
+    The torque coefficient is evaluated from:
+
+        ``torque_coefficient = normalized_torque_coefficient
+        * design_torque_coefficient``
+
+    Head rise is evaluated from:
+
+        ``head_rise = head_coefficient
+        * omega^2
+        * head_geometric_parameter^2
+        / gravitational_acceleration``
+
+    Torque is evaluated from:
+
+        ``torque = torque_coefficient
+        * density
+        * omega^2
+        * torque_geometric_parameter^5``
+
+    The normalized flow coefficient map must contain at least two points and
+    must be strictly increasing after sorting.
     """
-
     def __init__(self,
                  name: str,
                  network: Network,
@@ -186,20 +292,67 @@ class TurboMap(Component):
 
 class TurboDesignCoefficients(Component):
     """
-    Computes turbomachinery design-point coefficients from
-    dimensional design conditions.
+    Turbomachinery design-point coefficient calculator.
 
-    Equations
-    ---------
-    omega = rotor_speed * pi / 30
+    `TurboDesignCoefficients` computes nondimensional turbomachinery design
+    coefficients from dimensional design-point conditions. These coefficients
+    can be used as reference values for `TurboMap`.
 
-    flow_coefficient = volumetric_flow / (omega * flow_geometric_parameter**3)
+    Parameters
+    ----------
+    name : str
+        Component name
+    network : Network
+        Network that owns this component
+    rotor_speed : State
+        Rotor speed
+    volumetric_flow : State
+        Volumetric flow rate
+    head_rise : State
+        Head rise
+    torque : State
+        Torque
+    density : State
+        Fluid density
+    flow_geometric_parameter : State
+        Geometric parameter for flow coefficient
+    head_geometric_parameter : State
+        Geometric parameter for head coefficient
+    torque_geometric_parameter : State
+        Geometric parameter for torque coefficient
+    gravitational_acceleration : float, optional
+        Gravitational acceleration
 
-    head_coefficient = head_rise / (omega**2 * head_geometric_parameter**2 / g)
+    Outputs
+    -------
+    flow_coefficient : State, optional
+        Flow coefficient
+    head_coefficient : State, optional
+        Head coefficient
+    torque_coefficient : State, optional
+        Torque coefficient
 
-    torque_coefficient = torque / (density * omega**2 * torque_geometric_parameter**5)
+    Notes
+    -----
+    Angular speed is evaluated from:
+
+        ``omega = pi * rotor_speed / 30``
+
+    The flow coefficient is evaluated from:
+
+        ``flow_coefficient = volumetric_flow
+        / (omega * flow_geometric_parameter^3)``
+
+    The head coefficient is evaluated from:
+
+        ``head_coefficient = head_rise
+        / (omega^2 * head_geometric_parameter^2 / gravitational_acceleration)``
+
+    The torque coefficient is evaluated from:
+
+        ``torque_coefficient = torque
+        / (density * omega^2 * torque_geometric_parameter^5)``
     """
-
     def __init__(self,
                  name: str,
                  network: Network,

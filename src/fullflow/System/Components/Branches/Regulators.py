@@ -10,8 +10,43 @@ if TYPE_CHECKING:
 
 
 class LiquidRegulator(Component):
+    """
+    Incompressible liquid regulator flow model.
 
+    `LiquidRegulator` computes mass flow through a liquid regulator using the
+    upstream pressure, set pressure, fluid density, discharge coefficient, and
+    flow area. The sign of the mass flow follows the sign of the pressure
+    difference, allowing reverse flow when the set pressure exceeds the upstream
+    pressure.
 
+    Parameters
+    ----------
+    name : str
+        Component name
+    network : Network
+        Network that owns this component
+    upstream_pressure : State
+        Upstream pressure
+    set_pressure : State
+        Regulator set pressure
+    density : State
+        Fluid density
+    discharge_coefficient : float
+        Discharge coefficient
+    cross_sectional_area : float
+        Flow area
+
+    Outputs
+    -------
+    mass_flow : State, optional
+        Computed mass flow rate
+
+    Notes
+    -----
+    Mass flow is evaluated from:
+
+        ``mass_flow = sign(P1 - P2) * Cd * A * sqrt(2 * rho * abs(P1 - P2))``
+    """
     def __init__(self,
                  name: str,
                  network: Network,
@@ -33,9 +68,73 @@ class LiquidRegulator(Component):
         self.mass_flow.value = np.sign(P1 - P2) * Cd * A * np.sqrt(2.0 * rho * np.abs(P1 - P2))
 
 
+
+
+
 class IsentropicGasRegulator(Component):
     """
-    Assumes ideal gas
+    Isentropic ideal-gas regulator flow model.
+
+    `IsentropicGasRegulator` computes mass flow through a gas regulator using
+    ideal-gas isentropic flow relations. The component automatically switches
+    between unchoked and choked flow based on the set-pressure to upstream-total
+    pressure ratio.
+
+    Parameters
+    ----------
+    name : str
+        Component name
+    network : Network
+        Network that owns this component
+    upstream_total_pressure : State
+        Upstream total pressure
+    upstream_total_temperature : State
+        Upstream total temperature
+    set_pressure : State
+        Regulator set pressure
+    discharge_coefficient : float
+        Discharge coefficient
+    cross_sectional_area : float
+        Flow area
+    specific_gas_constant : float
+        Specific gas constant
+    specific_heat_ratio : State
+        Specific heat ratio
+
+    Outputs
+    -------
+    mass_flow : State, optional
+        Computed mass flow rate
+    total_enthalpy : State, optional
+        Upstream total enthalpy
+
+    Notes
+    -----
+    This component assumes ideal-gas flow. It uses upstream total pressure,
+    upstream total temperature, and regulator set pressure as the back pressure.
+
+    Total enthalpy is evaluated from:
+
+        ``total_enthalpy = cp * T0``
+
+        ``cp = gamma * R / (gamma - 1)``
+
+    The critical pressure ratio is evaluated from:
+
+        ``P_back / P0 = (2 / (gamma + 1)) ** (gamma / (gamma - 1))``
+
+    Choked mass flow is evaluated from:
+
+        ``mass_flow = sign * CdA * P0
+        * sqrt((gamma / (R * T0))
+        * (2 / (gamma + 1)) ** ((gamma + 1) / (gamma - 1)))``
+
+    Unchoked mass flow is evaluated from:
+
+        ``mass_flow = sign * CdA * P0
+        * sqrt((2 * gamma / (R * T0 * (gamma - 1)))
+        * ((P_back / P0) ** (2 / gamma)
+        - (P_back / P0) ** ((gamma + 1) / gamma)))``
     """
     def __init__(self,
                  name: str,

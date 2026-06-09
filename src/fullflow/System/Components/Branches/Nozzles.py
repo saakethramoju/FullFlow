@@ -10,7 +10,65 @@ if TYPE_CHECKING:
 
 
 class RocketCEAChokedNozzle(Component):
+    """
+    RocketCEA choked nozzle performance model.
 
+    `RocketCEAChokedNozzle` computes choked nozzle mass flow and thrust using
+    RocketCEA ideal performance outputs with user-supplied characteristic
+    velocity and thrust coefficient efficiencies. The component uses chamber
+    pressure, throat area, expansion ratio, ambient pressure, and mixture ratio
+    to evaluate the nozzle operating point.
+
+    Parameters
+    ----------
+    name : str
+        Component name
+    network : Network
+        Network that owns this component
+    fuel : str
+        Fuel name passed to RocketCEA
+    oxidizer : str
+        Oxidizer name passed to RocketCEA
+    chamber_pressure : State
+        Chamber pressure
+    throat_area : float
+        Nozzle throat area
+    expansion_ratio : float
+        Nozzle expansion ratio
+    ambient_pressure : State
+        Ambient pressure
+    mixture_ratio : State
+        Oxidizer-to-fuel mixture ratio
+    characterstic_velocity_efficiency : float
+        Characteristic velocity efficiency
+    thrust_coefficient_efficiency : float
+        Thrust coefficient efficiency
+
+    Outputs
+    -------
+    thrust : State, optional
+        Nozzle thrust
+    mass_flow : State, optional
+        Nozzle mass flow rate
+
+    Notes
+    -----
+    Ideal characteristic velocity is obtained from RocketCEA:
+
+        ``cstar_ideal = CEA.get_Cstar(Pc, MR)``
+
+    Ideal thrust coefficient is obtained from RocketCEA:
+
+        ``Cf_ideal = CEA.get_PambCf(Pamb, Pc, MR, expansion_ratio)``
+
+    Choked nozzle mass flow is evaluated from:
+
+        ``mass_flow = Pc * At / (cstar_efficiency * cstar_ideal)``
+
+    Nozzle thrust is evaluated from:
+
+        ``thrust = Cf_efficiency * Cf_ideal * Pc * At``
+    """
     def __init__(self, 
                  name: str,
                  network: Network,
