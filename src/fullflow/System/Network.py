@@ -9,15 +9,52 @@ if TYPE_CHECKING:
 
 class Network:
     """
-    Lightweight container for components and algebraic balances.
+    Container for FullFlow components, balances, models, and shared states.
 
-    Network stores model structure:
-        - components
-        - balances
-        - shared iteration variables
-        - residual collection
-        - solution export
+    `Network` defines a complete system of equations to be evaluated or solved.
+    Components register their physics equations with the network, balances add
+    user-defined algebraic constraints, and solvers operate on the resulting
+    collection of iteration variables and residual equations.
 
+    A Network is typically the top-level object in a FullFlow model:
+
+    ``network = Network("Propellant Feed System")``
+
+    Components and balances automatically register themselves with the network
+    when constructed.
+
+    Tracked states may be added using:
+
+    ``network.track("Chamber Pressure", chamber_pressure)``
+
+    to include additional values in exported results without introducing
+    residual equations or iteration variables.
+
+    Parameters
+    ----------
+    name : str
+        User-defined network name
+
+    Notes
+    -----
+    Network is intentionally lightweight. It is responsible for:
+
+    * Component registration
+    * Balance registration
+    * Model registration
+    * Iteration variable collection
+    * Residual collection
+    * State evaluation
+    * Solution export
+
+    Solver algorithms are implemented separately by FullFlow solver classes.
+
+    Components may contribute residual equations and iteration variables,
+    while balances provide user-defined solve targets.
+
+    A `State` cannot simultaneously appear as both a component iteration
+    variable and a balance iteration variable. `Network` validates this
+    condition before solving and raises an error if overlap is detected.
     """
 
     def __init__(self, name: str):

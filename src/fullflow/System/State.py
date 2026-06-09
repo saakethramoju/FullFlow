@@ -3,6 +3,41 @@ import numpy as np
 
 
 class State:
+    """
+    Scalar value container used throughout FullFlow.
+
+    `State` objects store variables that are shared between components,
+    balances, and solvers. A State may hold a directly assigned value or
+    represent a derived value computed from other states.
+
+    States support arithmetic operations, allowing derived states to be
+    constructed naturally:
+
+        ``density_average = 0.5 * (density1 + density2)``
+
+    Placeholder states may be created with:
+
+        ``pressure = State()``
+
+    and assigned later by a component or solver.
+
+    Parameters
+    ----------
+    value : float, optional
+        Initial state value.
+    bounds : tuple[float or None, float or None], optional
+        Lower and upper bounds used by bounded solvers.
+    keep_feasible : bool, optional
+        Indicates that bounded solvers should attempt to keep the state
+        within its bounds during iterations.
+
+    Notes
+    -----
+    Derived states are read-only and cannot be assigned directly.
+
+    Accessing `.value` on an uninitialized non-derived state raises
+    `ValueError`.
+    """
     def __init__(
         self,
         value: float | None = None,
@@ -10,36 +45,6 @@ class State:
         bounds: tuple[float | None, float | None] | None = None,
         keep_feasible: bool = False,
     ):
-        """
-        A scalar state that stores a direct numeric value.
-
-        This class also supports "placeholder" states via `State()`.
-        That is useful when a State must exist up front so multiple
-        components can share the same reference, even though its numeric
-        value will only be assigned later.
-
-        Parameters
-        ----------
-        value
-            Stored numeric value for a non-derived state.
-        bounds
-            Optional tuple of the form:
-                (lower, upper)
-                (lower, None)
-                (None, upper)
-            Bounds are enforced only when assigning to a non-derived state.
-        keep_feasible
-            Flag for bounded optimization solvers such as scipy.optimize.Bounds.
-            If True, this variable should remain within bounds throughout
-            the solve iterations. Default is False.
-
-        Notes
-        -----
-        - `State()` is allowed and creates an uninitialized, non-derived state.
-        - Accessing `.value` on an uninitialized non-derived state raises ValueError.
-        - Derived states are created internally by State arithmetic.
-        - Derived states cannot be assigned to directly.
-        """
         self._expr = None
         self._lower_bound, self._upper_bound = self._normalize_bounds(bounds)
         self._keep_feasible = bool(keep_feasible)

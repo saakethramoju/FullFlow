@@ -6,9 +6,51 @@ from .State import State
 
 class Composition:
     """
-    Container for species mass-fraction States.
-    """
+    Container for species mass-fraction states.
 
+    `Composition` stores a set of species and their associated mass-fraction
+    `State` objects. It is used by FullFlow property lookups and flow-mixing
+    components to represent pure fluids, mixtures, and dynamically changing
+    mixture compositions.
+
+    Species names are normalized through `FluidRegistry`, so aliases may be
+    used when constructing or accessing a composition.
+
+    Parameters
+    ----------
+    fluid : dict[str, State or float] or str, optional
+        Initial species composition
+
+    Notes
+    -----
+    A pure species may be created from a string:
+
+        ``Composition("water")``
+
+    A mixture may be created from a species-fraction dictionary:
+
+        ``Composition({"oxygen": 0.7, "nitrogen": 0.3})``
+
+    Fraction values may be plain numbers or `State` objects.
+
+    Mass fractions must sum to one:
+
+        ``sum(mass_fractions) = 1``
+
+    A composition can constrain one species so its fraction is computed from
+    the remaining species:
+
+        ``constrained_fraction = 1 - sum(other_fractions)``
+
+    If no constrained species is selected, the last species in the composition
+    is used by default.
+
+    Missing species accessed with indexing return a zero-fraction `State`
+    instead of raising an error. This is useful when comparing or mixing
+    compositions with different species sets.
+
+    The `&` operator returns the species intersection between two compositions.
+    """
     def __init__(
         self,
         fluid: dict[str, State | float] | str | None = None,

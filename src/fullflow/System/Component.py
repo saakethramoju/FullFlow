@@ -12,7 +12,71 @@ if TYPE_CHECKING:
     from fullflow.System import Network
 
 class Component(ABC):
+    """
+    Base class for FullFlow components.
 
+    `Component` provides the common setup, registration, and interface used by
+    all FullFlow physics components. Subclasses define their constructor inputs,
+    call `self.setup()`, and optionally implement state evaluation, iteration
+    variables, residual equations, and transient quantities.
+
+    During setup, constructor arguments are converted into component attributes.
+    Numeric values are converted to `State` objects, existing `State` objects
+    are preserved, and `Composition` objects are preserved or safely recreated
+    when used as default constructor arguments.
+
+    Parameters
+    ----------
+    name : str
+        Component name
+    network : Network
+        Network that owns this component
+
+    Notes
+    -----
+    Subclasses normally call setup from their constructor:
+
+        ``self.setup()``
+
+    `setup()` automatically registers the component with its network:
+
+        ``network.add_component(component=self)``
+
+    Constructor attributes are initialized using the following rules:
+
+    * Existing `State` objects are preserved
+    * Existing `Composition` objects are preserved
+    * Numeric values are converted to `State`
+    * `None` values are converted to empty `State`
+    * Boolean and string values are preserved
+    * Default `Composition()` arguments are replaced with fresh instances
+
+    Components may define iteration variables by overriding:
+
+        ``iteration_variables``
+
+    Components may define residual equations by overriding:
+
+        ``residuals``
+
+    Components may compute explicit output states by overriding:
+
+        ``evaluate_states()``
+
+    Components may perform one-time or pre-solve setup by overriding:
+
+        ``pre_evaluation()``
+
+    A component can be converted into a deferred model option with:
+
+        ``ComponentClass.model(name=None, **kwargs)``
+
+    Derived `State` objects should not be returned in `iteration_variables`
+    because the solver must be able to assign values to iteration variables.
+
+    Transient components may expose timestep variables and time derivatives by
+    overriding `timestep_variables` and `time_derivative`.
+    """
     def __init__(self, 
                  name: str,
                  network: Network):

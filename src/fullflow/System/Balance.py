@@ -10,64 +10,64 @@ if TYPE_CHECKING:
 
 class Balance:
     """
-    Adds an additional solve equation to the network by defining:
+    User-defined algebraic solve target.
 
-        "adjust this variable until this function equals zero"
+    `Balance` adds one extra solve equation to a `Network` by telling the solver
+    to adjust one assignable `State` until a residual expression evaluates to
+    zero.
 
-    A Balance contributes:
-        - one iteration variable
-        - one residual equation
-
-    to the global steady-state solve.
+    A balance contributes one iteration variable and one residual equation to
+    the global steady-state solve.
 
     Parameters
     ----------
-    variable
-        Non-derived State that the solver is allowed to modify.
+    name : str
+        Balance name
+    network : Network
+        Network that owns this balance
+    variable : State
+        Non-derived state that the solver may modify
+    function : callable or State
+        Residual expression to drive to zero
+    bounds : tuple[float or None, float or None], optional
+        Fallback bounds for the solve variable
+    keep_feasible : bool, optional
+        Whether bounded solvers should keep the variable inside bounds
 
-    function
-        Residual expression to drive to zero. May be:
-            - a callable returning a float
-            - a derived State expression
+    Iteration Variables
+    -------------------
+    variable : State
+        State adjusted by the solver
 
-    bounds
-        Optional fallback bounds for the solve variable.
-        Only applied if the State itself does not already
-        define bounds.
+    Residuals
+    ---------
+    residual : float
+        User-defined residual driven to zero by the solver
 
-    keep_feasible
-        Passed through to bounded solvers such as
-        scipy.optimize.least_squares.
-
-    Examples
-    --------
-    Balance chamber pressure by adjusting injector area:
-
-        Balance(
-            "Balance injector for Pc",
-            network=net,
-            variable=Injector.A,
-            function=Chamber.Pc - 300 * PSIA_TO_PA,
-        )
-
-    Balance thrust by adjusting nozzle efficiency:
-
-        Balance(
-            "Balance thrust",
-            network=net,
-            variable=Nozzle.eta_Cf,
-            function=Nozzle.F - 200 * N_TO_LBF,
-            bounds=(0, 1),
-        )
+        ``function = 0``
 
     Notes
     -----
-    The residual equation is automatically included in the
-    network solve. During each iteration, the solver modifies
-    `variable` until `function -> 0`.
+    The residual equation is automatically included in the network solve.
+    During each iteration, the solver modifies `variable` until `function`
+    approaches zero.
 
-    Derived States cannot be used as solve variables because
-    they do not store assignable values.
+    The `function` argument may be a callable returning a float:
+
+        ``Balance("Target Pc", network, variable=A, function=lambda: Pc.value - target)``
+
+    or a derived `State` expression:
+
+        ``Balance("Target Pc", network, variable=A, function=Pc - target)``
+
+    Balance-provided bounds are only a fallback. If the `State` already has
+    bounds, the `State` bounds take priority.
+
+    Derived states cannot be used as solve variables because they do not store
+    assignable values.
+
+    A `State` cannot be solved by both a component residual equation and a
+    `Balance`. The owning `Network` checks for overlapping iteration variables.
     """
     def __init__(
         self,

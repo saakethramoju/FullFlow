@@ -14,136 +14,145 @@ if TYPE_CHECKING:
 
 
 class SteadyState:
-
     """
     Steady-state nonlinear network solver.
 
-    Overview
-    --------
-    This solver finds a set of iteration variables x that drives all network
-    residual equations to zero.
+    `SteadyState` solves a network of algebraic equations by adjusting
+    iteration variables until all component and balance residuals are driven
+    to zero.
 
-    Unknowns may include:
+    The solver automatically propagates derived states, evaluates component
+    models, assembles the residual vector, and calls
+    `scipy.optimize.least_squares()` to compute a converged solution.
 
-        - pressures
-        - enthalpies
-        - temperatures
-        - mass flows
-        - friction factors
-        - pump speeds
-        - user Balance variables
+    Parameters
+    ----------
+    network : Network
+        Network to evaluate and solve
 
-    Residuals may include:
+    Notes
+    -----
+    The nonlinear system is written as:
 
-        - mass conservation
-        - energy conservation
-        - momentum equations
-        - friction-factor equations
-        - user-defined component residuals
-        - Balance residuals
-
-    Mathematical Form
-    -----------------
-    The solver seeks:
-
-        F(x) = 0
+        ``F(x) = 0``
 
     where:
 
-        x = iteration variables
-        F = network residual vector
+        ``x``
+            Vector of iteration variables
 
-    The nonlinear system is solved using scipy.optimize.least_squares()
-    with finite-difference Jacobians and a trust-region algorithm.
+        ``F``
+            Vector of component and balance residuals
 
-    State Propagation Architecture
-    ------------------------------
-    Most network quantities are not iteration variables.
+    Iteration variables may include:
 
-    Examples:
+    * pressure
+    * temperature
+    * enthalpy
+    * mass flow
+    * friction factor
+    * shaft speed
+    * Balance variables
 
-        density
-        viscosity
-        Reynolds number
-        species composition
-        fluid properties
-        heat-transfer coefficients
+    Residual equations may include:
 
-    These quantities are derived from the current iteration variables.
+    * mass conservation
+    * energy conservation
+    * momentum equations
+    * constitutive correlations
+    * user-defined component residuals
+    * Balance residuals
 
-    A challenge in large networks is that derived quantities may depend on
-    other derived quantities:
+    Before residuals are evaluated, the solver repeatedly evaluates
+    component states until derived quantities settle. This allows
+    component ordering to be largely independent of network behavior.
 
-        composition
-            -> density
-                -> mass flow
-                    -> composition
+    Example
+    -------
+    Create and solve a network:
 
-    and users may define components in any order.
+        ``solver = SteadyState(network)``
 
-    To make component ordering largely irrelevant, each residual evaluation
-    contains a state-settling phase.
+        ``solver.solve()``
 
-    For a given solver iterate x:
+    Solve with verbose diagnostics:
 
-        1. Assign x to the network.
-        2. Evaluate all components.
-        3. Measure changes in non-iteration States.
-        4. Repeat until the network state stops changing.
+        ``solver.solve(verbose=True)``
 
-    This produces a self-consistent set of derived quantities before
-    residuals are evaluated.
+    Export results:
 
-    Iteration Variable Protection
-    -----------------------------
-    Iteration variables belong exclusively to the nonlinear solver.
+        ``solver.solve(filename="solution.xlsx")``
 
-    During state settling, component evaluations are allowed to update
-    derived States but are not allowed to permanently modify solver-owned
-    variables.
+    Evaluate without nonlinear solving:
 
-    To enforce this:
+        ``solver.static_evaluate()``
 
-        - iteration variables are snapshotted
-        - component evaluations are performed
-        - iteration variables are restored
+    Model Evaluation
+    ----------------
+    `SteadyState` integrates directly with `Model` objects.
 
-    before and after every component evaluation pass.
+    A specific model can be solved:
 
-    This prevents explicit state calculations from corrupting the solver's
-    current iterate.
+        ``solver.solve(model="NozzleModel")``
 
-    Convergence Process
-    -------------------
-    For each nonlinear iteration:
+    Every model option can be evaluated automatically:
 
-        x_k
-        ↓
-        assign iteration variables
-        ↓
-        settle derived states
-        ↓
-        evaluate residuals
-        ↓
-        finite-difference Jacobian
-        ↓
-        trust-region correction
-        ↓
-        x_(k+1)
+        ``solver.solve(``
+        ``    model="NozzleModel",``
+        ``    evaluate_all_model_options=True``
+        ``)``
 
-    The process repeats until scipy reports convergence and the final
-    residual magnitude satisfies the requested residual tolerance.
+    Failed model options are skipped and reported.
 
-    Benefits
+    State Propagation
+    -----------------
+    Most network quantities are derived rather than solved directly.
+
+    Examples include:
+
+    * density
+    * viscosity
+    * Reynolds number
+    * fluid properties
+    * heat-transfer coefficients
+    * species composition
+
+    During each residual evaluation:
+
+        ``assign iteration variables``
+        ``→ evaluate components``
+        ``→ propagate derived states``
+        ``→ repeat until settled``
+        ``→ evaluate residuals``
+
+    Iteration variables are protected during state propagation so that
+    component evaluations cannot overwrite the solver's current iterate.
+
+    Features
     --------
-    This architecture provides:
+    * Nonlinear steady-state solving
+    * Static network evaluation
+    * Automatic state propagation
+    * Balance support
+    * Overdetermined system support
+    * Model option switching
+    * Solution export to CSV, JSON, and Excel
+    * Rich terminal diagnostics
+    * Verbose solver reporting
 
-        - user-defined component ordering
-        - automatic propagation of derived quantities
-        - support for algebraic balances
-        - support for overdetermined systems
-        - separation between solver variables and derived states
-        - compatibility with future transient solvers
+    See Also
+    --------
+    `Network`
+        Container that owns components and balances
+
+    `Balance`
+        Additional solve equation and iteration variable
+
+    `Model`
+        Alternative component implementations
+
+    `Component`
+        Base class for all network elements
     """
 
     def __init__(self, network: Network):
@@ -602,19 +611,85 @@ class SteadyState:
         state_max_passes: int = 20,
         state_tolerance: float = 1e-10,
     ):
+
         """
-        Evaluate a network without nonlinear solving.
+        Evaluate the network without performing a nonlinear solve.
 
-        If model is None, the first option from each registered Model is built
-        and the network is evaluated once. No fallback is attempted.
+        `static_evaluate()` propagates component states and evaluates derived
+        quantities using the currently assigned values of all States.
 
-        If model is provided and evaluate_all_model_options=False, options in
-        that Model are tried in order until the first successful evaluation.
-        Only that successful evaluation is returned/exported.
+        No iteration variables are modified and no residual equations are solved.
 
-        If model is provided and evaluate_all_model_options=True, every option
-        in that Model is attempted. Failed options are skipped. Only successful
-        options are returned/exported.
+        This mode is useful for:
+
+        * explicit calculations
+        * property lookups
+        * model validation
+        * diagnostic checks
+        * post-processing solved networks
+
+        Parameters
+        ----------
+        model : str, optional
+            Model to evaluate. If omitted, all registered Models use their
+            currently active option.
+
+        evaluate_all_model_options : bool, optional
+            If True, evaluates every option in the selected Model and returns
+            successful results.
+
+        filename : str, optional
+            Output file used to save results.
+
+        return_type : {"dict", "dataframe"}, optional
+            Format of returned solution data.
+
+        verbose : bool, optional
+            Print evaluation diagnostics.
+
+        print_solution : bool, optional
+            Print exported network values.
+
+        state_max_passes : int, optional
+            Maximum number of state-settling passes.
+
+        state_tolerance : float, optional
+            Convergence tolerance for derived-state propagation.
+
+        Returns
+        -------
+        solution : dict or pandas.DataFrame
+            Exported network results.
+
+        Notes
+        -----
+        State propagation is still performed during static evaluation.
+
+        Components may depend on other components through derived States:
+
+            ``composition → density → mass_flow``
+
+        Multiple evaluation passes are therefore executed until all derived
+        quantities settle.
+
+        Unlike `solve()`, no iteration variables are modified.
+
+        Examples
+        --------
+        Evaluate a network once:
+
+            ``solver.static_evaluate()``
+
+        Print results:
+
+            ``solver.static_evaluate(print_solution=True)``
+
+        Evaluate all options of a model:
+
+            ``solver.static_evaluate(``
+            ``    model="InjectorModel",``
+            ``    evaluate_all_model_options=True``
+            ``)``
         """
         selected_model = self._get_model(model)
 
@@ -991,21 +1066,114 @@ class SteadyState:
         state_tolerance: float = 1e-10,
     ):
         """
-        Solve the network's steady-state nonlinear system.
+        Solve the network steady-state nonlinear system.
 
-        If static=True, this delegates to static_evaluate().
+        `solve()` adjusts network iteration variables until all component and
+        balance residual equations satisfy the requested residual tolerance.
 
-        If model is None, registered Models are treated like normal component
-        placeholders. Their first options are built and the system is solved
-        once. No model fallback is attempted.
+        The nonlinear system is solved using
+        `scipy.optimize.least_squares()`.
 
-        If model is provided and evaluate_all_model_options=False, options in
-        that Model are tried in order until the first successful solve. Only
-        that successful solve is returned/exported.
+        Parameters
+        ----------
+        model : str, optional
+            Model to solve. If omitted, all registered Models use their
+            currently active option.
 
-        If model is provided and evaluate_all_model_options=True, every option
-        in that Model is attempted. Failed options are skipped. Only successful
-        options are returned/exported.
+        evaluate_all_model_options : bool, optional
+            If True, attempts every option in the selected Model and returns
+            successful solutions.
+
+        filename : str, optional
+            Output file used to save results.
+
+        return_type : {"dict", "dataframe"}, optional
+            Format of returned solution data.
+
+        verbose : bool, optional
+            Print solver diagnostics.
+
+        static : bool, optional
+            Perform a static evaluation instead of a nonlinear solve.
+
+        print_solution : bool, optional
+            Print exported solution values.
+
+        solver_method : {"trf", "dogbox", "lm"}, optional
+            Nonlinear least-squares algorithm.
+
+        jacobian_method : {"2-point", "3-point"}, optional
+            Finite-difference Jacobian scheme.
+
+        ftol : float, optional
+            Cost-function convergence tolerance.
+
+        xtol : float, optional
+            Variable convergence tolerance.
+
+        gtol : float, optional
+            Gradient convergence tolerance.
+
+        rtol : float, optional
+            Maximum acceptable residual magnitude.
+
+        state_max_passes : int, optional
+            Maximum number of state-settling passes.
+
+        state_tolerance : float, optional
+            Convergence tolerance for derived-state propagation.
+
+        Returns
+        -------
+        solution : dict or pandas.DataFrame
+            Solved network results.
+
+        Notes
+        -----
+        The solver seeks:
+
+            ``F(x) = 0``
+
+        where:
+
+            ``x``
+                Iteration variables
+
+            ``F``
+                Residual equations
+
+        Before each residual evaluation, derived states are repeatedly
+        propagated until the network reaches a self-consistent state.
+
+        If a Model is specified, model options may be automatically switched
+        until a successful solution is found.
+
+        If all model options fail, a RuntimeError is raised.
+
+        Examples
+        --------
+        Solve a network:
+
+            ``solver.solve()``
+
+        Print detailed diagnostics:
+
+            ``solver.solve(verbose=True)``
+
+        Save results:
+
+            ``solver.solve(filename="results.xlsx")``
+
+        Solve a specific model:
+
+            ``solver.solve(model="NozzleModel")``
+
+        Evaluate every option of a model:
+
+            ``solver.solve(``
+            ``    model="NozzleModel",``
+            ``    evaluate_all_model_options=True``
+            ``)``
         """
         if static:
             return self.static_evaluate(
