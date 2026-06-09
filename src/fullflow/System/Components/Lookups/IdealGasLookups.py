@@ -15,33 +15,125 @@ if TYPE_CHECKING:
 
 FluidInput = str | dict[str, State | float] | Composition
 
-
 class IdealGasLookup(Component):
     """
+    ThermoProp IdealGas-backed thermodynamic property lookup component.
+
+    `IdealGasLookup` evaluates ideal-gas thermodynamic and transport properties
+    using the ThermoProp `IdealGas` wrapper. The component supports pure species
+    and mixtures, automatically performs thermodynamic flash calculations from
+    specified input states, and writes requested output properties to their
+    corresponding states.
+
+    Additional supported ideal-gas properties can be accessed lazily as derived
+    states.
+
+    Parameters
+    ----------
+    name : str
+        Component name
+    network : Network
+        Network that owns this component
+    fluid : str or dict[str, State or float] or Composition
+        Ideal-gas species or composition
+    pressure : State or float, optional
+        Pressure flash input
+    temperature : State or float, optional
+        Temperature flash input
+    enthalpy : State or float, optional
+        Enthalpy flash input
+    internal_energy : State or float, optional
+        Internal energy flash input
+    density : State or float, optional
+        Density flash input
+    flash_values : tuple[str, ...], optional
+        Explicit flash input selection
+    adjust_reference : bool, optional
+        Whether thermodynamic reference-state offsets are applied
+    **property_states : State
+        Additional requested IdealGas property output states
+
+    Outputs
+    -------
+    property_states : State
+        Requested thermodynamic and transport property states
+
+    Notes
+    -----
     PYroMat and CoolProp use different thermodynamic reference states for
     enthalpy, internal energy, entropy, Gibbs free energy, and Helmholtz
     free energy.
 
-    When adjust_reference=True (default), ThermoProp automatically applies
-    constant reference-state offsets so that these properties are reported
-    on the same basis as the equivalent CoolProp fluid at the reference
-    state.
+    When `adjust_reference=True`, constant reference-state shifts are applied
+    so that these properties are reported on the same basis as the equivalent
+    CoolProp fluid at the reference state.
 
-    The adjustment preserves thermodynamic differences and derivatives while
-    eliminating arbitrary backend-specific reference-state offsets.
+    Adjusted properties include:
 
-    Adjusted properties:
-        * enthalpy
-        * internal_energy
-        * entropy
-        * gibbs_energy
-        * free_energy
-        * helmholtz_energy
+    * `enthalpy`
+    * `internal_energy`
+    * `entropy`
+    * `gibbs_energy`
+    * `free_energy`
+    * `helmholtz_energy`
+
+    Thermodynamic differences and derivatives are preserved while arbitrary
+    backend-specific reference-state offsets are removed.
 
     Properties derived from temperature, pressure, density, transport
     correlations, or thermodynamic derivatives are not modified.
-    """
 
+    Flash calculations may be specified explicitly:
+
+        ``flash_values=("pressure", "temperature")``
+
+        ``flash_values=("pressure", "enthalpy")``
+
+        ``flash_values=("density", "temperature")``
+
+    Single-input flashes are supported for:
+
+        ``("temperature",)``
+
+        ``("enthalpy",)``
+
+        ``("internal_energy",)``
+
+    If `flash_values` is omitted, the component automatically selects flash
+    variables from the provided thermodynamic inputs.
+
+    Mixtures may be specified using a composition dictionary:
+
+        ``{"N2": 0.79, "O2": 0.21}``
+
+    or a `Composition` object.
+
+    Composition mass fractions must sum to unity.
+
+    Supported properties can be inspected with:
+
+        ``IdealGasLookup.supported_properties()``
+
+        ``IdealGasLookup.show_supported_properties()``
+
+        ``IdealGasLookup.supports_property(property_name)``
+
+    Supported inputs can be inspected with:
+
+        ``IdealGasLookup.supported_inputs()``
+
+        ``IdealGasLookup.show_supported_inputs()``
+
+    Supported flash pairs can be inspected with:
+
+        ``IdealGasLookup.supported_flash_pairs()``
+
+        ``IdealGasLookup.show_supported_flash_pairs()``
+
+    If the requested thermodynamic state is invalid,
+    `InvalidThermoStateError` is raised with the active flash variables
+    and composition.
+    """
     _REFERENCE_TEMPERATURE = 298.15
     _REFERENCE_PRESSURE = 101325.0
 

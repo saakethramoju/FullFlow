@@ -15,42 +15,109 @@ if TYPE_CHECKING:
 
 PropellantInput = str
 
-
 class PropellantLookup(Component):
     """
     RocketProps-backed liquid propellant property lookup component.
 
-    This lookup intentionally follows the same general pattern as FluidLookup
-    and IdealGasLookup, but it is simpler because Propellant is not a full
-    thermodynamic flash solver.
+    `PropellantLookup` evaluates liquid propellant properties through the
+    ThermoProp `Propellant` wrapper. It intentionally follows the same general
+    pattern as `FluidLookup` and `IdealGasLookup`, but it is simpler because
+    RocketProps is not a full thermodynamic flash solver.
 
-    Supported state inputs
-    ----------------------
-    Propellant only requires temperature to evaluate saturated-liquid
-    properties:
+    The component accepts a RocketProps propellant name or alias string, updates
+    the propellant state from temperature or pressure-temperature inputs, and
+    writes requested property outputs to their corresponding states. Additional
+    supported propellant properties can be accessed lazily as derived states.
 
-        PropellantLookup(..., temperature=...)
+    Parameters
+    ----------
+    name : str
+        Component name
+    network : Network
+        Network that owns this component
+    propellant : str
+        RocketProps propellant name or alias
+    temperature : State or float, optional
+        Propellant temperature input
+    pressure : State or float, optional
+        Propellant pressure input
+    **property_states : State
+        Additional requested Propellant property output states
 
-    Pressure is optional. If pressure is provided, Propellant uses
-    compressed-liquid correlations where RocketProps supports them:
-
-        PropellantLookup(..., pressure=..., temperature=...)
+    Outputs
+    -------
+    property_states : State
+        Requested propellant property states
 
     Notes
     -----
-    No reference adjustment is needed because the Propellant wrapper does not
-    expose reference-dependent thermodynamic properties such as enthalpy,
-    internal energy, or entropy.
+    `PropellantLookup` requires temperature so the initial liquid propellant
+    state can be defined.
 
-    PropellantLookup does not support Composition objects or arbitrary mixtures.
-    Named RocketProps mixtures such as MON25, A50, or MHF3 should be passed as
-    single propellant strings.
+    Pressure is optional. When pressure is provided, the backend uses
+    pressure-temperature evaluation where RocketProps supports compressed-liquid
+    correlations.
 
-    Only pressure and temperature can be iteration/input states. There is no
-    flash_values argument because RocketProps does not support alternate
-    thermodynamic flash pairs.
+    Supported thermodynamic inputs are:
+
+        ``temperature``
+
+        ``pressure``
+
+    Supported input pairs are:
+
+        ``temperature``
+
+        ``pressure-temperature``
+
+    Example temperature-only lookup:
+
+        ``PropellantLookup(..., propellant="RP-1", temperature=T)``
+
+    Example pressure-temperature lookup:
+
+        ``PropellantLookup(..., propellant="LOX", pressure=P, temperature=T)``
+
+    Requested non-input thermodynamic states are treated as outputs. Additional
+    output properties may be passed with keyword arguments:
+
+        ``PropellantLookup(..., propellant="LOX", temperature=T, density=rho)``
+
+    `PropellantLookup` does not support `Composition` objects or arbitrary
+    mixtures. Named RocketProps mixtures such as `MON25`, `A50`, or `MHF3`
+    should be passed as single propellant strings.
+
+    The `propellant_name` property returns the canonical RocketProps propellant
+    name:
+
+        ``propellant_name = lookup.propellant_name``
+
+    This component intentionally blocks `.composition`. Propellant aliases must
+    stay in the RocketProps registry path. Using `Composition` would route names
+    through the Fluid or IdealGas registry, where aliases such as `rp-1` may map
+    to a different backend name.
+
+    Supported properties can be inspected with:
+
+        ``PropellantLookup.supported_properties()``
+
+        ``PropellantLookup.show_supported_properties()``
+
+        ``PropellantLookup.supports_property(property_name)``
+
+    Supported inputs and input pairs can be inspected with:
+
+        ``PropellantLookup.supported_inputs()``
+
+        ``PropellantLookup.show_supported_inputs()``
+
+        ``PropellantLookup.supported_flash_pairs()``
+
+        ``PropellantLookup.show_supported_flash_pairs()``
+
+    If the propellant state is invalid, `InvalidThermoStateError` is raised
+    with the propellant name and input variables.
     """
-
     _THERMO_NAMES = (
         "pressure",
         "temperature",

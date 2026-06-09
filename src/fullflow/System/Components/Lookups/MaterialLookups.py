@@ -15,18 +15,77 @@ if TYPE_CHECKING:
 
 MaterialInput = str
 
-
 class MaterialLookup(Component):
     """
     ThermoProp Material-backed solid material property lookup component.
 
+    `MaterialLookup` evaluates temperature-dependent solid material properties
+    through the ThermoProp `Material` wrapper. The component updates the
+    material backend from a temperature input and writes requested material
+    property outputs to their corresponding states.
+
+    Additional supported material properties can be accessed lazily as derived
+    states.
+
+    Parameters
+    ----------
+    name : str
+        Component name
+    network : Network
+        Network that owns this component
+    material : str
+        Material name or alias
+    temperature : State or float, optional
+        Material temperature input
+    allow_extrapolation : bool, optional
+        Whether material property extrapolation is allowed
+    **property_states : State
+        Additional requested Material property output states
+
+    Outputs
+    -------
+    property_states : State
+        Requested material property states
+
+    Notes
+    -----
     Material properties are temperature-dependent only.
 
-    If temperature is provided, it is treated as the input State and the
-    Material backend is updated from it every evaluation. If temperature is not
-    provided, a default input State of 293.15 K is created.
-    """
+    If temperature is omitted, a default temperature input state is created:
 
+        ``temperature = 293.15``
+
+    Requested material properties may be passed with keyword arguments:
+
+        ``MaterialLookup(..., material="c101", temperature=T, thermal_conductivity=k)``
+
+    The `material_name` property returns the canonical ThermoProp material name:
+
+        ``material_name = lookup.material_name``
+
+    Supported properties can be inspected with:
+
+        ``MaterialLookup.supported_properties()``
+
+        ``MaterialLookup.show_supported_properties()``
+
+        ``MaterialLookup.supports_property(property_name)``
+
+    Supported inputs can be inspected with:
+
+        ``MaterialLookup.supported_inputs()``
+
+        ``MaterialLookup.show_supported_inputs()``
+
+    Supported input pairs can be inspected with:
+
+        ``MaterialLookup.supported_flash_pairs()``
+
+        ``MaterialLookup.show_supported_flash_pairs()``
+
+    If the material state is invalid, `InvalidMaterialPropertyError` is raised
+    with the material name and temperature value.
+    """
     _THERMO_NAMES = (
         "temperature",
     )

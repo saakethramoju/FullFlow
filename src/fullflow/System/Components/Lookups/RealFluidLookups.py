@@ -19,8 +19,119 @@ FluidInput = str | dict[str, State | float] | Composition
 class FluidLookup(Component):
     """
     CoolProp-backed thermodynamic property lookup component.
-    """
 
+    `FluidLookup` evaluates thermodynamic and transport properties through the
+    ThermoProp `Fluid` wrapper. It supports pure fluids, mixtures, and dynamic
+    composition inputs through `Composition`.
+
+    The component flashes the fluid state from two selected thermodynamic
+    inputs, then writes requested property outputs to their corresponding
+    states. Additional supported fluid properties can be accessed lazily as
+    derived states.
+
+    Parameters
+    ----------
+    name : str
+        Component name
+    network : Network
+        Network that owns this component
+    fluid : str or dict or Composition
+        Fluid name, species-fraction dictionary, or composition object
+    pressure : State or float, optional
+        Pressure input or output state
+    temperature : State or float, optional
+        Temperature input or output state
+    enthalpy : State or float, optional
+        Specific enthalpy input or output state
+    quality : State or float, optional
+        Vapor quality input or output state
+    density : State or float, optional
+        Density input or output state
+    internal_energy : State or float, optional
+        Specific internal energy input or output state
+    flash_values : tuple[str, str], optional
+        Thermodynamic property pair used for the flash
+    **property_states : State
+        Additional requested Fluid property output states
+
+    Outputs
+    -------
+    property_states : State
+        Requested thermodynamic or transport property states
+
+    Notes
+    -----
+    `FluidLookup` requires at least two thermodynamic inputs so the initial
+    fluid state can be defined.
+
+    If `flash_values` is omitted, the first two provided thermodynamic inputs
+    are used as the flash pair. If `flash_values` is provided, it must be a
+    supported pair of thermodynamic property names.
+
+    Supported thermodynamic inputs are:
+
+        ``pressure, temperature, enthalpy, quality, density, internal_energy``
+
+    Supported flash pairs are:
+
+        ``pressure-temperature``
+
+        ``pressure-enthalpy``
+
+        ``pressure-quality``
+
+        ``temperature-quality``
+
+        ``density-internal_energy``
+
+        ``pressure-density``
+
+        ``pressure-internal_energy``
+
+        ``temperature-density``
+
+        ``density-enthalpy``
+
+        ``temperature-enthalpy``
+
+    Pure fluids may be passed as strings:
+
+        ``fluid = "water"``
+
+    Mixtures may be passed as dictionaries:
+
+        ``fluid = {"oxygen": 0.7, "nitrogen": 0.3}``
+
+    Dynamic mixtures may be passed as `Composition` objects. Composition mass
+    fractions must sum to one before the backend can be initialized.
+
+    Requested non-flash thermodynamic states are treated as outputs. Additional
+    output properties may be passed with keyword arguments:
+
+        ``FluidLookup(..., pressure=P, temperature=T, viscosity=mu)``
+
+    Supported properties can be inspected with:
+
+        ``FluidLookup.supported_properties()``
+
+        ``FluidLookup.show_supported_properties()``
+
+        ``FluidLookup.supports_property(property_name)``
+
+    Supported inputs and flash pairs can be inspected with:
+
+        ``FluidLookup.supported_inputs()``
+
+        ``FluidLookup.show_supported_inputs()``
+
+        ``FluidLookup.supported_flash_pairs()``
+
+        ``FluidLookup.show_supported_flash_pairs()``
+
+    If the thermodynamic state is invalid, `InvalidThermoStateError` is raised
+    with the flash variables and composition values.
+    """
+    
     _THERMO_NAMES = (
         "pressure",
         "temperature",

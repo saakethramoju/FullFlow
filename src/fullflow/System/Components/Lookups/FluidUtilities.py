@@ -10,29 +10,44 @@ if TYPE_CHECKING:
 
 class ReferenceAdjustment(Component):
     """
-    Shift an energy-like State from one reference basis to another.
+    Reference-basis adjustment for an energy-like state.
 
-    Useful for enthalpy/internal_energy reference corrections.
-    Reference values should be at the same temperature (and pressure, ideally).
+    `ReferenceAdjustment` shifts an input value from one reference basis to
+    another by subtracting the old reference value and adding the new reference
+    value. This is useful for enthalpy, internal energy, entropy, or other
+    reference-dependent quantities when different property backends use
+    different reference states.
 
-    Formula
+    The old and new reference values should correspond to the same reference
+    condition.
+
+    Parameters
+    ----------
+    name : str
+        Component name
+    network : Network
+        Network that owns this component
+    input_value : State or float
+        Value on the original reference basis
+    old_reference_value : State or float
+        Reference value on the original basis
+    new_reference_value : State or float
+        Reference value on the target basis
+
+    Outputs
     -------
-    adjusted_value = input_value - old_reference_value + new_reference_value
+    output_value : State, optional
+        Value shifted to the target reference basis
 
-    Example
-    -------
-    h_coolprop_basis = State()
+    Notes
+    -----
+    The adjusted value is evaluated from:
 
-    ReferenceAdjustment(
-        "Shift h to CoolProp basis",
-        network,
-        input_value=ideal_gas_h,
-        output_value=h_coolprop_basis,
-        old_reference_value=ideal_gas_h_ref,
-        new_reference_value=coolprop_h_ref,
-    )
+        ``output_value = input_value - old_reference_value + new_reference_value``
+
+    The adjusted value can also be accessed through the `adjusted_value`
+    property.
     """
-
     def __init__(
         self,
         name: str,
