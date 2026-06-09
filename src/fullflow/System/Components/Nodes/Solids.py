@@ -8,6 +8,7 @@ if TYPE_CHECKING:
     from fullflow.System import Network, State
 
 
+
 class Solid(Component):
     """
     Lumped solid thermal node.
@@ -23,60 +24,60 @@ class Solid(Component):
     Residuals
     ---------
     energy_balance : float
-        Enforces steady-state thermal equilibrium:
+        Enforces steady-state thermal equilibrium.
 
-        `heat_rate = 0`
+        ``heat_rate = 0``
 
         The heat rate is typically formed by summing all heat transfer
         mechanisms connected to the node.
 
     Relations
     ---------
-    Optional Biot number calculation:
+    biot_number : State
+        Computes the Biot number used to assess the validity of the
+        lumped-capacitance assumption.
 
-    `Bi = h * Lc / k`
+        ``Bi = h * Lc / k``
 
-    where:
+        where:
 
-    * `Bi` is the Biot number [-]
-    * `h` is the convection coefficient [W/m²-K]
-    * `Lc` is the characteristic length [m]
-    * `k` is the thermal conductivity [W/m-K]
+        * `Bi` is the Biot number
+        * `h` is the convection coefficient
+        * `Lc` is the characteristic length
+        * `k` is the thermal conductivity
 
-    As a general guideline, `Bi < 0.1` indicates that the lumped-temperature
-    assumption is likely reasonable.
+        As a general guideline, `Bi < 0.1` indicates that the
+        lumped-temperature assumption is likely reasonable.
 
     Iteration Variables
     -------------------
     temperature : State
-        Solid temperature.
+        Solid temperature
 
     Parameters
     ----------
     name : str
-        Component name.
+        Component name
     network : Network
-        Network that owns this component.
+        Network that owns this component
     temperature : State
-        Solid temperature [K].
+        Solid temperature
     mass : float, optional
-        Solid mass [kg].
+        Solid mass
     specific_heat : State, optional
-        Solid specific heat capacity [J/kg-K].
+        Solid specific heat capacity
     characteristic_length : State or float, optional
-        Characteristic length used for Biot number evaluation [m].
+        Characteristic length used for Biot number evaluation
     thermal_conductivity : State or float, optional
-        Solid thermal conductivity used for Biot number evaluation [W/m-K].
+        Solid thermal conductivity used for Biot number evaluation
     convection_coefficient : State or float, optional
         Representative convection coefficient used for Biot number evaluation
-        [W/m²-K].
     biot_number : State, optional
-        Output Biot number [-].
+        Output Biot number
     heat_rate : State or float, optional
-        Net heat rate into the solid node [W]. Positive values add heat to the
+        Net heat rate into the solid node. Positive values add heat to the
         solid. Defaults to 0.
     """
-
     def __init__(
         self,
         name: str,

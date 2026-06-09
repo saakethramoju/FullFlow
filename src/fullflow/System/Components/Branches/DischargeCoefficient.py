@@ -9,18 +9,55 @@ if TYPE_CHECKING:
     from fullflow.System import Network, State
 
 
-
 class DischargeCoefficient(Component):
+    """
+    Incompressible restriction flow model using a discharge coefficient.
 
-    def __init__(self,
-                 name: str,
-                 network: Network,
-                 upstream_pressure: State,
-                 downstream_pressure: State,
-                 density: State,
-                 discharge_coefficient: float,
-                 cross_sectional_area: float,
-                 mass_flow: State | None = None):
+    `DischargeCoefficient` computes mass flow through a restriction from the
+    pressure difference, fluid density, discharge coefficient, and flow area. The
+    sign of the mass flow follows the sign of the pressure difference, allowing
+    reverse flow when downstream pressure exceeds upstream pressure.
+
+    Relations
+    ---------
+    Restriction mass flow:
+
+    `mass_flow = sign(P1 - P2) * Cd * A * sqrt(2 * rho * abs(P1 - P2))`
+
+    Parameters
+    ----------
+    name : str
+        Component name
+    network : Network
+        Network that owns this component
+    upstream_pressure : State
+        Upstream pressure
+    downstream_pressure : State
+        Downstream pressure
+    density : State
+        Fluid density
+    discharge_coefficient : float
+        Discharge coefficient
+    cross_sectional_area : float
+        Flow area
+
+    Outputs
+    -------
+    mass_flow : State, optional
+        Computed mass flow rate
+    """
+
+    def __init__(
+        self,
+        name: str,
+        network: Network,
+        upstream_pressure: State,
+        downstream_pressure: State,
+        density: State,
+        discharge_coefficient: float,
+        cross_sectional_area: float,
+        mass_flow: State | None = None,
+    ):
         self.setup()
 
     def evaluate_states(self) -> None:
@@ -30,12 +67,42 @@ class DischargeCoefficient(Component):
         Cd = self.discharge_coefficient.value
         A = self.cross_sectional_area.value
 
-        self.mass_flow.value = np.sign(P1 - P2) * Cd * A * np.sqrt(2.0 * rho * np.abs(P1 - P2))
-
-
+        self.mass_flow.value = (
+            np.sign(P1 - P2)
+            * Cd
+            * A
+            * np.sqrt(2.0 * rho * np.abs(P1 - P2))
+        )
 
 
 class SeriesCdA(Component):
+    """
+    Equivalent effective area for restrictions in series.
+
+    `SeriesCdA` combines multiple effective flow areas into a single equivalent
+    effective area. This is useful when several restrictions are arranged in
+    series and should be represented as one equivalent restriction.
+
+    Relations
+    ---------
+    Series effective area:
+
+    `1 / effective_area_eq^2 = sum(1 / effective_area_i^2)`
+
+    Parameters
+    ----------
+    name : str
+        Component name
+    network : Network
+        Network that owns this component
+    effective_areas : list[State or float]
+        Effective areas connected in series
+
+    Outputs
+    -------
+    effective_area : State, optional
+        Equivalent effective area
+    """
 
     def __init__(
         self,
@@ -44,12 +111,6 @@ class SeriesCdA(Component):
         effective_areas: list[State | float],
         effective_area: State | None = None,
     ):
-        """
-        Equivalent effective area for flow restrictions in series.
-
-        Uses:
-            1 / CdA_eq^2 = sum(1 / CdA_i^2)
-        """
         self.setup()
 
     def evaluate_states(self):
@@ -67,8 +128,35 @@ class SeriesCdA(Component):
         self.effective_area.value = 1.0 / inverse_area_squared_sum**0.5
 
 
-
 class ParallelCdA(Component):
+    """
+    Equivalent effective area for restrictions in parallel.
+
+    `ParallelCdA` combines multiple effective flow areas into a single
+    equivalent effective area. This is useful when several restrictions are
+    arranged in parallel and should be represented as one equivalent
+    restriction.
+
+    Relations
+    ---------
+    Parallel effective area:
+
+    `effective_area_eq = sum(effective_area_i)`
+
+    Parameters
+    ----------
+    name : str
+        Component name
+    network : Network
+        Network that owns this component
+    effective_areas : list[State or float]
+        Effective areas connected in parallel
+
+    Outputs
+    -------
+    effective_area : State, optional
+        Equivalent effective area
+    """
 
     def __init__(
         self,
@@ -77,12 +165,6 @@ class ParallelCdA(Component):
         effective_areas: list[State | float],
         effective_area: State | None = None,
     ):
-        """
-        Equivalent effective area for flow restrictions in parallel.
-
-        Uses:
-            CdA_eq = sum(CdA_i)
-        """
         self.setup()
 
     def evaluate_states(self):
@@ -92,69 +174,93 @@ class ParallelCdA(Component):
         )
 
 
-
-
-
-
 class CavitatingVenturi(Component):
     """
-    GFSSP-style cavitating venturi model.
+    Cavitating liquid venturi model.
 
-    This component models a cavitating/choked liquid venturi using the
-    simplified approach described in the GFSSP 7.02 training notes.
-
-    The venturi operates in one of two modes:
-
-    1) Non-cavitating flow
-
-        mdot = Cd_noncav * A_t * sqrt(2 * rho * abs(P_up - P_down))
-
-    2) Cavitating/choked flow
-
-        mdot = Cd_cav * A_t * sqrt(2 * rho * (P_up - P_sat))
+    `CavitatingVenturi` computes mass flow through a liquid venturi using a
+    noncavitating restriction model or a cavitating/choked venturi model. The
+    active mode is selected using a critical downstream-to-upstream pressure
+    ratio.
 
     In cavitating mode, the throat pressure is assumed to be pinned to the
-    vapor pressure corresponding to the upstream fluid temperature.
+    vapor pressure corresponding to the upstream fluid state. If upstream
+    temperature and critical temperature are both assigned, cavitation is
+    disabled above the critical temperature.
 
     Notes
     -----
-    Cavitation onset and stable cavitating/choked flow are not identical.
+    Cavitation onset and stable cavitating flow are not identical. Incipient
+    cavitation begins when the throat pressure first reaches saturation
+    pressure, while fully established cavitating flow depends on geometry and
+    empirical behavior.
 
-    A venturi may begin experiencing incipient cavitation when the throat
-    pressure first reaches saturation pressure. However, fully established
-    cavitating/choked flow is geometry-dependent and empirical.
+    Relations
+    ---------
+    Noncavitating mass flow:
 
-    Therefore, this component follows the GFSSP methodology by using an
-    empirical critical pressure ratio criterion:
+    `mass_flow = sign(P1 - P2) * Cd_noncav * A_t * sqrt(2 * rho * abs(P1 - P2))`
 
-        P_downstream / P_upstream < critical_pressure_ratio
+    Cavitating mass flow:
 
-    to determine when the cavitating/choked-flow model should be activated.
+    `mass_flow = Cd_cav * A_t * sqrt(2 * rho * (P1 - vapor_pressure))`
 
-    Typical values:
-        critical_pressure_ratio ≈ 0.7 - 0.8
+    Cavitating mode criterion:
 
-    If upstream_temperature and critical_temperature are both assigned,
-    cavitation is disabled when upstream_temperature >= critical_temperature
-    because fluids above the critical temperature no longer possess a
-    liquid-vapor saturation boundary.
+    `downstream_pressure / upstream_pressure < critical_pressure_ratio`
+
+    Parameters
+    ----------
+    name : str
+        Component name
+    network : Network
+        Network that owns this component
+    upstream_pressure : State
+        Upstream pressure
+    downstream_pressure : State
+        Downstream pressure
+    density : State
+        Fluid density
+    throat_area : float
+        Venturi throat area
+    vapor_pressure : State
+        Fluid vapor pressure
+    critical_pressure_ratio : float, optional
+        Pressure ratio below which cavitating mode is activated
+    cavitating_discharge_coefficient : float, optional
+        Discharge coefficient used in cavitating mode
+    noncavitating_discharge_coefficient : float, optional
+        Discharge coefficient used in noncavitating mode
+    upstream_temperature : State, optional
+        Upstream fluid temperature
+    critical_temperature : State, optional
+        Fluid critical temperature
+
+    Outputs
+    -------
+    mass_flow : State, optional
+        Computed venturi mass flow rate
+    is_cavitating : bool, optional
+        Whether cavitating mode is active
     """
 
-    def __init__(self,
-                 name: str,
-                 network: Network,
-                 upstream_pressure: State,
-                 downstream_pressure: State,
-                 density: State,
-                 throat_area: float,
-                 vapor_pressure: State,
-                 critical_pressure_ratio: float = 0.8,
-                 cavitating_discharge_coefficient: float = 0.94,
-                 noncavitating_discharge_coefficient: float = 0.6,
-                 upstream_temperature: State | None = None,
-                 critical_temperature: State | None = None,
-                 mass_flow: State | None = None,
-                 is_cavitating: bool = False):
+    def __init__(
+        self,
+        name: str,
+        network: Network,
+        upstream_pressure: State,
+        downstream_pressure: State,
+        density: State,
+        throat_area: float,
+        vapor_pressure: State,
+        critical_pressure_ratio: float = 0.8,
+        cavitating_discharge_coefficient: float = 0.94,
+        noncavitating_discharge_coefficient: float = 0.6,
+        upstream_temperature: State | None = None,
+        critical_temperature: State | None = None,
+        mass_flow: State | None = None,
+        is_cavitating: bool = False,
+    ):
         self.setup()
 
     def evaluate_states(self):
@@ -169,13 +275,20 @@ class CavitatingVenturi(Component):
         pressure_ratio = P2 / P1
 
         above_critical_temperature = False
-        if self.upstream_temperature.is_assigned and self.critical_temperature.is_assigned:
-            above_critical_temperature = self.upstream_temperature.value >= self.critical_temperature.value
+        if (
+            self.upstream_temperature.is_assigned
+            and self.critical_temperature.is_assigned
+        ):
+            above_critical_temperature = (
+                self.upstream_temperature.value >= self.critical_temperature.value
+            )
 
         if above_critical_temperature or pressure_ratio >= PRcrit:
             self.is_cavitating = False
             dP = P1 - P2
-            self.mass_flow.value = np.sign(dP) * Cd_noncav * A * np.sqrt(2.0 * rho * np.abs(dP))
+            self.mass_flow.value = (
+                np.sign(dP) * Cd_noncav * A * np.sqrt(2.0 * rho * np.abs(dP))
+            )
         else:
             self.is_cavitating = True
 

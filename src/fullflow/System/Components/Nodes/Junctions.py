@@ -7,7 +7,6 @@ from fullflow.System import Component, State, Composition
 if TYPE_CHECKING:
     from fullflow.System import Network
 
-
 class FlowMixer(Component):
     """
     Two-inlet mixing volume with optional energy and species conservation.
@@ -22,77 +21,75 @@ class FlowMixer(Component):
     Residuals
     ---------
     mass_balance : float
-        Enforces steady-state mass conservation:
+        Enforces steady-state mass conservation.
 
-        `mass_flow_in1 + mass_flow_in2 - mass_flow_out = 0`
+        ``mass_flow_in1 + mass_flow_in2 - mass_flow_out = 0``
 
     energy_balance : float, optional
-        Enforces steady-state flow energy conservation:
+        Enforces steady-state flow energy conservation.
 
-        `mass_flow_in1 * total_enthalpy_in1
+        ``mass_flow_in1 * total_enthalpy_in1
         + mass_flow_in2 * total_enthalpy_in2
         - mass_flow_out * total_enthalpy_out
-        + heat_rate = 0`
+        + heat_rate = 0``
 
         Included only when energy solving is enabled.
-
-    Relations
-    ---------
-    Species mixing:
-
-    `Y_out = (mdot1 * Y1 + mdot2 * Y2) / (mdot1 + mdot2)`
-
-    for each species present in either inlet stream.
 
     Iteration Variables
     -------------------
     pressure : State
-        Mixer pressure.
+        Mixer pressure
 
     enthalpy : State, optional
-        Mixer specific enthalpy when energy conservation is enabled.
+        Mixer specific enthalpy when energy conservation is enabled
 
     Parameters
     ----------
     name : str
-        Component name.
+        Component name
     network : Network
-        Network that owns this component.
+        Network that owns this component
     pressure : State
-        Mixer pressure [Pa].
+        Mixer pressure
     volume : float
-        Mixer control volume [m^3].
+        Mixer control volume
     enthalpy : State, optional
-        Mixer specific enthalpy [J/kg].
+        Mixer specific enthalpy
     temperature : State, optional
-        Mixer temperature [K].
+        Mixer temperature
     density : State, optional
-        Mixer density [kg/m^3].
+        Mixer density
     internal_energy : State, optional
-        Mixer specific internal energy [J/kg].
+        Mixer specific internal energy
     heat_rate : State or float, optional
-        Net heat rate into the mixer [W].
+        Net heat rate into the mixer
     composition : Composition, optional
-        Mixed outlet composition.
+        Mixed outlet composition
     composition_in1 : Composition, optional
-        Composition of inlet stream 1.
+        Composition of inlet stream 1
     composition_in2 : Composition, optional
-        Composition of inlet stream 2.
+        Composition of inlet stream 2
     total_enthalpy_in1 : State, optional
-        Total specific enthalpy of inlet stream 1 [J/kg].
+        Total specific enthalpy of inlet stream 1
     total_enthalpy_in2 : State, optional
-        Total specific enthalpy of inlet stream 2 [J/kg].
+        Total specific enthalpy of inlet stream 2
     total_enthalpy_out : State, optional
-        Outlet total specific enthalpy [J/kg]. If omitted, the mixer enthalpy
-        is used.
+        Outlet total specific enthalpy. If omitted, the mixer enthalpy is used.
     mass_flow_in1 : State, optional
-        Inlet mass flow rate 1 [kg/s].
+        Inlet mass flow rate 1
     mass_flow_in2 : State, optional
-        Inlet mass flow rate 2 [kg/s].
+        Inlet mass flow rate 2
     mass_flow_out : State, optional
-        Outlet mass flow rate [kg/s].
-    """
+        Outlet mass flow rate
 
+    Notes
+    -----
+    Species mixing is evaluated from:
+
+        ``Y_out = (mdot1 * Y1 + mdot2 * Y2) / (mdot1 + mdot2)``
+
+    The relation is applied for each species present in either inlet stream.
+    """
     def __init__(
         self,
         name: str,
@@ -326,7 +323,6 @@ class FlowMixer(Component):
 
 
 
-
 class FlowSplitter(Component):
     """
     One-inlet, two-outlet flow splitter with optional energy and species conservation.
@@ -343,90 +339,85 @@ class FlowSplitter(Component):
     Residuals
     ---------
     mass_balance : float
-        Enforces steady-state mass conservation:
+        Enforces steady-state mass conservation.
 
-        `mass_flow_in
+        ``mass_flow_in
         - mass_flow_out1
-        - mass_flow_out2 = 0`
+        - mass_flow_out2 = 0``
 
     energy_balance : float, optional
-        Enforces steady-state flow energy conservation:
+        Enforces steady-state flow energy conservation.
 
-        `mass_flow_in * total_enthalpy_in
+        ``mass_flow_in * total_enthalpy_in
         - mass_flow_out1 * total_enthalpy_out1
         - mass_flow_out2 * total_enthalpy_out2
-        + heat_rate = 0`
+        + heat_rate = 0``
 
         Included only when energy solving is enabled.
 
-    Relations
-    ---------
-    Species conservation for outlet 2:
+    Iteration Variables
+    -------------------
+    pressure : State
+        Splitter pressure
 
-    `Y_out2 =
-    ((mdot_out1 + mdot_out2) * Y_internal
-    - mdot_out1 * Y_out1)
-    / mdot_out2`
+    enthalpy : State, optional
+        Splitter specific enthalpy when energy conservation is enabled
 
-    for each species in the splitter composition.
+    Parameters
+    ----------
+    name : str
+        Component name
+    network : Network
+        Network that owns this component
+    pressure : State
+        Splitter pressure
+    volume : float
+        Splitter control volume
+    enthalpy : State, optional
+        Splitter specific enthalpy
+    temperature : State, optional
+        Splitter temperature
+    density : State, optional
+        Splitter density
+    internal_energy : State, optional
+        Splitter specific internal energy
+    heat_rate : State or float, optional
+        Net heat rate into the splitter
+    composition : Composition, optional
+        Internal splitter composition
+    composition_in : Composition, optional
+        Inlet composition
+    composition_out1 : Composition, optional
+        Outlet 1 composition
+    composition_out2 : Composition, optional
+        Outlet 2 composition
+    total_enthalpy_in : State, optional
+        Inlet total specific enthalpy
+    total_enthalpy_out1 : State, optional
+        Outlet 1 total specific enthalpy. If omitted, the splitter enthalpy is used.
+    total_enthalpy_out2 : State, optional
+        Outlet 2 total specific enthalpy. If omitted, the splitter enthalpy is used.
+    mass_flow_in : State, optional
+        Inlet mass flow rate
+    mass_flow_out1 : State, optional
+        Outlet mass flow rate 1
+    mass_flow_out2 : State, optional
+        Outlet mass flow rate 2
 
     Notes
     -----
     Species conservation solves only for the composition of outlet 2. The
     composition of outlet 1 must be specified.
 
-    Iteration Variables
-    -------------------
-    pressure : State
-        Splitter pressure.
+    Outlet 2 species composition is evaluated from:
 
-    enthalpy : State, optional
-        Splitter specific enthalpy when energy conservation is enabled.
+        ``Y_out2 =
+        ((mdot_out1 + mdot_out2) * Y_internal
+        - mdot_out1 * Y_out1)
+        / mdot_out2``
 
-    Parameters
-    ----------
-    name : str
-        Component name.
-    network : Network
-        Network that owns this component.
-    pressure : State
-        Splitter pressure [Pa].
-    volume : float
-        Splitter control volume [m^3].
-    enthalpy : State, optional
-        Splitter specific enthalpy [J/kg].
-    temperature : State, optional
-        Splitter temperature [K].
-    density : State, optional
-        Splitter density [kg/m^3].
-    internal_energy : State, optional
-        Splitter specific internal energy [J/kg].
-    heat_rate : State or float, optional
-        Net heat rate into the splitter [W].
-    composition : Composition, optional
-        Internal splitter composition.
-    composition_in : Composition, optional
-        Inlet composition.
-    composition_out1 : Composition, optional
-        Outlet 1 composition.
-    composition_out2 : Composition, optional
-        Outlet 2 composition.
-    total_enthalpy_in : State, optional
-        Inlet total specific enthalpy [J/kg].
-    total_enthalpy_out1 : State, optional
-        Outlet 1 total specific enthalpy [J/kg]. If omitted, the splitter
-        enthalpy is used.
-    total_enthalpy_out2 : State, optional
-        Outlet 2 total specific enthalpy [J/kg]. If omitted, the splitter
-        enthalpy is used.
-    mass_flow_in : State, optional
-        Inlet mass flow rate [kg/s].
-    mass_flow_out1 : State, optional
-        Outlet mass flow rate 1 [kg/s].
-    mass_flow_out2 : State, optional
-        Outlet mass flow rate 2 [kg/s].
+    The relation is applied for each species in the splitter composition.
     """
-
     def __init__(
         self,
         name: str,

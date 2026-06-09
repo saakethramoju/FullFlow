@@ -22,13 +22,16 @@ class Boundary(Component):
     Parameters
     ----------
     name : str
-        Component name.
+        Component name
+
     network : Network
-        Network that owns this component.
+        Network that owns this component
+
     pressure : State
-        Boundary pressure [Pa].
+        Boundary pressure
+
     temperature : State
-        Boundary temperature [K].
+        Boundary temperature
     """
     def __init__(self, 
                  name: str,
@@ -50,11 +53,13 @@ class PressureBoundary(Component):
     Parameters
     ----------
     name : str
-        Component name.
+        Component name
+
     network : Network
-        Network that owns this component.
+        Network that owns this component
+
     pressure : State
-        Boundary pressure [Pa].
+        Boundary pressure
     """
     def __init__(self, 
                  name: str,
@@ -76,11 +81,13 @@ class TemperatureBoundary(Component):
     Parameters
     ----------
     name : str
-        Component name.
+        Component name
+
     network : Network
-        Network that owns this component.
+        Network that owns this component
+
     temperature : State
-        Boundary temperature [K].
+        Boundary temperature
     """
     def __init__(self, 
                  name: str,

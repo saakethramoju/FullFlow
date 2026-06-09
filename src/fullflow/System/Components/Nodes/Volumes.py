@@ -8,7 +8,6 @@ if TYPE_CHECKING:
     from fullflow.System import Network, State
 
 
-
 class SimpleVolume(Component):
     """
     Lumped fluid volume with mass conservation only.
@@ -21,41 +20,40 @@ class SimpleVolume(Component):
     Residuals
     ---------
     mass_balance : float
-        Enforces steady-state mass conservation:
+        Enforces steady-state mass conservation.
 
-        `mass_flow_in - mass_flow_out = 0`
+        ``mass_flow_in - mass_flow_out = 0``
 
     Iteration Variables
     -------------------
     pressure : State
-        Internal volume pressure.
+        Internal volume pressure
 
     Parameters
     ----------
     name : str
-        Component name.
+        Component name
     network : Network
-        Network that owns this component.
+        Network that owns this component
     pressure : State
-        Internal volume pressure [Pa].
+        Internal volume pressure
     volume : float
-        Volume of the control volume [m^3].
+        Volume of the control volume
     density : State, optional
-        Fluid density in the volume [kg/m^3].
+        Fluid density in the volume
     temperature : State, optional
-        Fluid temperature in the volume [K].
+        Fluid temperature in the volume
     enthalpy : State, optional
-        Fluid specific enthalpy in the volume [J/kg].
+        Fluid specific enthalpy in the volume
     composition : Composition, optional
-        Current fluid composition in the volume.
+        Current fluid composition in the volume
     composition_in : Composition, optional
-        Incoming fluid composition.
+        Incoming fluid composition
     mass_flow_in : State, optional
-        Total mass flow rate entering the volume [kg/s].
+        Total mass flow rate entering the volume
     mass_flow_out : State, optional
-        Total mass flow rate leaving the volume [kg/s].
+        Total mass flow rate leaving the volume
     """
-
     def __init__(
         self,
         name: str,
@@ -83,8 +81,6 @@ class SimpleVolume(Component):
 
 
 
-
-
 class Volume(Component):
     """
     Lumped fluid volume with steady-state mass and energy conservation.
@@ -97,16 +93,16 @@ class Volume(Component):
     Residuals
     ---------
     mass_balance : float
-        Enforces steady-state mass conservation:
+        Enforces steady-state mass conservation.
 
-        `mass_flow_in - mass_flow_out = 0`
+        ``mass_flow_in - mass_flow_out = 0``
 
     energy_balance : float
-        Enforces steady-state flow energy conservation:
+        Enforces steady-state flow energy conservation.
 
-        `mass_flow_in * total_enthalpy_in
+        ``mass_flow_in * total_enthalpy_in
         - mass_flow_out * total_enthalpy_out
-        + heat_rate = 0`
+        + heat_rate = 0``
 
         If `total_enthalpy_out` is not assigned, the volume enthalpy is used as
         the outlet total enthalpy. If `heat_rate` is not assigned, it is treated
@@ -115,39 +111,39 @@ class Volume(Component):
     Iteration Variables
     -------------------
     pressure : State
-        Internal volume pressure.
+        Internal volume pressure
     enthalpy : State
-        Internal volume specific enthalpy.
+        Internal volume specific enthalpy
 
     Parameters
     ----------
     name : str
-        Component name.
+        Component name
     network : Network
-        Network that owns this component.
+        Network that owns this component
     pressure : State
-        Internal volume pressure [Pa].
+        Internal volume pressure
     enthalpy : State
-        Internal volume specific enthalpy [J/kg].
+        Internal volume specific enthalpy
     volume : float
-        Volume of the control volume [m^3].
+        Volume of the control volume
     total_enthalpy_in : State
-        Total specific enthalpy entering the volume [J/kg].
+        Total specific enthalpy entering the volume
     total_enthalpy_out : State, optional
-        Total specific enthalpy leaving the volume [J/kg]. If omitted, `enthalpy`
+        Total specific enthalpy leaving the volume. If omitted, `enthalpy`
         is used.
     heat_rate : State or float, optional
-        Net heat rate into the volume [W]. Positive values add energy.
+        Net heat rate into the volume. Positive values add energy
     temperature : State, optional
-        Fluid temperature in the volume [K].
+        Fluid temperature in the volume
     density : State, optional
-        Fluid density in the volume [kg/m^3].
+        Fluid density in the volume
     internal_energy : State, optional
-        Fluid specific internal energy in the volume [J/kg].
+        Fluid specific internal energy in the volume
     mass_flow_in : State, optional
-        Total mass flow rate entering the volume [kg/s].
+        Total mass flow rate entering the volume
     mass_flow_out : State, optional
-        Total mass flow rate leaving the volume [kg/s].
+        Total mass flow rate leaving the volume
     """
     def __init__(
         self,

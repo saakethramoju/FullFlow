@@ -8,7 +8,6 @@ from fullflow.System import Component
 if TYPE_CHECKING:
     from fullflow.System import Network, State
 
-
 class Gnielinski(Component):
     """
     Gnielinski turbulent forced-convection heat transfer coefficient.
@@ -24,37 +23,41 @@ class Gnielinski(Component):
 
         h = Nu * k / Dh
 
+        St = Nu / (Re Pr)
+
     Parameters
     ----------
-    hydraulic_diameter : State | float
-        Hydraulic diameter of the flow passage [m].
-
-    friction_factor : State | float
-        Darcy friction factor [-].
-
-    fluid_conductivity : State
-        Fluid thermal conductivity [W/m-K].
-
-    fluid_specific_heat : State
-        Fluid specific heat capacity [J/kg-K].
-
-    fluid_dynamic_viscosity : State
-        Fluid dynamic viscosity [Pa-s].
-
-    cross_sectional_area : State | float
-        Flow cross-sectional area [m²].
-
+    name : str
+        Component name
+    network : Network
+        Network that owns this component
     mass_flow : State
-        Fluid mass flow rate [kg/s]. The absolute value is used.
-
-    convection_coefficient : State, optional
-        Output convection coefficient h [W/m²-K].
-        If omitted, a new State is created.
+        Fluid mass flow rate. The absolute value is used
+    hydraulic_diameter : State or float
+        Hydraulic diameter of the flow passage
+    friction_factor : State or float
+        Darcy friction factor
+    fluid_conductivity : State
+        Fluid thermal conductivity
+    fluid_specific_heat : State
+        Fluid specific heat capacity
+    fluid_dynamic_viscosity : State
+        Fluid dynamic viscosity
+    cross_sectional_area : State or float
+        Flow cross-sectional area
+    reynolds_number : State or float, optional
+        Reynolds number. If omitted, it is calculated
+    prandtl_number : State or float, optional
+        Prandtl number. If omitted, it is calculated
+    nusselt_number : State or float, optional
+        Output Nusselt number
+    stanton_number : State or float, optional
+        Output Stanton number
 
     Outputs
     -------
-    convection_coefficient : State
-        Convective heat transfer coefficient [W/m²-K].
+    convection_coefficient : State, optional
+        Convective heat transfer coefficient. If omitted, a new State is created
 
     Assumptions
     -----------
@@ -139,7 +142,6 @@ class Gnielinski(Component):
 
 
 
-
 class Miropolskii(Component):
     """
     Miropolskii film-boiling heat transfer coefficient for two-phase flow.
@@ -150,11 +152,55 @@ class Miropolskii(Component):
 
         Re = (G Dh / mu_v) [x + (rho_v / rho_l)(1 - x)]
 
+        G = mdot / A
+
         Pr = Cp_v mu_v / k_v
 
         Y = 1 - 0.1 (rho_l / rho_v)^0.4 (1 - x)^0.4
 
         h = Nu k_v / Dh
+
+        St = Nu / (Re Pr)
+
+    Parameters
+    ----------
+    name : str
+        Component name
+    network : Network
+        Network that owns this component
+    mass_flow : State
+        Fluid mass flow rate. The absolute value is used
+    hydraulic_diameter : State or float
+        Hydraulic diameter of the flow passage
+    cross_sectional_area : State or float
+        Flow cross-sectional area
+    quality : State or float
+        Vapor quality
+    vapor_density : State
+        Vapor density
+    vapor_specific_heat : State
+        Vapor specific heat capacity
+    vapor_dynamic_viscosity : State
+        Vapor dynamic viscosity
+    vapor_conductivity : State
+        Vapor thermal conductivity
+    liquid_density : State
+        Liquid density
+    reynolds_number : State or float, optional
+        Reynolds number. If omitted, it is calculated
+    prandtl_number : State or float, optional
+        Prandtl number. If omitted, it is calculated
+    correction_factor : State or float, optional
+        Output Miropolskii correction factor
+    nusselt_number : State or float, optional
+        Output Nusselt number
+    stanton_number : State or float, optional
+        Output Stanton number
+
+    Outputs
+    -------
+    convection_coefficient : State, optional
+        Convective heat transfer coefficient. If omitted, a new State is created
 
     Notes
     -----
@@ -250,7 +296,6 @@ class Miropolskii(Component):
 
 
 
-
 class Petukhov(Component):
     """
     Petukhov turbulent forced-convection heat transfer coefficient.
@@ -265,6 +310,42 @@ class Petukhov(Component):
         Pr = cp * mu / k
 
         h = Nu * k / Dh
+
+        St = Nu / (Re Pr)
+
+    Parameters
+    ----------
+    name : str
+        Component name
+    network : Network
+        Network that owns this component
+    mass_flow : State
+        Fluid mass flow rate. The absolute value is used
+    hydraulic_diameter : State or float
+        Hydraulic diameter of the flow passage
+    friction_factor : State or float
+        Darcy friction factor
+    fluid_conductivity : State
+        Fluid thermal conductivity
+    fluid_specific_heat : State
+        Fluid specific heat capacity
+    fluid_dynamic_viscosity : State
+        Fluid dynamic viscosity
+    cross_sectional_area : State or float
+        Flow cross-sectional area
+    reynolds_number : State or float, optional
+        Reynolds number. If omitted, it is calculated
+    prandtl_number : State or float, optional
+        Prandtl number. If omitted, it is calculated
+    nusselt_number : State or float, optional
+        Output Nusselt number
+    stanton_number : State or float, optional
+        Output Stanton number
+
+    Outputs
+    -------
+    convection_coefficient : State, optional
+        Convective heat transfer coefficient. If omitted, a new State is created
 
     Notes
     -----
@@ -342,7 +423,6 @@ class Petukhov(Component):
 
 
 
-
 class SiederTate(Component):
     """
     Sieder-Tate turbulent forced-convection heat transfer coefficient.
@@ -357,37 +437,41 @@ class SiederTate(Component):
 
         h = Nu * k / Dh
 
+        St = Nu / (Re Pr)
+
     Parameters
     ----------
-    hydraulic_diameter : State | float
-        Hydraulic diameter of the flow passage [m].
-
-    fluid_conductivity : State
-        Bulk fluid thermal conductivity [W/m-K].
-
-    fluid_specific_heat : State
-        Bulk fluid specific heat capacity [J/kg-K].
-
-    bulk_fluid_dynamic_viscosity : State
-        Dynamic viscosity evaluated at the bulk fluid temperature [Pa-s].
-
-    wall_fluid_dynamic_viscosity : State
-        Dynamic viscosity evaluated at the wall temperature [Pa-s].
-
-    cross_sectional_area : State | float
-        Flow cross-sectional area [m²].
-
+    name : str
+        Component name
+    network : Network
+        Network that owns this component
     mass_flow : State
-        Fluid mass flow rate [kg/s]. The absolute value is used.
-
-    convection_coefficient : State, optional
-        Output convection coefficient h [W/m²-K].
-        If omitted, a new State is created.
+        Fluid mass flow rate. The absolute value is used
+    hydraulic_diameter : State or float
+        Hydraulic diameter of the flow passage
+    fluid_conductivity : State
+        Bulk fluid thermal conductivity
+    fluid_specific_heat : State
+        Bulk fluid specific heat capacity
+    bulk_fluid_dynamic_viscosity : State
+        Dynamic viscosity evaluated at the bulk fluid temperature
+    wall_fluid_dynamic_viscosity : State
+        Dynamic viscosity evaluated at the wall temperature
+    cross_sectional_area : State or float
+        Flow cross-sectional area
+    reynolds_number : State or float, optional
+        Reynolds number. If omitted, it is calculated
+    prandtl_number : State or float, optional
+        Prandtl number. If omitted, it is calculated
+    nusselt_number : State or float, optional
+        Output Nusselt number
+    stanton_number : State or float, optional
+        Output Stanton number
 
     Outputs
     -------
-    convection_coefficient : State
-        Convective heat transfer coefficient [W/m²-K].
+    convection_coefficient : State, optional
+        Convective heat transfer coefficient. If omitted, a new State is created
 
     Assumptions
     -----------
@@ -475,7 +559,6 @@ class SiederTate(Component):
 
 
 
-
 class DittusBoelter(Component):
     """
     Dittus-Boelter (Colburn form) turbulent forced-convection heat transfer
@@ -491,34 +574,39 @@ class DittusBoelter(Component):
 
         h = Nu * k / Dh
 
+        St = Nu / (Re Pr)
+
     Parameters
     ----------
-    hydraulic_diameter : State | float
-        Hydraulic diameter of the flow passage [m].
-
-    fluid_conductivity : State
-        Fluid thermal conductivity [W/m-K].
-
-    fluid_specific_heat : State
-        Fluid specific heat capacity [J/kg-K].
-
-    fluid_dynamic_viscosity : State
-        Fluid dynamic viscosity [Pa-s].
-
-    cross_sectional_area : State | float
-        Flow cross-sectional area [m²].
-
+    name : str
+        Component name
+    network : Network
+        Network that owns this component
     mass_flow : State
-        Fluid mass flow rate [kg/s].
-
-    convection_coefficient : State, optional
-        Output convection coefficient h [W/m²-K].
-        If omitted, a new State is created.
+        Fluid mass flow rate. The absolute value is used
+    hydraulic_diameter : State or float
+        Hydraulic diameter of the flow passage
+    fluid_conductivity : State
+        Fluid thermal conductivity
+    fluid_specific_heat : State
+        Fluid specific heat capacity
+    fluid_dynamic_viscosity : State
+        Fluid dynamic viscosity
+    cross_sectional_area : State or float
+        Flow cross-sectional area
+    reynolds_number : State or float, optional
+        Reynolds number. If omitted, it is calculated
+    prandtl_number : State or float, optional
+        Prandtl number. If omitted, it is calculated
+    nusselt_number : State or float, optional
+        Output Nusselt number
+    stanton_number : State or float, optional
+        Output Stanton number
 
     Outputs
     -------
-    convection_coefficient : State
-        Convective heat transfer coefficient [W/m²-K].
+    convection_coefficient : State, optional
+        Convective heat transfer coefficient. If omitted, a new State is created
 
     Derived Quantities
     ------------------
@@ -624,7 +712,6 @@ class DittusBoelter(Component):
 
 
 
-
 class Bartz(Component):
     """
     Bartz convective heat transfer coefficient correlation for
@@ -651,46 +738,36 @@ class Bartz(Component):
 
     Parameters
     ----------
+    name : str
+        Component name
+    network : Network
+        Network that owns this component
     mass_flow : State
-        Local mass flow rate [kg/s].
-
-    hydraulic_diameter : State | float
-        Local hydraulic diameter or equivalent nozzle diameter [m].
-
+        Local mass flow rate. The absolute value is used
+    hydraulic_diameter : State or float
+        Local hydraulic diameter or equivalent nozzle diameter
     chamber_specific_heat_cp : State
-        Specific heat capacity evaluated at stagnation conditions [J/kg-K].
-
+        Specific heat capacity evaluated at stagnation conditions
     chamber_prandtl_number : State
-        Prandtl number evaluated at stagnation conditions [-].
-
+        Prandtl number evaluated at stagnation conditions
     chamber_dynamic_viscosity : State
-        Dynamic viscosity evaluated at stagnation conditions [Pa-s].
-
+        Dynamic viscosity evaluated at stagnation conditions
     local_freestream_density : State
-        Local gas density at the evaluation location [kg/m³].
-
+        Local gas density at the evaluation location
     mean_temperature_density : State
         Gas density evaluated at the arithmetic mean temperature
-        T_am = (T + T_w) / 2 [kg/m³]. T is the local freestream 
-        static temperature.
-
+        T_am = (T + T_wall) / 2. T is the local freestream static temperature
     mean_temperature_dynamic_viscosity : State
         Dynamic viscosity evaluated at the arithmetic mean temperature
-        T_am = (T + T_w) / 2 [Pa-s]. T is the local freestream
-        static temperature.
-
+        T_am = (T + T_wall) / 2. T is the local freestream static temperature
     throat_converging_radius : float, optional
-        Radius of curvature of the throat converging section [m].
-        When supplied, the geometric correction D/rc is applied.
-
-    convection_coefficient : State, optional
-        Output convection coefficient h_g [W/m²-K].
-        If omitted, a new State is created.
+        Radius of curvature of the throat converging section. When supplied,
+        the geometric correction D / rc is applied
 
     Outputs
     -------
-    convection_coefficient : State
-        Gas-side convective heat transfer coefficient [W/m²-K].
+    convection_coefficient : State, optional
+        Gas-side convective heat transfer coefficient. If omitted, a new State is created
 
     Derived Quantities
     ------------------
@@ -743,11 +820,11 @@ class Bartz(Component):
     chemically reacting rocket exhaust gases.
 
     Bartz tends to underpredict when the effects of radiation are
-    strong, when there is a lot dissociation/recombination in the 
-    boundary layer, or when there are significant combustion 
-    instabilities. 
+    strong, when there is a lot dissociation/recombination in the
+    boundary layer, or when there are significant combustion
+    instabilities.
 
-    Bartz tends to overpredict when soot deposition on the walls is 
+    Bartz tends to overpredict when soot deposition on the walls is
     significant or when the combustion is incomplete.
     """
     def __init__(self, 
@@ -804,7 +881,6 @@ class Bartz(Component):
 
 
 
-
 class NaturalConvection(Component):
     """
     Empirical natural-convection heat transfer coefficient.
@@ -825,6 +901,44 @@ class NaturalConvection(Component):
     ------------
         Laminar:   Ra < 1e9   -> c = 0.59, n = 0.25
         Turbulent: Ra >= 1e9  -> c = 0.13, n = 0.33
+
+    Parameters
+    ----------
+    name : str
+        Component name
+    network : Network
+        Network that owns this component
+    wall_temperature : State
+        Wall temperature
+    fluid_temperature : State
+        Fluid temperature
+    characteristic_length : State or float
+        Characteristic length
+    fluid_density : State
+        Fluid density
+    fluid_specific_heat : State
+        Fluid specific heat capacity
+    fluid_dynamic_viscosity : State
+        Fluid dynamic viscosity
+    fluid_conductivity : State
+        Fluid thermal conductivity
+    thermal_expansion_coefficient : State
+        Volumetric thermal expansion coefficient
+    gravity : State or float, optional
+        Gravitational acceleration
+    grashof_number : State or float, optional
+        Output Grashof number
+    prandtl_number : State or float, optional
+        Output Prandtl number
+    rayleigh_number : State or float, optional
+        Output Rayleigh number
+    nusselt_number : State or float, optional
+        Output Nusselt number
+
+    Outputs
+    -------
+    convection_coefficient : State, optional
+        Convective heat transfer coefficient. If omitted, a new State is created
 
     Notes
     -----
@@ -899,7 +1013,6 @@ class NaturalConvection(Component):
 
 
 
-
 class ChurchillChu(Component):
     """
     Churchill-Chu natural-convection heat transfer coefficient.
@@ -916,6 +1029,44 @@ class ChurchillChu(Component):
 
         h = Nu k / L
 
+    Parameters
+    ----------
+    name : str
+        Component name
+    network : Network
+        Network that owns this component
+    wall_temperature : State
+        Wall temperature
+    fluid_temperature : State
+        Fluid temperature
+    characteristic_length : State or float
+        Characteristic length
+    fluid_density : State
+        Fluid density
+    fluid_specific_heat : State
+        Fluid specific heat capacity
+    fluid_dynamic_viscosity : State
+        Fluid dynamic viscosity
+    fluid_conductivity : State
+        Fluid thermal conductivity
+    thermal_expansion_coefficient : State
+        Volumetric thermal expansion coefficient
+    gravity : State or float, optional
+        Gravitational acceleration
+    grashof_number : State or float, optional
+        Output Grashof number
+    prandtl_number : State or float, optional
+        Output Prandtl number
+    rayleigh_number : State or float, optional
+        Output Rayleigh number
+    nusselt_number : State or float, optional
+        Output Nusselt number
+
+    Outputs
+    -------
+    convection_coefficient : State, optional
+        Convective heat transfer coefficient. If omitted, a new State is created
+
     Notes
     -----
     Fluid properties should be evaluated at the film temperature:
@@ -929,7 +1080,6 @@ class ChurchillChu(Component):
     --------------------------
     * 1e-1 <= Ra <= 1e12
     """
-
     def __init__(
         self,
         name: str,
