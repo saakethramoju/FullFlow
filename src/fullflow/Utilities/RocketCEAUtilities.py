@@ -1,5 +1,3 @@
-from rocketcea.cea_obj_w_units import CEA_Obj
-
 _CEA_CACHE = {}
 
 PROPELLANT_NAME_BANK = {
@@ -117,7 +115,7 @@ def normalize_propellant_name(name: str) -> str:
 
 
 
-def create_SI_CEA_object(fuel: str = 'RP-1', oxidizer: str = 'LOX') -> CEA_Obj:
+def create_SI_CEA_object(fuel: str = 'RP-1', oxidizer: str = 'LOX'):
     """
     Create and return a RocketCEA `CEA_Obj` configured with SI-based units.
 
@@ -165,6 +163,7 @@ def create_SI_CEA_object(fuel: str = 'RP-1', oxidizer: str = 'LOX') -> CEA_Obj:
     >>> cea = create_CEA_object('RP-1', 'LOX')
     >>> cstar = cea.get_Cstar(Pc, MR)
     """
+    from rocketcea.cea_obj_w_units import CEA_Obj
     key = (fuel, oxidizer)
     if key not in _CEA_CACHE:
         _CEA_CACHE[key] = CEA_Obj(
