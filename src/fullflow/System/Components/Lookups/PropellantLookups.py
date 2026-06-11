@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from fullflow.System import Component, State
-from thermoprop import Propellant, FluidRegistry
+from thermoprop import Propellant
 
 from fullflow.Exceptions import InvalidThermoStateError
 
@@ -15,108 +15,10 @@ if TYPE_CHECKING:
 
 PropellantInput = str
 
+
 class PropellantLookup(Component):
     """
     RocketProps-backed liquid propellant property lookup component.
-
-    `PropellantLookup` evaluates liquid propellant properties through the
-    ThermoProp `Propellant` wrapper. It intentionally follows the same general
-    pattern as `FluidLookup` and `IdealGasLookup`, but it is simpler because
-    RocketProps is not a full thermodynamic flash solver.
-
-    The component accepts a RocketProps propellant name or alias string, updates
-    the propellant state from temperature or pressure-temperature inputs, and
-    writes requested property outputs to their corresponding states. Additional
-    supported propellant properties can be accessed lazily as derived states.
-
-    Parameters
-    ----------
-    name : str
-        Component name
-    network : Network
-        Network that owns this component
-    propellant : str
-        RocketProps propellant name or alias
-    temperature : State or float, optional
-        Propellant temperature input
-    pressure : State or float, optional
-        Propellant pressure input
-    **property_states : State
-        Additional requested Propellant property output states
-
-    Outputs
-    -------
-    property_states : State
-        Requested propellant property states
-
-    Notes
-    -----
-    `PropellantLookup` requires temperature so the initial liquid propellant
-    state can be defined.
-
-    Pressure is optional. When pressure is provided, the backend uses
-    pressure-temperature evaluation where RocketProps supports compressed-liquid
-    correlations.
-
-    Supported thermodynamic inputs are:
-
-        ``temperature``
-
-        ``pressure``
-
-    Supported input pairs are:
-
-        ``temperature``
-
-        ``pressure-temperature``
-
-    Example temperature-only lookup:
-
-        ``PropellantLookup(..., propellant="RP-1", temperature=T)``
-
-    Example pressure-temperature lookup:
-
-        ``PropellantLookup(..., propellant="LOX", pressure=P, temperature=T)``
-
-    Requested non-input thermodynamic states are treated as outputs. Additional
-    output properties may be passed with keyword arguments:
-
-        ``PropellantLookup(..., propellant="LOX", temperature=T, density=rho)``
-
-    `PropellantLookup` does not support `Composition` objects or arbitrary
-    mixtures. Named RocketProps mixtures such as `MON25`, `A50`, or `MHF3`
-    should be passed as single propellant strings.
-
-    The `propellant_name` property returns the canonical RocketProps propellant
-    name:
-
-        ``propellant_name = lookup.propellant_name``
-
-    This component intentionally blocks `.composition`. Propellant aliases must
-    stay in the RocketProps registry path. Using `Composition` would route names
-    through the Fluid or IdealGas registry, where aliases such as `rp-1` may map
-    to a different backend name.
-
-    Supported properties can be inspected with:
-
-        ``PropellantLookup.supported_properties()``
-
-        ``PropellantLookup.show_supported_properties()``
-
-        ``PropellantLookup.supports_property(property_name)``
-
-    Supported inputs and input pairs can be inspected with:
-
-        ``PropellantLookup.supported_inputs()``
-
-        ``PropellantLookup.show_supported_inputs()``
-
-        ``PropellantLookup.supported_flash_pairs()``
-
-        ``PropellantLookup.show_supported_flash_pairs()``
-
-    If the propellant state is invalid, `InvalidThermoStateError` is raised
-    with the propellant name and input variables.
     """
     _THERMO_NAMES = (
         "pressure",
@@ -148,20 +50,17 @@ class PropellantLookup(Component):
 
         if not isinstance(propellant, str):
             raise TypeError(
-                f"{self.name}: PropellantLookup only accepts a RocketProps "
-                "propellant name or alias string. Composition objects and "
-                "multi-species mixtures are not supported. Use named "
-                "RocketProps mixtures such as 'MON25', 'A50', or 'MHF3'."
+                f"{self.name}: PropellantLookup only accepts a propellant "
+                "name or alias string. Composition objects and multi-species "
+                "mixtures are not supported. Use named mixtures such as "
+                "'MON25', 'A50', or 'MHF3'."
             )
 
-        # Keep both the user input and the canonical RocketProps backend name.
-        # This avoids Composition, which intentionally uses the Fluid/IdealGas
-        # registry where "rp-1" maps to "n-Dodecane".
         self._propellant_input = propellant
-        self._rocketprops_propellant = FluidRegistry.propellant_name(propellant)
+        self._propellant_name = propellant
 
         # Public identity. This is a string, not a Composition.
-        self.propellant = self._rocketprops_propellant
+        self.propellant = self._propellant_name
 
         self._Propellant = None
 
@@ -177,8 +76,6 @@ class PropellantLookup(Component):
                 "liquid propellant state can be defined."
             )
 
-        # Propellant can be evaluated from temperature alone.
-        # Pressure is optional and only enables compressed-liquid correlations.
         if "pressure" in provided_names:
             self._flash_names = ["pressure", "temperature"]
         else:
@@ -192,7 +89,6 @@ class PropellantLookup(Component):
 
         self._initialize_backend()
 
-        # Flash states should be assignable States.
         for flash_name in self._flash_names:
             state = getattr(self, flash_name, None)
 
@@ -202,7 +98,6 @@ class PropellantLookup(Component):
             else:
                 setattr(self, flash_name, State(state))
 
-        # Remove unused placeholder thermo states.
         for prop_name in self._THERMO_NAMES:
             if prop_name in self._flash_names:
                 continue
@@ -210,7 +105,6 @@ class PropellantLookup(Component):
             if _input_map[prop_name] is None and prop_name in self.__dict__:
                 delattr(self, prop_name)
 
-        # Provided non-flash thermo states become output states.
         for prop_name in self._THERMO_NAMES:
             if prop_name in self._flash_names:
                 continue
@@ -245,18 +139,11 @@ class PropellantLookup(Component):
 
     @property
     def propellant_name(self) -> str:
-        """Return the canonical RocketProps propellant name."""
-        return self._rocketprops_propellant
+        """Return the canonical ThermoProp propellant name."""
+        return self._propellant_name
 
     @property
     def composition(self):
-        """
-        PropellantLookup does not support Composition.
-
-        Propellant aliases must stay in the RocketProps registry path. Using the
-        normal Composition class would route names through the Fluid/IdealGas
-        registry, where aliases such as "rp-1" become "n-Dodecane".
-        """
         raise AttributeError(
             f"{self.name}: PropellantLookup does not support composition. "
             "Pass propellants as strings, or use .propellant_name to pass the "
@@ -278,7 +165,7 @@ class PropellantLookup(Component):
 
             raise InvalidThermoStateError(
                 f"{self.name}: invalid propellant state.\n"
-                f"Propellant: {self._rocketprops_propellant!r}\n"
+                f"Propellant: {self._propellant_name!r}\n"
                 f"Flash variables: {flash_state}"
             ) from e
 
@@ -310,16 +197,19 @@ class PropellantLookup(Component):
             )
 
         return self._property_states[name]
-    
+
     def _initialize_backend(self) -> None:
-        """Create the RocketProps-backed Propellant object."""
+        """Create the ThermoProp Propellant object."""
         self._Propellant = Propellant(
-            self._rocketprops_propellant,
+            self._propellant_input,
             **{
                 name: getattr(self, name).value
                 for name in self._flash_names
             },
         )
+
+        self._propellant_name = self._Propellant.propellant
+        self.propellant = self._propellant_name
 
         self._last_flash_values = None
         self._property_cache.clear()
@@ -379,25 +269,22 @@ class PropellantLookup(Component):
             getattr(Propellant, name, None),
             property,
         )
-        
+
     @classmethod
     def supported_properties(cls) -> list[str]:
         return Propellant.supported_properties()
-
 
     @classmethod
     def show_supported_properties(cls) -> list[str]:
         return Propellant.show_supported_properties()
 
-
     @classmethod
     def supports_property(cls, property_name: str) -> bool:
         return Propellant.supports_property(property_name)
-        
+
     @classmethod
     def supported_inputs(cls) -> list[str]:
         return list(cls._THERMO_NAMES)
-
 
     @classmethod
     def show_supported_inputs(cls) -> list[str]:
@@ -408,14 +295,12 @@ class PropellantLookup(Component):
 
         return inputs
 
-
     @classmethod
     def supported_flash_pairs(cls) -> list[str]:
         return [
             "temperature",
             "pressure-temperature",
         ]
-
 
     @classmethod
     def show_supported_flash_pairs(cls) -> list[str]:
@@ -439,12 +324,12 @@ class PropellantLookup(Component):
             "_Propellant",
             "input_map",
             "_input_map",
-            "rocketprops_propellant",
-            "_rocketprops_propellant",
             "last_flash_values",
             "_last_flash_values",
             "property_cache",
             "_property_cache",
             "propellant_input",
             "_propellant_input",
+            "propellant_name",
+            "_propellant_name",
         }

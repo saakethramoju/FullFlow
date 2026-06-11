@@ -252,7 +252,7 @@ def main() -> None:
     # Coolant side
     # ------------------------------------------------------------------
 
-    AnnulusPoiseuille = CircularAnnulus(
+    AnnulusPoiseuille = CircularAnnulusPoiseuille(
         "Circular Annulus Poiseuille",
         HeatExchanger,
         inner_diameter=D_tube_outer,

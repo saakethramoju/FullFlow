@@ -1,6 +1,5 @@
 import numpy as np
 
-from thermoprop import FluidRegistry
 from .State import State
 
 
@@ -12,9 +11,6 @@ class Composition:
     `State` objects. It is used by FullFlow property lookups and flow-mixing
     components to represent pure fluids, mixtures, and dynamically changing
     mixture compositions.
-
-    Species names are normalized through `FluidRegistry`, so aliases may be
-    used when constructing or accessing a composition.
 
     Parameters
     ----------
@@ -51,6 +47,7 @@ class Composition:
 
     The `&` operator returns the species intersection between two compositions.
     """
+
     def __init__(
         self,
         fluid: dict[str, State | float] | str | None = None,
@@ -66,7 +63,7 @@ class Composition:
             fluid = {fluid: 1.0}
 
         self.fraction = {
-            FluidRegistry.name(species): (
+            species: (
                 value if isinstance(value, State) else State(float(value))
             )
             for species, value in fluid.items()
@@ -113,8 +110,6 @@ class Composition:
         if species is None:
             species = next(reversed(self.fraction))
 
-        species = FluidRegistry.name(species)
-
         if species not in self.fraction:
             raise ValueError(f"{species!r} is not present in the composition.")
 
@@ -130,7 +125,6 @@ class Composition:
             for species, state in self.fraction.items()
             if species != self._constrained_species
         )
-
 
     def copy_from(
         self,
@@ -152,10 +146,8 @@ class Composition:
                 self.constrain_species()
             else:
                 self.enforce_constraint()
-        
 
     def __getitem__(self, species: str) -> State:
-        species = FluidRegistry.name(species)
 
         if species in self.fraction:
             return self.fraction[species]
@@ -164,7 +156,6 @@ class Composition:
             self._zero_fraction_states[species] = State(0.0)
 
         return self._zero_fraction_states[species]
-
 
     def __and__(self, other: "Composition | None") -> tuple[str, ...]:
         """
@@ -184,7 +175,7 @@ class Composition:
         return iter(self.fraction.items())
 
     def __contains__(self, species: str) -> bool:
-        return FluidRegistry.name(species) in self.fraction
+        return species in self.fraction
 
     def __len__(self) -> int:
         return len(self.fraction)
