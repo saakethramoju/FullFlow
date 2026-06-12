@@ -375,8 +375,23 @@ class FluidLookup(Component):
             },
         )
 
+        self._sync_composition_species_from_backend()
+        self._coolprop_fluid = self._fluid_argument_from_composition()
+
         self._last_flash_values = None
         self._property_cache.clear()
+
+    def _sync_composition_species_from_backend(self) -> None:
+        """Sync composition keys to the ThermoProp Fluid species names."""
+        if self._Fluid is None or not self.composition.is_assigned:
+            return
+
+        species = tuple(getattr(self._Fluid, "species", ()))
+
+        if not species:
+            return
+
+        self.composition.sync_species(species)
 
     def _ensure_backend_initialized(self) -> bool:
         if self._Fluid is not None:
@@ -527,6 +542,10 @@ class FluidLookup(Component):
                     for name in self._initial_ordered_names
                 },
             )
+
+            self._sync_composition_species_from_backend()
+            self._coolprop_fluid = self._fluid_argument_from_composition()
+            composition_values = self._composition_values()
 
             self._last_composition_values = composition_values
             self._last_flash_values = None

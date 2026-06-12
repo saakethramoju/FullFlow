@@ -12,6 +12,10 @@ class Composition:
     components to represent pure fluids, mixtures, and dynamically changing
     mixture compositions.
 
+    `Composition` does not resolve species aliases directly. It stores the
+    species keys it is given. ThermoProp-backed lookups may later synchronize
+    these keys to ThermoProp-resolved canonical species names.
+
     Parameters
     ----------
     fluid : dict[str, State or float] or str, optional
@@ -70,6 +74,41 @@ class Composition:
         }
 
         self.validate()
+
+    def sync_species(
+        self,
+        species: tuple[str, ...] | list[str],
+    ) -> None:
+        """
+        Replace species keys while preserving the existing State objects.
+
+        This is intended for ThermoProp-backed lookups that resolve user input
+        aliases through their own wrappers and then synchronize the FullFlow
+        composition keys to the backend's canonical species names.
+        """
+        species = tuple(species)
+
+        if len(species) != len(self.fraction):
+            raise ValueError(
+                "Cannot sync composition species because the number of new "
+                f"species names ({len(species)}) does not match the number of "
+                f"existing species ({len(self.fraction)})."
+            )
+
+        states = list(self.fraction.values())
+
+        self.fraction = {
+            name: state
+            for name, state in zip(species, states)
+        }
+
+        if (
+            self._constrained_species is not None
+            and self._constrained_species not in self.fraction
+        ):
+            self._constrained_species = species[-1] if species else None
+
+        self._zero_fraction_states.clear()
 
     def validate(self, atol: float = 1e-6) -> None:
         total = sum(state.value for state in self.fraction.values())

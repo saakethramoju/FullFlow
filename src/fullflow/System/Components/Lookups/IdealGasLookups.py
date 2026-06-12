@@ -427,8 +427,24 @@ class IdealGasLookup(Component):
             },
         )
 
+        self._sync_composition_species_from_backend()
+        self._coolprop_fluid = self._coolprop_argument_from_composition()
+        self._pyromat_fluid = self._pyromat_argument_from_composition()
+
         self._last_flash_values = None
         self._property_cache.clear()
+
+    def _sync_composition_species_from_backend(self) -> None:
+        """Sync composition keys to the ThermoProp IdealGas species names."""
+        if self._IdealGas is None or not self.composition.is_assigned:
+            return
+
+        species = tuple(getattr(self._IdealGas, "species", ()))
+
+        if not species:
+            return
+
+        self.composition.sync_species(species)
 
     def _update_reference_properties(self) -> None:
         """
@@ -776,6 +792,7 @@ class IdealGasLookup(Component):
             or new_pyromat_fluid != self._pyromat_fluid
         ):
             self._initialize_backend()
+            composition_values = self._composition_values()
 
             self._last_composition_values = composition_values
             self._last_flash_values = None
