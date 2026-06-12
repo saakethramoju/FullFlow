@@ -234,7 +234,7 @@ requires-dist = [
     { name = "rich", specifier = ">=15.0.0" },
     { name = "rocketcea", specifier = ">=1.2.3" },
     { name = "scipy", specifier = ">=1.17.1" },
-    { name = "thermoprop", specifier = ">=0.3.3" },
+    { name = "thermoprop", git = "https://github.com/saakethramoju/ThermoProp.git?rev=main" },
 ]
 
 [package.metadata.requires-dev]
@@ -880,18 +880,14 @@ wheels = [
 
 [[package]]
 name = "thermoprop"
-version = "0.3.3"
-source = { registry = "https://pypi.org/simple" }
+version = "1.0.0"
+source = { git = "https://github.com/saakethramoju/ThermoProp.git?rev=main#f7a3ec21b47142c5de901692e894830f1478695f" }
 dependencies = [
     { name = "coolprop" },
     { name = "numpy" },
     { name = "pyromat" },
     { name = "rocketprops" },
     { name = "scipy" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/c0/e0/bbb254f323537c89b4faccaea6b2f69cb43fea1d3ebe0db0c657499c0f74/thermoprop-0.3.3.tar.gz", hash = "sha256:ae0fa828ef57dd1292f90db94495442f770d9448194449c3679701075cedf2ce", size = 55344, upload-time = "2026-06-07T05:58:08.999Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/8f/24/18e741343a31a34ad2bb73a2a8ff873c42582e3a11696bafc46ed06a849d/thermoprop-0.3.3-py3-none-any.whl", hash = "sha256:86df4b2933f52a26508052bee108d4c27be90ec38cc474f4e072bd10634785fd", size = 58141, upload-time = "2026-06-07T05:58:10.021Z" },
 ]
 
 [[package]]

@@ -46,7 +46,7 @@ dependencies = [
     "scipy>=1.17.1",
     "rich>=15.0.0",
     "rocketcea>=1.2.3",
-    "thermoprop>=0.3.3",
+    "thermoprop @ git+https://github.com/saakethramoju/ThermoProp.git@main",
     "pandas>=3.0.3",
     "openpyxl>=3.1.5",
 ]
