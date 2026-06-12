@@ -7,10 +7,39 @@ class State:
     Value container used throughout FullFlow.
 
     `State` can store numeric values, object values, or derived values computed
-    from other states. Arithmetic and solver math require numeric states.
+    from other states.
 
-    Use `.value` for the stored object/value.
-    Use `.numeric_value` when a float is required.
+    Numeric states are used for solver variables, residual equations, bounds,
+    arithmetic, and math operations. Object-valued states are useful for passing
+    backend objects, lookup outputs, or other non-scalar data between
+    components.
+
+    Parameters
+    ----------
+    value : object, optional
+        Initial state value. Numeric values are stored as floats. Non-numeric
+        values are allowed only when no numeric-only options are requested.
+    bounds : tuple[float or None, float or None], optional
+        Lower and upper bounds used by bounded solvers. Bounds require the
+        assigned value to be numeric whenever the value is checked or assigned.
+    keep_feasible : bool, optional
+        Indicates that bounded solvers should attempt to keep the state within
+        its bounds during iterations. This option requires numeric values.
+
+    Notes
+    -----
+    Use `.value` for the stored value or object.
+
+    Use `.numeric_value` when a float is required. Arithmetic, formatting,
+    bounds checks, and math helpers use `.numeric_value`.
+
+    Derived states are read-only and cannot be assigned directly.
+
+    Accessing `.value` on an uninitialized non-derived state raises
+    `ValueError`.
+
+    Non-numeric values cannot be used with bounds, `keep_feasible`, arithmetic,
+    math helpers, or solver iteration variables.
     """
 
     def __init__(
@@ -60,6 +89,18 @@ class State:
         if v > self._upper_bound:
             raise ValueError(f"Value {v} is above the upper bound of {self._upper_bound}.")
 
+    def _requires_numeric_value(self) -> bool:
+        return self.has_bounds or self.keep_feasible
+
+    def _as_numeric(self, value) -> float:
+        try:
+            return float(value)
+        except Exception as exc:
+            raise TypeError(
+                f"State {self._code} contains non-numeric value "
+                f"{type(value).__name__!r} and cannot be used in numeric math."
+            ) from exc
+
     @property
     def value(self):
         if self._expr is not None:
@@ -79,20 +120,17 @@ class State:
             v = float(v)
             self._validate_bounds(v)
 
+        elif self._requires_numeric_value():
+            raise TypeError(
+                f"State {self._code} requires a numeric value because it has "
+                "bounds or keep_feasible=True."
+            )
+
         self._value = v
 
     @property
     def numeric_value(self) -> float:
-        value = self.value
-
-        try:
-            value = float(value)
-        except Exception as exc:
-            raise TypeError(
-                f"State {self._code} contains non-numeric value "
-                f"{type(value).__name__!r} and cannot be used in numeric math."
-            ) from exc
-
+        value = self._as_numeric(self.value)
         self._validate_bounds(value)
         return value
 
@@ -136,7 +174,7 @@ class State:
         if v is None:
             v = self.numeric_value
         else:
-            v = float(v)
+            v = self._as_numeric(v)
 
         return self._lower_bound <= v <= self._upper_bound
 
@@ -169,7 +207,6 @@ class State:
             return other
         return State(other)
 
-    # ---------- arithmetic ----------
     def __add__(self, other):
         other = self._coerce(other)
         return State._derived(lambda: self.numeric_value + other.numeric_value)
@@ -221,7 +258,6 @@ class State:
     def __abs__(self):
         return State._derived(lambda: abs(self.numeric_value))
 
-    # ---------- basic math ----------
     def sqrt(self):
         return State._derived(lambda: math.sqrt(self.numeric_value))
 
@@ -243,7 +279,6 @@ class State:
     def log1p(self):
         return State._derived(lambda: math.log1p(self.numeric_value))
 
-    # ---------- trig ----------
     def sin(self):
         return State._derived(lambda: math.sin(self.numeric_value))
 
@@ -262,7 +297,6 @@ class State:
     def atan(self):
         return State._derived(lambda: math.atan(self.numeric_value))
 
-    # ---------- hyperbolic ----------
     def sinh(self):
         return State._derived(lambda: math.sinh(self.numeric_value))
 
@@ -281,14 +315,12 @@ class State:
     def atanh(self):
         return State._derived(lambda: math.atanh(self.numeric_value))
 
-    # ---------- angle conversions ----------
     def degrees(self):
         return State._derived(lambda: math.degrees(self.numeric_value))
 
     def radians(self):
         return State._derived(lambda: math.radians(self.numeric_value))
 
-    # ---------- rounding / integer ----------
     def floor(self):
         return State._derived(lambda: math.floor(self.numeric_value))
 
@@ -321,7 +353,6 @@ class State:
 
         return result
 
-    # ---------- misc ----------
     def modf(self):
         return (
             State._derived(lambda: math.modf(self.numeric_value)[0]),
