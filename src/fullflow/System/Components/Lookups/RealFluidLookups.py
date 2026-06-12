@@ -141,6 +141,8 @@ class FluidLookup(Component):
         "internal_energy",
     )
 
+    _COMPOSITION_NEGATIVE_TOLERANCE = 1e-4
+
     _FLASH_PAIR_SETTERS = {
         frozenset(("pressure", "temperature")): ("pressure_temperature", ("pressure", "temperature")),
         frozenset(("pressure", "enthalpy")): ("pressure_enthalpy", ("pressure", "enthalpy")),
@@ -499,18 +501,60 @@ class FluidLookup(Component):
         return composition
 
     def _fluid_argument_from_composition(self) -> str | dict[str, float]:
+        composition_values = self._property_safe_composition_values(
+            self._composition_values()
+        )
 
-        values = self.composition.values
+        return self._fluid_argument_from_values(composition_values)
 
-        if len(values) == 1:
-            return next(iter(values))
+    def _fluid_argument_from_values(
+        self,
+        composition_values: tuple[float, ...],
+    ) -> str | dict[str, float]:
 
-        return dict(values)
+        species = self.composition.species
+
+        if len(species) == 1:
+            return species[0]
+
+        return {
+            name: value
+            for name, value in zip(species, composition_values)
+        }
 
     def _composition_values(self) -> tuple[float, ...]:
         return tuple(
             self.composition[species].value
             for species in self.composition.species
+        )
+
+    def _property_safe_composition_values(
+        self,
+        composition_values: tuple[float, ...],
+    ) -> tuple[float, ...]:
+
+        for species, value in zip(self.composition.species, composition_values):
+            if value < -self._COMPOSITION_NEGATIVE_TOLERANCE:
+                raise ValueError(
+                    f"{self.name}: composition contains a significantly "
+                    f"negative mass fraction for {species!r}: {value}."
+                )
+
+        safe_values = tuple(
+            max(0.0, float(value))
+            for value in composition_values
+        )
+
+        total = sum(safe_values)
+
+        if total <= 0.0:
+            raise ValueError(
+                f"{self.name}: composition has no positive mass fractions."
+            )
+
+        return tuple(
+            value / total
+            for value in safe_values
         )
 
     def _set_fluid_from_composition(self) -> None:
@@ -528,7 +572,12 @@ class FluidLookup(Component):
                 f"Got {total}."
             )
 
-        new_coolprop_fluid = self._fluid_argument_from_composition()
+        property_composition_values = self._property_safe_composition_values(
+            composition_values
+        )
+        new_coolprop_fluid = self._fluid_argument_from_values(
+            property_composition_values
+        )
 
         # Species set changed, so rebuild the CoolProp backend.
         if new_coolprop_fluid != self._coolprop_fluid:
@@ -544,8 +593,14 @@ class FluidLookup(Component):
             )
 
             self._sync_composition_species_from_backend()
-            self._coolprop_fluid = self._fluid_argument_from_composition()
+
             composition_values = self._composition_values()
+            property_composition_values = self._property_safe_composition_values(
+                composition_values
+            )
+            self._coolprop_fluid = self._fluid_argument_from_values(
+                property_composition_values
+            )
 
             self._last_composition_values = composition_values
             self._last_flash_values = None
@@ -554,7 +609,7 @@ class FluidLookup(Component):
 
         # Same species set, only fractions changed.
         if len(composition_values) > 1:
-            self._Fluid.mass_fractions = list(composition_values)
+            self._Fluid.mass_fractions = list(property_composition_values)
 
         self._last_composition_values = composition_values
         self._last_flash_values = None

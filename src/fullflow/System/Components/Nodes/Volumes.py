@@ -63,8 +63,8 @@ class SimpleVolume(Component):
         density: State | None = None,
         temperature: State | None = None,
         enthalpy: State | None = None,
-        composition: Composition = Composition(),
-        composition_in: Composition = Composition(),
+        composition: Composition | None = None,
+        composition_in: Composition | None = None,
         mass_flow_in: State | None = None,
         mass_flow_out: State | None = None,
     ):

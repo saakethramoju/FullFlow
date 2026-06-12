@@ -4,43 +4,18 @@ import numpy as np
 
 class State:
     """
-    Scalar value container used throughout FullFlow.
+    Value container used throughout FullFlow.
 
-    `State` objects store variables that are shared between components,
-    balances, and solvers. A State may hold a directly assigned value or
-    represent a derived value computed from other states.
+    `State` can store numeric values, object values, or derived values computed
+    from other states. Arithmetic and solver math require numeric states.
 
-    States support arithmetic operations, allowing derived states to be
-    constructed naturally:
-
-        ``density_average = 0.5 * (density1 + density2)``
-
-    Placeholder states may be created with:
-
-        ``pressure = State()``
-
-    and assigned later by a component or solver.
-
-    Parameters
-    ----------
-    value : float, optional
-        Initial state value.
-    bounds : tuple[float or None, float or None], optional
-        Lower and upper bounds used by bounded solvers.
-    keep_feasible : bool, optional
-        Indicates that bounded solvers should attempt to keep the state
-        within its bounds during iterations.
-
-    Notes
-    -----
-    Derived states are read-only and cannot be assigned directly.
-
-    Accessing `.value` on an uninitialized non-derived state raises
-    `ValueError`.
+    Use `.value` for the stored object/value.
+    Use `.numeric_value` when a float is required.
     """
+
     def __init__(
         self,
-        value: float | None = None,
+        value=None,
         *,
         bounds: tuple[float | None, float | None] | None = None,
         keep_feasible: bool = False,
@@ -52,9 +27,7 @@ class State:
         self._code = hex(id(self))
 
         if value is not None:
-            value = float(value)
-            self._validate_bounds(value)
-            self._value = value
+            self.value = value
 
     @classmethod
     def _derived(cls, expr):
@@ -63,9 +36,7 @@ class State:
         return state
 
     @staticmethod
-    def _normalize_bounds(
-        bounds: tuple[float | None, float | None] | None,
-    ) -> tuple[float, float]:
+    def _normalize_bounds(bounds):
         if bounds is None:
             return -np.inf, np.inf
 
@@ -73,16 +44,8 @@ class State:
             raise ValueError("bounds must be None or a tuple of the form (lower, upper).")
 
         lower, upper = bounds
-
-        if lower is None:
-            lower = -np.inf
-        else:
-            lower = float(lower)
-
-        if upper is None:
-            upper = np.inf
-        else:
-            upper = float(upper)
+        lower = -np.inf if lower is None else float(lower)
+        upper = np.inf if upper is None else float(upper)
 
         if lower > upper:
             raise ValueError(
@@ -93,82 +56,53 @@ class State:
 
     def _validate_bounds(self, v: float) -> None:
         if v < self._lower_bound:
-            raise ValueError(
-                f"Value {v} is below the lower bound of {self._lower_bound}."
-            )
+            raise ValueError(f"Value {v} is below the lower bound of {self._lower_bound}.")
         if v > self._upper_bound:
-            raise ValueError(
-                f"Value {v} is above the upper bound of {self._upper_bound}."
-            )
+            raise ValueError(f"Value {v} is above the upper bound of {self._upper_bound}.")
 
     @property
-    def value(self) -> float:
-        """
-        Return the current numeric value.
-
-        Raises
-        ------
-        ValueError
-            If this is a non-derived State that has not been assigned yet.
-        """
+    def value(self):
         if self._expr is not None:
             return self._expr()
 
         if self._value is None:
-            raise ValueError(
-                f"State {self._code} has no assigned value.\n\n"
-
-                "This State was created as a placeholder using State() and has "
-                "not yet been assigned a numeric value.\n\n"
-
-                "A placeholder State() is valid if some component, solver iteration, "
-                "or external assignment sets the value before the State is accessed.\n\n"
-
-                "This error occurs only when `.value` is accessed before assignment.\n"
-                "Typical scenarios include:\n"
-                "  - A derived expression depends on an uninitialized State\n"
-                "      Example:\n"
-                "          rho_avg = 0.5 * (rho1 + rho2)\n"
-                "      If rho1.value or rho2.value is requested before assignment,\n"
-                "      evaluating rho_avg.value will fail.\n\n"
-
-                "  - A component evaluates a State before another component computes it\n"
-                "      Example:\n"
-                "          A line model requests density.value before a volume model\n"
-                "          has computed and assigned the density.\n\n"
-
-                "  - The solver evaluates the residual function before an iteration\n"
-                "      variable has received an initial value.\n\n"
-
-                "Note:\n"
-                "  Placeholder States are allowed and often useful.\n"
-                "  For example, mass flow iteration variables may safely start as\n"
-                "  State() if the solver assigns them before they are evaluated.\n\n"
-
-                "Fixes:\n"
-                "  - Move a state evaluation/computation to the corresponding\n"
-                "    component's 'pre_evaluation()'\n\n"
-
-                "  - Provide an initial value:\n"
-                "        density = State(800)\n"
-                "        mdot = State(0)\n\n"
-
-                "  - Ensure the State is assigned before any component or expression\n"
-                "    accesses `.value`\n\n"
-
-                "  - Ensure producer components evaluate before consumer components"
-            )
+            raise ValueError(f"State {self._code} has no assigned value.")
 
         return self._value
 
     @value.setter
-    def value(self, v: float) -> None:
+    def value(self, v) -> None:
         if self._expr is not None:
             raise AttributeError("Cannot assign to a derived State.")
 
-        v = float(v)
-        self._validate_bounds(v)
+        if isinstance(v, (int, float, np.number)):
+            v = float(v)
+            self._validate_bounds(v)
+
         self._value = v
+
+    @property
+    def numeric_value(self) -> float:
+        value = self.value
+
+        try:
+            value = float(value)
+        except Exception as exc:
+            raise TypeError(
+                f"State {self._code} contains non-numeric value "
+                f"{type(value).__name__!r} and cannot be used in numeric math."
+            ) from exc
+
+        self._validate_bounds(value)
+        return value
+
+    @property
+    def is_numeric(self) -> bool:
+        try:
+            self.numeric_value
+            return True
+        except Exception:
+            return False
 
     @property
     def is_derived(self) -> bool:
@@ -180,7 +114,7 @@ class State:
 
     @property
     def bounds(self) -> tuple[float, float]:
-        return (self._lower_bound, self._upper_bound)
+        return self._lower_bound, self._upper_bound
 
     @property
     def lower_bound(self) -> float:
@@ -198,15 +132,13 @@ class State:
     def keep_feasible(self) -> bool:
         return self._keep_feasible
 
-    def is_within_bounds(self, v: float | None = None) -> bool:
+    def is_within_bounds(self, v=None) -> bool:
         if v is None:
-            v = self.value
+            v = self.numeric_value
+        else:
+            v = float(v)
 
-        if v < self._lower_bound:
-            return False
-        if v > self._upper_bound:
-            return False
-        return True
+        return self._lower_bound <= v <= self._upper_bound
 
     def _value_string_for_display(self) -> str:
         if self.is_derived:
@@ -229,40 +161,35 @@ class State:
         return f"State(code={self._code}, value={value_str})"
 
     def __repr__(self) -> str:
-        value_str = self._value_string_for_display()
-
-        if self.has_bounds:
-            return f"State(code={self._code}, value={value_str}, bounds={self.bounds})"
-
-        return f"State(code={self._code}, value={value_str})"
+        return self.__str__()
 
     @staticmethod
     def _coerce(other) -> "State":
         if isinstance(other, State):
             return other
-        return State(float(other))
+        return State(other)
 
     # ---------- arithmetic ----------
     def __add__(self, other):
         other = self._coerce(other)
-        return State._derived(lambda: self.value + other.value)
+        return State._derived(lambda: self.numeric_value + other.numeric_value)
 
     def __radd__(self, other):
         other = self._coerce(other)
-        return State._derived(lambda: other.value + self.value)
+        return State._derived(lambda: other.numeric_value + self.numeric_value)
 
     def __sub__(self, other):
         other = self._coerce(other)
-        return State._derived(lambda: self.value - other.value)
+        return State._derived(lambda: self.numeric_value - other.numeric_value)
 
     def __rsub__(self, other):
         other = self._coerce(other)
-        return State._derived(lambda: other.value - self.value)
+        return State._derived(lambda: other.numeric_value - self.numeric_value)
 
     def __mul__(self, other):
         try:
             other = self._coerce(other)
-            return State._derived(lambda: self.value * other.value)
+            return State._derived(lambda: self.numeric_value * other.numeric_value)
         except (TypeError, ValueError):
             if hasattr(other, "__rmul__"):
                 return other.__rmul__(self)
@@ -270,118 +197,118 @@ class State:
 
     def __rmul__(self, other):
         other = self._coerce(other)
-        return State._derived(lambda: other.value * self.value)
+        return State._derived(lambda: other.numeric_value * self.numeric_value)
 
     def __truediv__(self, other):
         other = self._coerce(other)
-        return State._derived(lambda: self.value / other.value)
+        return State._derived(lambda: self.numeric_value / other.numeric_value)
 
     def __rtruediv__(self, other):
         other = self._coerce(other)
-        return State._derived(lambda: other.value / self.value)
+        return State._derived(lambda: other.numeric_value / self.numeric_value)
 
     def __pow__(self, other):
         other = self._coerce(other)
-        return State._derived(lambda: self.value ** other.value)
+        return State._derived(lambda: self.numeric_value ** other.numeric_value)
 
     def __rpow__(self, other):
         other = self._coerce(other)
-        return State._derived(lambda: other.value ** self.value)
+        return State._derived(lambda: other.numeric_value ** self.numeric_value)
 
     def __neg__(self):
-        return State._derived(lambda: -self.value)
+        return State._derived(lambda: -self.numeric_value)
 
     def __abs__(self):
-        return State._derived(lambda: abs(self.value))
+        return State._derived(lambda: abs(self.numeric_value))
 
     # ---------- basic math ----------
     def sqrt(self):
-        return State._derived(lambda: math.sqrt(self.value))
+        return State._derived(lambda: math.sqrt(self.numeric_value))
 
     def exp(self):
-        return State._derived(lambda: math.exp(self.value))
+        return State._derived(lambda: math.exp(self.numeric_value))
 
     def expm1(self):
-        return State._derived(lambda: math.expm1(self.value))
+        return State._derived(lambda: math.expm1(self.numeric_value))
 
     def log(self):
-        return State._derived(lambda: math.log(self.value))
+        return State._derived(lambda: math.log(self.numeric_value))
 
     def log10(self):
-        return State._derived(lambda: math.log10(self.value))
+        return State._derived(lambda: math.log10(self.numeric_value))
 
     def log2(self):
-        return State._derived(lambda: math.log2(self.value))
+        return State._derived(lambda: math.log2(self.numeric_value))
 
     def log1p(self):
-        return State._derived(lambda: math.log1p(self.value))
+        return State._derived(lambda: math.log1p(self.numeric_value))
 
     # ---------- trig ----------
     def sin(self):
-        return State._derived(lambda: math.sin(self.value))
+        return State._derived(lambda: math.sin(self.numeric_value))
 
     def cos(self):
-        return State._derived(lambda: math.cos(self.value))
+        return State._derived(lambda: math.cos(self.numeric_value))
 
     def tan(self):
-        return State._derived(lambda: math.tan(self.value))
+        return State._derived(lambda: math.tan(self.numeric_value))
 
     def asin(self):
-        return State._derived(lambda: math.asin(self.value))
+        return State._derived(lambda: math.asin(self.numeric_value))
 
     def acos(self):
-        return State._derived(lambda: math.acos(self.value))
+        return State._derived(lambda: math.acos(self.numeric_value))
 
     def atan(self):
-        return State._derived(lambda: math.atan(self.value))
+        return State._derived(lambda: math.atan(self.numeric_value))
 
     # ---------- hyperbolic ----------
     def sinh(self):
-        return State._derived(lambda: math.sinh(self.value))
+        return State._derived(lambda: math.sinh(self.numeric_value))
 
     def cosh(self):
-        return State._derived(lambda: math.cosh(self.value))
+        return State._derived(lambda: math.cosh(self.numeric_value))
 
     def tanh(self):
-        return State._derived(lambda: math.tanh(self.value))
+        return State._derived(lambda: math.tanh(self.numeric_value))
 
     def asinh(self):
-        return State._derived(lambda: math.asinh(self.value))
+        return State._derived(lambda: math.asinh(self.numeric_value))
 
     def acosh(self):
-        return State._derived(lambda: math.acosh(self.value))
+        return State._derived(lambda: math.acosh(self.numeric_value))
 
     def atanh(self):
-        return State._derived(lambda: math.atanh(self.value))
+        return State._derived(lambda: math.atanh(self.numeric_value))
 
     # ---------- angle conversions ----------
     def degrees(self):
-        return State._derived(lambda: math.degrees(self.value))
+        return State._derived(lambda: math.degrees(self.numeric_value))
 
     def radians(self):
-        return State._derived(lambda: math.radians(self.value))
+        return State._derived(lambda: math.radians(self.numeric_value))
 
     # ---------- rounding / integer ----------
     def floor(self):
-        return State._derived(lambda: math.floor(self.value))
+        return State._derived(lambda: math.floor(self.numeric_value))
 
     def ceil(self):
-        return State._derived(lambda: math.ceil(self.value))
+        return State._derived(lambda: math.ceil(self.numeric_value))
 
     def trunc(self):
-        return State._derived(lambda: math.trunc(self.value))
+        return State._derived(lambda: math.trunc(self.numeric_value))
 
     @staticmethod
     def maximum(a, b):
         a = State._coerce(a)
         b = State._coerce(b)
-        return State._derived(lambda: max(a.value, b.value))
+        return State._derived(lambda: max(a.numeric_value, b.numeric_value))
 
     @staticmethod
     def minimum(a, b):
         a = State._coerce(a)
         b = State._coerce(b)
-        return State._derived(lambda: min(a.value, b.value))
+        return State._derived(lambda: min(a.numeric_value, b.numeric_value))
 
     def clip(self, lower=None, upper=None):
         result = self
@@ -397,21 +324,21 @@ class State:
     # ---------- misc ----------
     def modf(self):
         return (
-            State._derived(lambda: math.modf(self.value)[0]),
-            State._derived(lambda: math.modf(self.value)[1]),
+            State._derived(lambda: math.modf(self.numeric_value)[0]),
+            State._derived(lambda: math.modf(self.numeric_value)[1]),
         )
 
     def fmod(self, other):
         other = self._coerce(other)
-        return State._derived(lambda: math.fmod(self.value, other.value))
+        return State._derived(lambda: math.fmod(self.numeric_value, other.numeric_value))
 
     def hypot(self, other):
         other = self._coerce(other)
-        return State._derived(lambda: math.hypot(self.value, other.value))
+        return State._derived(lambda: math.hypot(self.numeric_value, other.numeric_value))
 
     def copysign(self, other):
         other = self._coerce(other)
-        return State._derived(lambda: math.copysign(self.value, other.value))
+        return State._derived(lambda: math.copysign(self.numeric_value, other.numeric_value))
 
     def __format__(self, format_spec: str) -> str:
-        return format(self.value, format_spec)
+        return format(self.numeric_value, format_spec)

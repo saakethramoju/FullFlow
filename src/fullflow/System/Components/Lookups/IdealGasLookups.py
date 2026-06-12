@@ -136,6 +136,7 @@ class IdealGasLookup(Component):
     """
     _REFERENCE_TEMPERATURE = 298.15
     _REFERENCE_PRESSURE = 101325.0
+    _COMPOSITION_NEGATIVE_TOLERANCE = 1e-4
 
     _THERMO_NAMES = (
         "pressure",
@@ -727,27 +728,67 @@ class IdealGasLookup(Component):
         return composition
 
     def _coolprop_argument_from_composition(self) -> str | dict[str, float]:
+        composition_values = self._property_safe_composition_values(
+            self._composition_values()
+        )
 
-        values = self.composition.values
-
-        if len(values) == 1:
-            return next(iter(values))
-
-        return dict(values)
+        return self._composition_argument_from_values(composition_values)
 
     def _pyromat_argument_from_composition(self) -> str | dict[str, float]:
+        composition_values = self._property_safe_composition_values(
+            self._composition_values()
+        )
 
-        values = self.composition.values
+        return self._composition_argument_from_values(composition_values)
 
-        if len(values) == 1:
-            return next(iter(values))
+    def _composition_argument_from_values(
+        self,
+        composition_values: tuple[float, ...],
+    ) -> str | dict[str, float]:
 
-        return dict(values)
+        species = self.composition.species
+
+        if len(species) == 1:
+            return species[0]
+
+        return {
+            name: value
+            for name, value in zip(species, composition_values)
+        }
 
     def _composition_values(self) -> tuple[float, ...]:
         return tuple(
             self.composition[species].value
             for species in self.composition.species
+        )
+
+    def _property_safe_composition_values(
+        self,
+        composition_values: tuple[float, ...],
+    ) -> tuple[float, ...]:
+
+        for species, value in zip(self.composition.species, composition_values):
+            if value < -self._COMPOSITION_NEGATIVE_TOLERANCE:
+                raise ValueError(
+                    f"{self.name}: composition contains a significantly "
+                    f"negative mass fraction for {species!r}: {value}."
+                )
+
+        safe_values = tuple(
+            max(0.0, float(value))
+            for value in composition_values
+        )
+
+        total = sum(safe_values)
+
+        if total <= 0.0:
+            raise ValueError(
+                f"{self.name}: composition has no positive mass fractions."
+            )
+
+        return tuple(
+            value / total
+            for value in safe_values
         )
 
     def _composition_values_unchanged(
@@ -783,8 +824,15 @@ class IdealGasLookup(Component):
                 f"Got {total}."
             )
 
-        new_coolprop_fluid = self._coolprop_argument_from_composition()
-        new_pyromat_fluid = self._pyromat_argument_from_composition()
+        property_composition_values = self._property_safe_composition_values(
+            composition_values
+        )
+        new_coolprop_fluid = self._composition_argument_from_values(
+            property_composition_values
+        )
+        new_pyromat_fluid = self._composition_argument_from_values(
+            property_composition_values
+        )
 
         # Species set changed, so rebuild the ideal-gas and reference backends.
         if (
@@ -801,8 +849,8 @@ class IdealGasLookup(Component):
 
         # Same species set, only fractions changed.
         if len(composition_values) > 1:
-            self._IdealGas.mass_fractions = list(composition_values)
-            self._reference_IdealGas.mass_fractions = list(composition_values)
+            self._IdealGas.mass_fractions = list(property_composition_values)
+            self._reference_IdealGas.mass_fractions = list(property_composition_values)
 
             self._update_reference_properties()
 

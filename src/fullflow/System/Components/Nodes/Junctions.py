@@ -101,9 +101,9 @@ class FlowMixer(Component):
         density: State | None = None,
         internal_energy: State | None = None,
         heat_rate: State | float | None = None,
-        composition: Composition = Composition(),
-        composition_in1: Composition = Composition(),
-        composition_in2: Composition = Composition(),
+        composition: Composition | None = None,
+        composition_in1: Composition | None = None,
+        composition_in2: Composition | None = None,
         total_enthalpy_in1: State | None = None,
         total_enthalpy_in2: State | None = None,
         total_enthalpy_out: State | None = None,
@@ -208,118 +208,6 @@ class FlowMixer(Component):
             )
 
         return residuals
-    
-
-'''
-class FlowMixer(Component):
-
-    def __init__(
-        self,
-        name: str,
-        network: Network,
-        pressure: State,
-        volume: float,
-        enthalpy: State | None = None,
-        temperature: State | None = None,
-        density: State | None = None,
-        internal_energy: State | None = None,
-        heat_rate: State | float | None = None,
-        composition: Composition = Composition(),
-        composition_in1: Composition = Composition(),
-        composition_in2: Composition = Composition(),
-        total_enthalpy_in1: State | None = None,
-        total_enthalpy_in2: State | None = None,
-        total_enthalpy_out: State | None = None,
-        mass_flow_in1: State | None = None,
-        mass_flow_in2: State | None = None,
-        mass_flow_out: State | None = None,
-    ):
-        self.setup()
-
-        self._solve_energy = (
-            self.total_enthalpy_in1.is_assigned
-            and self.total_enthalpy_in2.is_assigned
-            and self.enthalpy.is_assigned
-        )
-
-        self._solve_species = (
-            self.composition.is_assigned
-            and self.composition_in1.is_assigned
-            and self.composition_in2.is_assigned
-        )
-
-    def evaluate_states(self) -> None:
-        if not (
-            self.mass_flow_in1.is_assigned
-            and self.mass_flow_in2.is_assigned
-            and self.mass_flow_out.is_assigned
-        ):
-            return
-
-        mdot1 = self.mass_flow_in1.value
-        mdot2 = self.mass_flow_in2.value
-        mdot_total = mdot1 + mdot2
-
-        if abs(mdot_total) < 1e-12:
-            return
-
-        if self._solve_species:
-            inlet_species = (
-                set(self.composition_in1.species)
-                | set(self.composition_in2.species)
-            )
-
-            extra_species = set(self.composition.species) - inlet_species
-
-            if extra_species:
-                raise ValueError(
-                    f"{self.name}: composition contains species not in "
-                    f"composition_in1 or composition_in2: {extra_species}"
-                )
-
-            self.composition.copy_from(self.composition_in1, copy_values=False)
-            self.composition.copy_from(self.composition_in2, copy_values=False)
-
-            for species in self.composition.species:
-                yi1 = (
-                    self.composition_in1[species].value
-                    if species in self.composition_in1.species
-                    else 0.0
-                )
-
-                yi2 = (
-                    self.composition_in2[species].value
-                    if species in self.composition_in2.species
-                    else 0.0
-                )
-
-                self.composition[species].value = (
-                    mdot1 * yi1 + mdot2 * yi2
-                ) / mdot_total
-
-            self.composition.validate()
-
-        if self._solve_energy:
-            qdot = self.heat_rate.value if self.heat_rate.is_assigned else 0.0
-
-            self.enthalpy.value = (
-                mdot1 * self.total_enthalpy_in1.value
-                + mdot2 * self.total_enthalpy_in2.value
-                + qdot
-            ) / mdot_total
-
-    @property
-    def iteration_variables(self) -> list[State]:
-        return [self.pressure]
-
-    @property
-    def residuals(self) -> list[float]:
-        return [
-            self.mass_flow_in1.value
-            + self.mass_flow_in2.value
-            - self.mass_flow_out.value
-        ]
-'''
 
 
 
@@ -429,10 +317,10 @@ class FlowSplitter(Component):
         density: State | None = None,
         internal_energy: State | None = None,
         heat_rate: State | float | None = None,
-        composition: Composition = Composition(),
-        composition_in: Composition = Composition(),
-        composition_out1: Composition = Composition(),
-        composition_out2: Composition = Composition(),
+        composition: Composition | None = None,
+        composition_in: Composition | None = None,
+        composition_out1: Composition | None = None,
+        composition_out2: Composition | None = None,
         total_enthalpy_in: State | None = None,
         total_enthalpy_out1: State | None = None,
         total_enthalpy_out2: State | None = None,
@@ -448,6 +336,9 @@ class FlowSplitter(Component):
         )
 
         if self.composition_in.is_assigned:
+            if not isinstance(self.composition, Composition):
+                self.composition = Composition()
+
             self.composition.copy_from(
                 self.composition_in,
                 copy_values=True,
@@ -470,12 +361,21 @@ class FlowSplitter(Component):
                     f"composition: {extra_species}"
                 )
 
+            if not isinstance(self.composition_out2, Composition):
+                self.composition_out2 = Composition()
+
             self.composition_out2.copy_from(
                 self.composition,
                 copy_values=True,
             )
 
         elif self.composition.is_assigned:
+            if not isinstance(self.composition_out1, Composition):
+                self.composition_out1 = Composition()
+
+            if not isinstance(self.composition_out2, Composition):
+                self.composition_out2 = Composition()
+
             self.composition_out1.copy_from(
                 self.composition,
                 copy_values=True,
@@ -488,6 +388,9 @@ class FlowSplitter(Component):
 
     def evaluate_states(self) -> None:
         if self.composition_in.is_assigned:
+            if not isinstance(self.composition, Composition):
+                self.composition = Composition()
+
             self.composition.copy_from(
                 self.composition_in,
                 copy_values=True,
@@ -495,6 +398,12 @@ class FlowSplitter(Component):
 
         if not self._solve_species:
             if self.composition.is_assigned:
+                if not isinstance(self.composition_out1, Composition):
+                    self.composition_out1 = Composition()
+
+                if not isinstance(self.composition_out2, Composition):
+                    self.composition_out2 = Composition()
+
                 self.composition_out1.copy_from(
                     self.composition,
                     copy_values=True,
