@@ -385,6 +385,10 @@ class IdealGasLookup(Component):
                 prop_name
             )
 
+    @property
+    def IdealGas(self) -> IdealGas:
+        return self._IdealGas
+
     def __getattr__(self, name: str) -> State:
 
         if "_IdealGas" not in self.__dict__:

@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from fullflow.System import Network
 
 
-CombustionInput = Reactants | CombustionGas
+CombustionInput = Reactants | CombustionGas | dict[str, State | float] | Composition | State
 
 class CombustionLookup(Component):
     """
@@ -27,15 +27,20 @@ class CombustionLookup(Component):
         Component name
     network : Network
         Network that owns this component
-    reactants : Reactants or CombustionGas
-        Reactants or combustion-gas object passed to `Equilibrium`
+    reactants : Reactants, CombustionGas, dict, Composition, or State
+        Reactants, combustion-gas object, species mass-fraction dictionary,
+        Composition object, or State containing one of these objects passed to
+        `Equilibrium`. Dictionary and Composition inputs are converted to a
+        ThermoProp `CombustionGas`.
     mode : str, optional
         Equilibrium mode
     pressure : State or float, optional
         Pressure input [Pa]
     temperature : State or float, optional
         Temperature input [K] for TP mode. In HP mode this may be used as an
-        initial temperature guess.
+        initial temperature guess for Reactants inputs. For dict or Composition
+        inputs, temperature is required because the input is converted to a
+        `CombustionGas`.
     flash_values : tuple[str, ...], optional
         Explicit flash input selection
     CombustionGas_trace : float, optional
@@ -98,6 +103,11 @@ class CombustionLookup(Component):
 
         ``gas = Equilibrium(reactants, mode="tp", pressure=pressure, temperature=temperature)``
 
+    Dictionary and Composition inputs are converted to a `CombustionGas` using
+    mass fractions:
+
+        ``reactants = CombustionGas(composition, basis="mass", pressure=pressure, temperature=temperature)``
+
     The `composition` attribute is updated from:
 
         ``Equilibrium.CombustionGas.mass_fractions``
@@ -114,6 +124,8 @@ class CombustionLookup(Component):
         "hp": ("pressure",),
         "tp": ("pressure", "temperature"),
     }
+
+    _COMPOSITION_NEGATIVE_TOLERANCE = 1e-4
 
     def __init__(
         self,
@@ -153,8 +165,13 @@ class CombustionLookup(Component):
         if hasattr(self, "property_states"):
             delattr(self, "property_states")
 
+        self._reactant_composition = self._initialize_reactant_composition(reactants)
         self._input = reactants
-        self.reactants = reactants
+
+        if self._reactant_composition is None:
+            self.reactants = reactants
+        else:
+            self.reactants = self._reactant_composition
 
         if flash_values is None:
             self._flash_names = list(self._SUPPORTED_MODES[self._mode])
@@ -198,6 +215,7 @@ class CombustionLookup(Component):
 
         self._Equilibrium = None
         self._last_flash_values: tuple[float, ...] | None = None
+        self._last_reactant_composition_values: tuple[float, ...] | None = None
         self._property_cache: dict[str, object] = {}
 
         self._property_states: dict[str, State] = {}
@@ -278,6 +296,10 @@ class CombustionLookup(Component):
         for prop_name in self._external_property_names:
             self._property_states[prop_name].value = self._get_cached_property(prop_name)
 
+    @property
+    def CombustionGas(self) -> CombustionGas:
+        return self._Equilibrium.CombustionGas
+
     def __getattr__(self, name: str) -> State:
         if "_Equilibrium" not in self.__dict__:
             raise AttributeError(name)
@@ -307,6 +329,8 @@ class CombustionLookup(Component):
             kwargs["pressure"] = self.pressure.value
             kwargs["temperature"] = self.temperature.value
 
+        self._input = self._current_input()
+
         self._Equilibrium = Equilibrium(
             self._input,
             mode=self._mode,
@@ -317,6 +341,13 @@ class CombustionLookup(Component):
         self._property_cache.clear()
 
     def _set_equilibrium_from_flash(self) -> None:
+        current_input = self._current_input()
+
+        if current_input is not self._input:
+            self._input = current_input
+            self._initialize_backend()
+            return
+
         flash_values = tuple(
             getattr(self, prop_name).value
             for prop_name in self._flash_names
@@ -376,6 +407,147 @@ class CombustionLookup(Component):
             "CombustionGas_max_species": self._CombustionGas_max_species,
             "equilibrium_derivative_temperature_step": self._equilibrium_derivative_temperature_step,
         }
+
+    def _initialize_reactant_composition(
+        self,
+        reactants: CombustionInput,
+    ) -> Composition | None:
+
+        if isinstance(reactants, State):
+            if not reactants.is_assigned:
+                return None
+
+            reactants = reactants.value
+
+        if isinstance(reactants, (Reactants, CombustionGas)):
+            return None
+
+        if isinstance(reactants, Composition):
+            return reactants
+
+        try:
+            composition = Composition(reactants)
+        except Exception as e:
+            raise ValueError(
+                f"{self.name}: invalid combustion input {reactants!r}. "
+                "Expected Reactants, CombustionGas, species-fraction dictionary, "
+                "Composition, or State containing one of these."
+            ) from e
+
+        if not composition.is_assigned:
+            raise ValueError(
+                f"{self.name}: composition must contain at least one species."
+            )
+
+        return composition
+
+    def _current_input(self) -> Reactants | CombustionGas:
+        current = self.reactants
+
+        if isinstance(current, State):
+            current = current.value
+
+        if isinstance(current, (Reactants, CombustionGas)):
+            return current
+
+        if isinstance(current, Composition):
+            return self._CombustionGas_from_composition(current)
+
+        raise TypeError(
+            f"{self.name}: invalid combustion input type "
+            f"{type(current).__name__!r}."
+        )
+
+    def _CombustionGas_from_composition(
+        self,
+        composition: Composition,
+    ) -> CombustionGas:
+
+        if not composition.is_assigned:
+            raise ValueError(
+                f"{self.name}: composition must contain at least one species."
+            )
+
+        if not hasattr(self, "temperature") or not self.temperature.is_assigned:
+            raise ValueError(
+                f"{self.name}: temperature is required when reactants is a "
+                "dict or Composition because it must be converted to CombustionGas."
+            )
+
+        composition_values = self._reactant_composition_values(composition)
+        property_composition_values = self._property_safe_reactant_composition_values(
+            composition,
+            composition_values,
+        )
+
+        return CombustionGas(
+            self._reactant_composition_argument_from_values(
+                composition,
+                property_composition_values,
+            ),
+            basis="mass",
+            pressure=self.pressure.value,
+            temperature=self.temperature.value,
+        )
+
+    def _reactant_composition_values(
+        self,
+        composition: Composition,
+    ) -> tuple[float, ...]:
+
+        return tuple(
+            composition[species].value
+            for species in composition.species
+        )
+
+    def _reactant_composition_argument_from_values(
+        self,
+        composition: Composition,
+        composition_values: tuple[float, ...],
+    ) -> dict[str, float]:
+
+        return {
+            name: value
+            for name, value in zip(composition.species, composition_values)
+        }
+
+    def _property_safe_reactant_composition_values(
+        self,
+        composition: Composition,
+        composition_values: tuple[float, ...],
+    ) -> tuple[float, ...]:
+
+        total = sum(composition_values)
+
+        if not np.isclose(total, 1.0, rtol=0.0, atol=1e-6):
+            raise ValueError(
+                f"{self.name}: composition mass fractions must sum to 1.0. "
+                f"Got {total}."
+            )
+
+        for species, value in zip(composition.species, composition_values):
+            if value < -self._COMPOSITION_NEGATIVE_TOLERANCE:
+                raise ValueError(
+                    f"{self.name}: composition contains a significantly "
+                    f"negative mass fraction for {species!r}: {value}."
+                )
+
+        safe_values = tuple(
+            max(0.0, float(value))
+            for value in composition_values
+        )
+
+        total = sum(safe_values)
+
+        if total <= 0.0:
+            raise ValueError(
+                f"{self.name}: composition has no positive mass fractions."
+            )
+
+        return tuple(
+            value / total
+            for value in safe_values
+        )
 
     def _flash_values_unchanged(
         self,
@@ -479,8 +651,12 @@ class CombustionLookup(Component):
             "_Equilibrium",
             "input",
             "_input",
+            "reactant_composition",
+            "_reactant_composition",
             "last_flash_values",
             "_last_flash_values",
+            "last_reactant_composition_values",
+            "_last_reactant_composition_values",
             "property_cache",
             "_property_cache",
             "guess_temperature",

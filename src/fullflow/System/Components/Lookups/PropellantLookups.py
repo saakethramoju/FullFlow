@@ -174,6 +174,10 @@ class PropellantLookup(Component):
                 prop_name
             )
 
+    @property
+    def Propellant(self) -> Propellant:
+        return self._Propellant
+
     def __getattr__(self, name: str) -> State:
 
         if name == "composition":

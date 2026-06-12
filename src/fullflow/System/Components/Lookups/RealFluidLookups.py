@@ -346,6 +346,9 @@ class FluidLookup(Component):
                 prop_name
             )
 
+    @property
+    def Fluid(self) -> Fluid:
+        return self._Fluid
 
             
     def __getattr__(self, name: str) -> State:

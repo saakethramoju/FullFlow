@@ -172,6 +172,10 @@ class MaterialLookup(Component):
             self._external_property_names.add(prop_name)
 
     @property
+    def Material(self) -> Material:
+        return self._Material
+
+    @property
     def material_name(self) -> str:
         """Return the canonical ThermoProp material name."""
         return self._material_name
