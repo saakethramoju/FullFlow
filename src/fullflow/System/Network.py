@@ -1,361 +1,215 @@
-# Network.py
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+from .Composition import Composition
 
 if TYPE_CHECKING:
-    from fullflow.System import Component, State, Balance
+    from fullflow.System import Balance, Component, State
 
 
 class Network:
-    """
-    Container for FullFlow components, balances, models, and shared states.
+    """Container for FullFlow components, balances, models, and shared states."""
 
-    `Network` defines a complete system of equations to be evaluated or solved.
-    Components register their physics equations with the network, balances add
-    user-defined algebraic constraints, and solvers operate on the resulting
-    collection of iteration variables and residual equations.
-
-    A Network is typically the top-level object in a FullFlow model:
-
-    ``network = Network("Propellant Feed System")``
-
-    Components and balances automatically register themselves with the network
-    when constructed.
-
-    Tracked states may be added using:
-
-    ``network.track("Chamber Pressure", chamber_pressure)``
-
-    to include additional values in exported results without introducing
-    residual equations or iteration variables.
-
-    Parameters
-    ----------
-    name : str
-        User-defined network name
-
-    Notes
-    -----
-    Network is intentionally lightweight. It is responsible for:
-
-    * Component registration
-    * Balance registration
-    * Model registration
-    * Iteration variable collection
-    * Residual collection
-    * State evaluation
-    * Solution export
-
-    Solver algorithms are implemented separately by FullFlow solver classes.
-
-    Components may contribute residual equations and iteration variables,
-    while balances provide user-defined solve targets.
-
-    A `State` cannot simultaneously appear as both a component iteration
-    variable and a balance iteration variable. `Network` validates this
-    condition before solving and raises an error if overlap is detected.
-    """
-
-    def __init__(self, name: str):
+    def __init__(self, name: str) -> None:
         self.name = name
-        self.component_list = []
-        self.balance_list = []
-        self.tracked_state_list = []
-        self.model_list = []
+        self.component_list: list[Component] = []
+        self.balance_list: list[Balance] = []
+        self.tracked_state_list: list[tuple[str, State]] = []
+        self.model_list: list[Any] = []
+
+        self._iteration_cache_valid = False
+        self._component_iteration_variables: tuple[State, ...] = ()
+        self._balance_iteration_variables: tuple[State, ...] = ()
+        self._all_iteration_variables: tuple[State, ...] = ()
+        self._iteration_variable_labels: tuple[str, ...] = ()
 
     # ------------------------------------------------------------------
     # Registration
     # ------------------------------------------------------------------
 
-    def add_component(self, component: Component) -> None:
-        """Register a component with the network."""
-        self.component_list.append(component)
+    def _invalidate_iteration_cache(self) -> None:
+        self._iteration_cache_valid = False
 
+    def add_component(self, component: Component) -> None:
+        if component not in self.component_list:
+            self.component_list.append(component)
+            self._invalidate_iteration_cache()
 
     def remove_component(self, component: Component) -> None:
-        """
-        Remove a component from the network.
-
-        This is mainly used by Model when replacing one active component
-        implementation with another.
-        """
-
         if component not in self.component_list:
             raise ValueError(
-                f"Component {component.name!r} is not registered "
-                f"with network {self.name!r}."
+                f"Component {component.name!r} is not registered with network {self.name!r}."
             )
-
         self.component_list.remove(component)
-
+        self._invalidate_iteration_cache()
 
     def add_balance(self, balance: Balance) -> None:
-        """Register an algebraic balance with the network."""
-        self.balance_list.append(balance)
-
+        if balance not in self.balance_list:
+            self.balance_list.append(balance)
+            self._invalidate_iteration_cache()
 
     def add_model(self, model) -> None:
-        """
-        Register a model with the network.
-
-        Models are not evaluated directly by Network. They are used by solvers
-        to build and replace optional component implementations.
-        """
-        self.model_list.append(model)
-
+        if model not in self.model_list:
+            self.model_list.append(model)
 
     def track(self, name: str, state: State) -> State:
-        """
-        Track an extra State or derived State in printed/exported results.
-
-        This does not add residuals or iteration variables. It only exports the
-        value after the network has been evaluated/solved.
-        """
         self.tracked_state_list.append((name, state))
         return state
 
     @property
     def components(self) -> list[str]:
-        """Return component names."""
-        return [c.name for c in self.component_list]
+        return [component.name for component in self.component_list]
 
     @property
     def balances(self) -> list[str]:
-        """Return balance names."""
-        return [b.name for b in self.balance_list]
-        
+        return [balance.name for balance in self.balance_list]
+
     @property
     def models(self) -> list[str]:
-        """Return model names."""
-        return [m.name for m in self.model_list]
+        return [model.name for model in self.model_list]
 
     # ------------------------------------------------------------------
     # Iteration variable metadata
     # ------------------------------------------------------------------
 
-    @property
-    def lower_bounds(self) -> list[float]:
-        """Lower bounds for all component and balance iteration variables."""
-        return [var.lower_bound for var in self.collect_all_iteration_variables()]
+    def refresh_iteration_cache(self) -> None:
+        self._iteration_cache_valid = False
+        self._ensure_iteration_cache()
+
+    def _state_label(self, owner, state: State) -> str:
+        for attr_name, attr_value in owner.__dict__.items():
+            if attr_value is state:
+                return f"{owner.name}:{attr_name}"
+            if isinstance(attr_value, Composition):
+                for species, species_state in attr_value.fraction.items():
+                    if species_state is state:
+                        return f"{owner.name}:{attr_name}.{species}"
+        return f"{owner.name}:<unknown>"
+
+    def _ensure_iteration_cache(self) -> None:
+        if self._iteration_cache_valid:
+            return
+
+        component_vars: list[State] = []
+        balance_vars: list[State] = []
+        labels: list[str] = []
+
+        for component in self.component_list:
+            for state in component.iteration_variables:
+                component_vars.append(state)
+                labels.append(self._state_label(component, state))
+
+        for balance in self.balance_list:
+            for state in balance.iteration_variables:
+                balance_vars.append(state)
+                labels.append(self._state_label(balance, state))
+
+        self._validate_no_iteration_overlap(component_vars, balance_vars)
+
+        self._component_iteration_variables = tuple(component_vars)
+        self._balance_iteration_variables = tuple(balance_vars)
+        self._all_iteration_variables = tuple(component_vars + balance_vars)
+        self._iteration_variable_labels = tuple(labels)
+        self._iteration_cache_valid = True
 
     @property
-    def upper_bounds(self) -> list[float]:
-        """Upper bounds for all component and balance iteration variables."""
-        return [var.upper_bound for var in self.collect_all_iteration_variables()]
-
-    @property
-    def has_bounds(self) -> bool:
-        """True if any iteration variable has finite bounds."""
-        return any([var.has_bounds for var in self.collect_all_iteration_variables()])
-
-    @property
-    def keep_feasible(self) -> list[float]:
-        """Per-variable keep_feasible flags for scipy Bounds."""
-        return [var.keep_feasible for var in self.collect_all_iteration_variables()]
+    def iteration_variable_labels(self) -> list[str]:
+        self._ensure_iteration_cache()
+        return list(self._iteration_variable_labels)
 
     @property
     def iteration_variables(self) -> str:
+        """Return readable labels for all iteration variables.
+
+        This preserves the pre-0.1.3 public API. Solver code should use
+        ``collect_all_iteration_variables()`` when it needs the actual
+        State-like objects.
         """
-        Return readable names for all iteration variables.
+        return "\n".join(self.iteration_variable_labels)
 
-        This is used for debugging/printing, not for solving.
-        """
-        names = []
+    @property
+    def iteration_variable_summary(self) -> str:
+        return self.iteration_variables
 
-        def find_name(obj, target):
-            for k, v in obj.__dict__.items():
-                if v is target:
-                    return f"{obj.name}:{k}"
-            return f"{obj.name}:<unknown>"
+    @property
+    def iteration_variable_states(self) -> list[State]:
+        """Return actual State-like objects used by the nonlinear solver."""
+        self._ensure_iteration_cache()
+        return list(self._all_iteration_variables)
 
-        for comp in self.component_list:
-            for var in comp.iteration_variables:
-                names.append(find_name(comp, var))
+    @property
+    def lower_bounds(self) -> list[float]:
+        return [state.lower_bound for state in self.collect_all_iteration_variables()]
 
-        for bal in self.balance_list:
-            for var in bal.iteration_variables:
-                names.append(find_name(bal, var))
+    @property
+    def upper_bounds(self) -> list[float]:
+        return [state.upper_bound for state in self.collect_all_iteration_variables()]
 
-        return "\n".join(names)
+    @property
+    def has_bounds(self) -> bool:
+        return any(state.has_bounds for state in self.collect_all_iteration_variables())
+
+    @property
+    def keep_feasible(self) -> list[bool]:
+        return [state.keep_feasible for state in self.collect_all_iteration_variables()]
 
     @property
     def iteration_values(self) -> list[float]:
-        """
-        Current numeric values of all iteration variables.
-
-        Also checks that a Balance is not trying to solve for a State that is
-        already owned by a component residual equation.
-        """
-        self._validate_no_iteration_overlap()
-        return [var.value for var in self.collect_all_iteration_variables()]
-
-    # ------------------------------------------------------------------
-    # Residual collection
-    # ------------------------------------------------------------------
-
-    @property
-    def residuals(self) -> list[float]:
-        """
-        Collect all component residuals and balance residuals.
-
-        Components contribute physics residuals.
-        Balances contribute user-requested algebraic targets.
-        """
-        residuals = []
-
-        # Component residuals.
-        for comp in self.component_list:
-            try:
-                comp_residuals = comp.residuals
-            except Exception as e:
-                original_msg = str(e).splitlines()[0]
-
-                raise RuntimeError(
-                    f"Failed while evaluating residuals for component `{comp.name}` "
-                    f"of type `{type(comp).__name__}`.\n\n"
-                    "A State used inside this component's residual equations is probably "
-                    "unassigned.\n\n"
-                    "Likely fixes:\n"
-                    "  - Give the missing State an initial value\n"
-                    "  - Connect it to another component that computes it\n"
-                    "  - Make it an iteration variable\n"
-                    "  - If this is a static/transient-only quantity, do not use it in "
-                    "steady-state residuals\n\n"
-                    f"Original error: {original_msg}"
-                ) from None
-
-            if isinstance(comp_residuals, (list, tuple)):
-                residuals.extend(comp_residuals)
-            else:
-                residuals.append(comp_residuals)
-
-        # Balance residuals.
-        balance_residuals = [
-            r for balance in self.balance_list for r in balance.residuals
-        ]
-
-        residuals.extend(balance_residuals)
-
-        return residuals
-
-    # ------------------------------------------------------------------
-    # Basic network evaluation
-    # ------------------------------------------------------------------
-
-    def pre_evaluation(self) -> None:
-        """
-        Run one-time component setup before solving/evaluation.
-
-        This stays simple and generic. The solver decides how many times
-        evaluate_states() should be called.
-        """
-        for c in self.component_list:
-            c.pre_evaluation()
-
-    def evaluate_states(self) -> None:
-        """
-        Evaluate each component once in user-defined order.
-
-        This is intentionally simple. Order-independent repeated settling is
-        handled by SteadyState, not by Network.
-        """
-        for c in self.component_list:
-            c.evaluate_states()
-
-    # ------------------------------------------------------------------
-    # Iteration variable collection and assignment
-    # ------------------------------------------------------------------
+        return [state.numeric_value for state in self.collect_all_iteration_variables()]
 
     def collect_iteration_variables(self) -> list[State]:
-        """Collect iteration variables owned by components."""
-        iter_vars = []
-
-        for comp in self.component_list:
-            iter_vars.extend(comp.iteration_variables)
-
-        return iter_vars
+        self._ensure_iteration_cache()
+        return list(self._component_iteration_variables)
 
     def collect_balance_iteration_variables(self) -> list[State]:
-        """Collect iteration variables owned by balances."""
-        iter_vars = []
-
-        for bal in self.balance_list:
-            iter_vars.extend(bal.iteration_variables)
-
-        return iter_vars
+        self._ensure_iteration_cache()
+        return list(self._balance_iteration_variables)
 
     def collect_all_iteration_variables(self) -> list[State]:
-        """Collect component iteration variables followed by balance variables."""
-        return (
-            self.collect_iteration_variables()
-            + self.collect_balance_iteration_variables()
-        )
+        self._ensure_iteration_cache()
+        return list(self._all_iteration_variables)
 
     def assign_iteration_values(self, iteration_values: list[float]) -> None:
-        """
-        Assign solver vector values back into State objects.
-
-        The solver works with a numeric vector x. The network/components work
-        with State objects. This method maps x -> State.value.
-        """
-        iter_var_list = self.collect_all_iteration_variables()
-
-        if len(iteration_values) != len(iter_var_list):
+        iteration_variables = self.collect_all_iteration_variables()
+        if len(iteration_values) != len(iteration_variables):
             raise ValueError(
                 f"Length mismatch: got {len(iteration_values)} iteration values "
-                f"but expected {len(iter_var_list)}"
+                f"but expected {len(iteration_variables)}."
             )
 
-        for val, var in zip(iteration_values, iter_var_list):
-            var.value = val
+        for value, state in zip(iteration_values, iteration_variables):
+            state.value = value
 
-    # ------------------------------------------------------------------
-    # Iteration variable validation
-    # ------------------------------------------------------------------
+    def _validate_no_iteration_overlap(
+        self,
+        component_vars: list[State] | None = None,
+        balance_vars: list[State] | None = None,
+    ) -> None:
+        component_vars = component_vars if component_vars is not None else self.collect_iteration_variables()
+        balance_vars = balance_vars if balance_vars is not None else self.collect_balance_iteration_variables()
 
-    def _validate_no_iteration_overlap(self) -> None:
-        """
-        Ensure balance variables do not duplicate component iteration variables.
-
-        A State cannot be solved by both a component equation and a Balance.
-        """
-        comp_ids = {id(v) for v in self.collect_iteration_variables()}
-        bal_ids = {id(v) for v in self.collect_balance_iteration_variables()}
-        overlap_ids = comp_ids & bal_ids
+        component_ids = {id(state) for state in component_vars}
+        balance_ids = {id(state) for state in balance_vars}
+        overlap_ids = component_ids & balance_ids
 
         if overlap_ids:
             raise ValueError(self._format_iteration_overlap_error(overlap_ids))
 
     def _format_iteration_overlap_error(self, overlap_ids: set[int]) -> str:
-        """Build a readable error message for duplicated iteration variables."""
         component_names = []
         balance_names = []
 
-        for comp in self.component_list:
-            comp_iter_ids = {id(v) for v in comp.iteration_variables}
-            shared_ids = comp_iter_ids & overlap_ids
+        for component in self.component_list:
+            for state in component.iteration_variables:
+                if id(state) in overlap_ids:
+                    component_names.append(self._state_label(component, state))
 
-            if not shared_ids:
-                continue
-
-            for attr_name, attr_value in comp.__dict__.items():
-                if id(attr_value) in shared_ids:
-                    component_names.append(f"{comp.name}:{attr_name}")
-
-        for bal in self.balance_list:
-            bal_iter_ids = {id(v) for v in bal.iteration_variables}
-            shared_ids = bal_iter_ids & overlap_ids
-
-            if not shared_ids:
-                continue
-
-            for attr_name, attr_value in bal.__dict__.items():
-                if id(attr_value) in shared_ids:
-                    balance_names.append(f"{bal.name}:{attr_name}")
-
-        component_names = sorted(set(component_names))
-        balance_names = sorted(set(balance_names))
+        for balance in self.balance_list:
+            for state in balance.iteration_variables:
+                if id(state) in overlap_ids:
+                    balance_names.append(self._state_label(balance, state))
 
         lines = [
             "Iteration variable overlap detected.",
@@ -364,220 +218,233 @@ class Network:
             "A State used as a Balance solve variable must not also appear in a Component iteration_variables list.",
             "",
             "Overlapping component variables:",
-            *[f"  - {name}" for name in component_names],
+            *[f"  - {name}" for name in sorted(set(component_names))],
             "",
             "Conflicting balance variables:",
-            *[f"  - {name}" for name in balance_names],
+            *[f"  - {name}" for name in sorted(set(balance_names))],
         ]
-
         return "\n".join(lines)
+
+    # ------------------------------------------------------------------
+    # Residuals and evaluation
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _flatten_residuals(residual_source) -> list[float]:
+        if residual_source is None:
+            return []
+        if isinstance(residual_source, (list, tuple)):
+            values = residual_source
+        else:
+            values = (residual_source,)
+
+        residuals = []
+        for value in values:
+            if Network._is_state_like(value):
+                value = value.value
+            residuals.append(float(value))
+        return residuals
+
+    @property
+    def residuals(self) -> list[float]:
+        residuals: list[float] = []
+
+        for component in self.component_list:
+            try:
+                residuals.extend(self._flatten_residuals(component.residuals))
+            except Exception as error:
+                original = str(error).splitlines()[0]
+                raise RuntimeError(
+                    f"Failed while evaluating residuals for component `{component.name}` "
+                    f"of type `{type(component).__name__}`.\n\n"
+                    "A State used inside this component's residual equations is probably unassigned.\n\n"
+                    "Likely fixes:\n"
+                    "  - Give the missing State an initial value\n"
+                    "  - Connect it to another component that computes it\n"
+                    "  - Make it an iteration variable\n"
+                    "  - If this is a static/transient-only quantity, do not use it in steady-state residuals\n\n"
+                    f"Original error: {original}"
+                ) from None
+
+        for balance in self.balance_list:
+            residuals.extend(self._flatten_residuals(balance.residuals))
+
+        return residuals
+
+    def pre_evaluation(self) -> None:
+        for component in self.component_list:
+            component.pre_evaluation()
+
+    def evaluate_states(self) -> None:
+        for component in self.component_list:
+            component.evaluate_states()
+
+    # ------------------------------------------------------------------
+    # Export helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _is_state_like(value: Any) -> bool:
+        if value.__class__.__name__ in {"State", "CallableLookupAttribute"}:
+            return True
+
+        # Avoid hasattr(): CallableLookup dynamically creates attributes for
+        # unknown names. Inspect class dictionaries instead.
+        return any(
+            "is_assigned" in getattr(cls, "__dict__", {})
+            and "value" in getattr(cls, "__dict__", {})
+            for cls in type(value).__mro__
+        )
+
+    @classmethod
+    def _safe_value(cls, value: Any) -> Any:
+        if cls._is_state_like(value):
+            if not value.is_assigned:
+                return "<uninitialized>"
+            try:
+                return value.value
+            except Exception:
+                return "<unavailable>"
+        return value
+
+    def _append_record(
+        self,
+        records: list[dict[str, Any]],
+        owner_name: str,
+        owner_type: str,
+        attribute: str,
+        value: Any,
+    ) -> None:
+        records.append({
+            "component_name": owner_name,
+            "component_type": owner_type,
+            "attribute": attribute,
+            "value": value,
+        })
+
+    def _export_owner(
+        self,
+        owner,
+        records: list[dict[str, Any]],
+        ignored_attributes: set[str],
+    ) -> None:
+        owner_name = owner.name
+        owner_type = owner.__class__.__name__
+
+        for attr_name, attr_value in owner.__dict__.items():
+            if attr_name in ignored_attributes or attr_name.startswith("_"):
+                continue
+
+            if isinstance(attr_value, Composition):
+                if attr_value.is_assigned:
+                    for species, state in attr_value.fraction.items():
+                        self._append_record(
+                            records,
+                            owner_name,
+                            owner_type,
+                            f"{attr_name}.{species}",
+                            self._safe_value(state),
+                        )
+                else:
+                    self._append_record(
+                        records,
+                        owner_name,
+                        owner_type,
+                        attr_name,
+                        "<uninitialized>",
+                    )
+                continue
+
+            self._append_record(
+                records,
+                owner_name,
+                owner_type,
+                attr_name,
+                self._safe_value(attr_value),
+            )
+
+    def save(self, filename: str | None = None, return_type: str = "dict"):
+        """Export component, balance, and tracked state values."""
+        return_type = return_type.lower()
+        records: list[dict[str, Any]] = []
+
+        for component in self.component_list:
+            ignored = {"name", "network"} | component.ignored_export_attributes
+            self._export_owner(component, records, ignored)
+
+        for balance in self.balance_list:
+            self._export_owner(balance, records, {"name", "network"})
+
+        for name, state in self.tracked_state_list:
+            self._append_record(
+                records,
+                self.name,
+                "TrackedState",
+                name,
+                self._safe_value(state),
+            )
+
+        if return_type == "dict":
+            result = records
+        elif return_type == "dataframe":
+            import pandas as pd
+            result = pd.DataFrame(records)
+        else:
+            raise ValueError("return_type must be 'dict' or 'dataframe'.")
+
+        if filename is not None:
+            path = Path(filename)
+            ext = path.suffix.lower().lstrip(".")
+
+            import pandas as pd
+            df = pd.DataFrame(records)
+
+            if ext == "csv":
+                df.to_csv(path, index=False)
+            elif ext == "json":
+                import json
+                path.write_text(json.dumps(records, indent=4))
+            elif ext in {"xlsx", "xls"}:
+                df.to_excel(path, index=False)
+            else:
+                raise ValueError("Unsupported file extension. Use .csv, .json, or .xlsx.")
+
+        return result
+
+    # ------------------------------------------------------------------
+    # Solver convenience API
+    # ------------------------------------------------------------------
+
+    def solve(self, *args, **kwargs):
+        """Solve this network with ``SteadyState``.
+
+        This is equivalent to ``SteadyState(network).solve(...)`` and keeps the
+        solver available from the network for a simpler user-facing API.
+        """
+        from fullflow.Solvers import SteadyState
+
+        return SteadyState(self).solve(*args, **kwargs)
+
+    def static_evaluate(self, *args, **kwargs):
+        """Evaluate this network without nonlinear solving.
+
+        Equivalent to ``SteadyState(network).static_evaluate(...)``.
+        """
+        from fullflow.Solvers import SteadyState
+
+        return SteadyState(self).static_evaluate(*args, **kwargs)
 
     # ------------------------------------------------------------------
     # Display
     # ------------------------------------------------------------------
 
     def __str__(self) -> str:
-        """Return a simple text summary of the network."""
-        lines = []
-
-        lines.append(f"Network: {self.name}")
-        lines.append(f"Components ({len(self.component_list)}):")
-
-        for comp in self.component_list:
-            lines.append(
-                f"  ├─ [{comp.__class__.__name__}]: {comp.name}"
-            )
-
+        lines = [f"Network: {self.name}", f"Components ({len(self.component_list)}):"]
+        lines.extend(
+            f"  ├─ [{component.__class__.__name__}]: {component.name}"
+            for component in self.component_list
+        )
         return "\n".join(lines)
 
-    # ------------------------------------------------------------------
-    # Solution exporting
-    # ------------------------------------------------------------------
-
-    def save(
-        self,
-        filename: str | None = None,
-        return_type: str = "dict",
-    ):
-        """
-        Export component and balance state values.
-
-        Supports:
-            return_type="dict"
-            return_type="dataframe"
-
-        File output supports:
-            .csv
-            .json
-            .xlsx / .xls
-        """
-        return_type = return_type.lower()
-
-        records = []
-
-        # --------------------------------------------------------------
-        # Export component attributes.
-        # --------------------------------------------------------------
-        for comp in self.component_list:
-            ignored_attributes = {"name", "network"} | comp.ignored_export_attributes
-
-            for attr_name, attr_value in comp.__dict__.items():
-                if attr_name in ignored_attributes or attr_name.startswith("_"):
-                    continue
-
-                # Composition-like attribute.
-                if hasattr(attr_value, "fraction"):
-                    if attr_value.is_assigned:
-                        for species, state in attr_value:
-                            try:
-                                value = state.value
-                            except Exception:
-                                value = "<unavailable>"
-
-                            records.append({
-                                "component_name": comp.name,
-                                "component_type": comp.__class__.__name__,
-                                "attribute": f"{attr_name}.{species}",
-                                "value": value,
-                            })
-                    else:
-                        records.append({
-                            "component_name": comp.name,
-                            "component_type": comp.__class__.__name__,
-                            "attribute": attr_name,
-                            "value": "<uninitialized>",
-                        })
-
-                    continue
-
-                # State-like attribute.
-                if hasattr(attr_value, "is_assigned"):
-                    if attr_value.is_assigned:
-                        try:
-                            value = attr_value.value
-                        except Exception:
-                            value = "<unavailable>"
-                    else:
-                        value = "<uninitialized>"
-
-                # Plain Python attribute.
-                else:
-                    value = attr_value
-
-                records.append({
-                    "component_name": comp.name,
-                    "component_type": comp.__class__.__name__,
-                    "attribute": attr_name,
-                    "value": value,
-                })
-
-        # --------------------------------------------------------------
-        # Export balance attributes.
-        # --------------------------------------------------------------
-        for bal in self.balance_list:
-            ignored_attributes = {"name", "network"}
-
-            for attr_name, attr_value in bal.__dict__.items():
-                if attr_name in ignored_attributes or attr_name.startswith("_"):
-                    continue
-
-                # Composition-like attribute.
-                if hasattr(attr_value, "fraction"):
-                    if attr_value.is_assigned:
-                        for species, state in attr_value:
-                            records.append({
-                                "component_name": bal.name,
-                                "component_type": bal.__class__.__name__,
-                                "attribute": f"{attr_name}.{species}",
-                                "value": state.value,
-                            })
-                    else:
-                        records.append({
-                            "component_name": bal.name,
-                            "component_type": bal.__class__.__name__,
-                            "attribute": attr_name,
-                            "value": "<uninitialized>",
-                        })
-
-                    continue
-
-                # State-like attribute.
-                if hasattr(attr_value, "is_assigned"):
-                    if attr_value.is_assigned:
-                        try:
-                            value = attr_value.value
-                        except Exception:
-                            value = "<unavailable>"
-                    else:
-                        value = "<uninitialized>"
-
-                # Plain Python attribute.
-                else:
-                    value = attr_value
-
-                records.append({
-                    "component_name": bal.name,
-                    "component_type": bal.__class__.__name__,
-                    "attribute": attr_name,
-                    "value": value,
-                })
-
-        # --------------------------------------------------------------
-        # Export tracked states.
-        # --------------------------------------------------------------
-        for name, state in self.tracked_state_list:
-            if state.is_assigned:
-                try:
-                    value = state.value
-                except Exception:
-                    value = "<unavailable>"
-            else:
-                value = "<uninitialized>"
-
-            records.append({
-                "component_name": self.name,
-                "component_type": "TrackedState",
-                "attribute": name,
-                "value": value,
-            })
-
-            
-        # --------------------------------------------------------------
-        # Return object.
-        # --------------------------------------------------------------
-        if return_type == "dict":
-            result = records
-
-        elif return_type == "dataframe":
-            import pandas as pd
-            result = pd.DataFrame(records)
-
-        else:
-            raise ValueError("return_type must be 'dict' or 'dataframe'")
-
-        # --------------------------------------------------------------
-        # Optional file export.
-        # --------------------------------------------------------------
-        if filename is not None:
-            ext = filename.split(".")[-1].lower()
-
-            import pandas as pd
-            df = pd.DataFrame(records)
-
-            if ext == "csv":
-                df.to_csv(filename, index=False)
-
-            elif ext == "json":
-                import json
-                with open(filename, "w") as f:
-                    json.dump(records, f, indent=4)
-
-            elif ext in {"xlsx", "xls"}:
-                df.to_excel(filename, index=False)
-
-            else:
-                raise ValueError(
-                    "Unsupported file extension. Use .csv, .json, or .xlsx"
-                )
-
-        return result
+    def __repr__(self) -> str:
+        return f"Network(name={self.name!r}, components={len(self.component_list)})"

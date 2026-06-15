@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import numpy as np
+import math
 from typing import TYPE_CHECKING
 
 from fullflow.System import Component, State
+from ._flow_math import isclose_numpy_default, pressure_drop_flow_rate, sign
 
 if TYPE_CHECKING:
     from fullflow.System import Network
@@ -65,7 +66,7 @@ class LiquidRegulator(Component):
         Cd = self.discharge_coefficient.value
         A = self.cross_sectional_area.value
 
-        self.mass_flow.value = np.sign(P1 - P2) * Cd * A * np.sqrt(2.0 * rho * np.abs(P1 - P2))
+        self.mass_flow.value = pressure_drop_flow_rate(P1 - P2, rho, Cd, A)
 
 
 
@@ -166,11 +167,11 @@ class IsentropicGasRegulator(Component):
         cp = g * R / (g - 1.0)
         self.total_enthalpy.value = cp * T1
 
-        if np.isclose(P1, P2):
+        if isclose_numpy_default(P1, P2):
             self.mass_flow.value = 0.0
             return
 
-        sign = np.sign(P1 - P2)
+        sign_value = sign(P1 - P2)
 
         Po = max(P1, P2)
         Pb = min(P1, P2)
@@ -180,9 +181,9 @@ class IsentropicGasRegulator(Component):
         critical_pressure_ratio = (2 / (g + 1)) ** (g / (g - 1))
 
         if pressure_ratio <= critical_pressure_ratio:
-            flow_function = np.sqrt((g / (R * To)) * (2 / (g + 1)) ** ((g + 1) / (g - 1)))
+            flow_function = math.sqrt((g / (R * To)) * (2 / (g + 1)) ** ((g + 1) / (g - 1)))
 
         else:
-            flow_function = np.sqrt((2 * g / (R * To * (g - 1))) * (pressure_ratio ** (2 / g) - pressure_ratio ** ((g + 1) / g)))
+            flow_function = math.sqrt((2 * g / (R * To * (g - 1))) * (pressure_ratio ** (2 / g) - pressure_ratio ** ((g + 1) / g)))
 
-        self.mass_flow.value = sign * CdA * Po * flow_function
+        self.mass_flow.value = sign_value * CdA * Po * flow_function

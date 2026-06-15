@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+import math
+
 import numpy as np
 
 from fullflow.System import Component, State
@@ -215,7 +217,7 @@ class TurboMap(Component):
         design_head_coefficient = self.design_head_coefficient.value
         design_torque_coefficient = self.design_torque_coefficient.value
 
-        omega = np.pi / 30.0 * N
+        omega = math.pi / 30.0 * N
 
         if abs(omega) < 1e-12:
             raise ValueError(f"{self.name}: rotor_speed is too close to zero.")
@@ -390,7 +392,7 @@ class TurboDesignCoefficients(Component):
         D_head = self.head_geometric_parameter.value
         D_torque = self.torque_geometric_parameter.value
 
-        omega = np.pi / 30.0 * N
+        omega = math.pi / 30.0 * N
 
         if abs(omega) < 1e-12:
             raise ValueError(f"{self.name}: rotor_speed is too close to zero.")

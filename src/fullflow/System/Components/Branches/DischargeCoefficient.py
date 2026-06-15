@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import numpy as np
 from typing import TYPE_CHECKING
 
 from fullflow.System import Component
+from ._flow_math import pressure_drop_flow_rate, sqrt_or_nan
 
 if TYPE_CHECKING:
     from fullflow.System import Network, State
@@ -67,12 +67,7 @@ class DischargeCoefficient(Component):
         Cd = self.discharge_coefficient.value
         A = self.cross_sectional_area.value
 
-        self.mass_flow.value = (
-            np.sign(P1 - P2)
-            * Cd
-            * A
-            * np.sqrt(2.0 * rho * np.abs(P1 - P2))
-        )
+        self.mass_flow.value = pressure_drop_flow_rate(P1 - P2, rho, Cd, A)
 
 
 class SeriesCdA(Component):
@@ -282,13 +277,11 @@ class CavitatingVenturi(Component):
         if above_critical_temperature or pressure_ratio >= PRcrit:
             self.is_cavitating = False
             dP = P1 - P2
-            self.mass_flow.value = (
-                np.sign(dP) * Cd_noncav * A * np.sqrt(2.0 * rho * np.abs(dP))
-            )
+            self.mass_flow.value = pressure_drop_flow_rate(dP, rho, Cd_noncav, A)
         else:
             self.is_cavitating = True
 
             Pvap = self.vapor_pressure.value
             dP = P1 - Pvap
 
-            self.mass_flow.value = Cd_cav * A * np.sqrt(2.0 * rho * dP)
+            self.mass_flow.value = Cd_cav * A * sqrt_or_nan(2.0 * rho * dP)

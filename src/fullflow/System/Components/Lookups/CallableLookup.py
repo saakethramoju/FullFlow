@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import math
 import operator
 from typing import Any, Callable, Generic, TypeVar, TYPE_CHECKING
 
@@ -13,6 +14,9 @@ if TYPE_CHECKING:
 
 
 T = TypeVar("T")
+
+_SIGNATURE_CACHE: dict[int, tuple[inspect.Signature | None, set[str], bool]] = {}
+_UPDATE_ACCEPTS_SOLVE_CACHE: dict[type, bool] = {}
 
 _MISSING = object()
 _UNAVAILABLE = object()
@@ -33,6 +37,8 @@ class CallableLookupAttribute:
         Chamber.mass_flow_in = FuelInjector.mass_flow + OxInjector.mass_flow
         reactants.mixture_ratio = OxInjector.mass_flow / FuelInjector.mass_flow
     """
+
+    __slots__ = ("lookup", "name")
 
     def __init__(self, lookup: "CallableLookup", name: str):
         self.lookup = lookup
@@ -86,11 +92,11 @@ class CallableLookupAttribute:
 
     @property
     def lower_bound(self) -> float:
-        return -np.inf
+        return -math.inf
 
     @property
     def upper_bound(self) -> float:
-        return np.inf
+        return math.inf
 
     @property
     def bounds(self) -> tuple[float, float]:
@@ -317,6 +323,7 @@ class CallableLookup(Component, Generic[T]):
         "_cache_hits",
         "_defer_count",
         "_last_error",
+        "_attribute_cache",
     }
 
     def __init__(
@@ -364,6 +371,7 @@ class CallableLookup(Component, Generic[T]):
         object.__setattr__(self, "_cache_hits", 0)
         object.__setattr__(self, "_defer_count", 0)
         object.__setattr__(self, "_last_error", None)
+        object.__setattr__(self, "_attribute_cache", {})
 
         output_guesses = output_guesses or {}
         input_guesses = input_guesses or {}
@@ -459,26 +467,33 @@ class CallableLookup(Component, Generic[T]):
         return args, kwargs
 
     def _inspect_callable_signature(self) -> None:
-        accepted_keywords: set[str] = set()
-        accepts_var_keyword = False
-        signature = None
+        cache_key = id(self.callable)
+        cached = _SIGNATURE_CACHE.get(cache_key)
 
-        try:
-            signature = inspect.signature(self.callable)
-        except (TypeError, ValueError):
-            pass
+        if cached is None:
+            accepted_keywords: set[str] = set()
+            accepts_var_keyword = False
+            signature = None
 
-        if signature is not None:
-            for parameter in signature.parameters.values():
-                if parameter.kind == parameter.VAR_KEYWORD:
-                    accepts_var_keyword = True
+            try:
+                signature = inspect.signature(self.callable)
+            except (TypeError, ValueError):
+                pass
 
-                elif parameter.kind in {
-                    parameter.POSITIONAL_OR_KEYWORD,
-                    parameter.KEYWORD_ONLY,
-                }:
-                    accepted_keywords.add(parameter.name)
+            if signature is not None:
+                for parameter in signature.parameters.values():
+                    if parameter.kind == parameter.VAR_KEYWORD:
+                        accepts_var_keyword = True
+                    elif parameter.kind in {
+                        parameter.POSITIONAL_OR_KEYWORD,
+                        parameter.KEYWORD_ONLY,
+                    }:
+                        accepted_keywords.add(parameter.name)
 
+            cached = (signature, accepted_keywords, accepts_var_keyword)
+            _SIGNATURE_CACHE[cache_key] = cached
+
+        signature, accepted_keywords, accepts_var_keyword = cached
         object.__setattr__(self, "_signature", signature)
         object.__setattr__(self, "_accepted_keywords", accepted_keywords)
         object.__setattr__(self, "_accepts_var_keyword", accepts_var_keyword)
@@ -608,7 +623,11 @@ class CallableLookup(Component, Generic[T]):
         if not self.has_input(name) and not self.accepts_input(name):
             raise AttributeError(f"{self.name!r} has no input named {name!r}.")
 
-        return CallableLookupAttribute(self, name)
+        attribute = self._attribute_cache.get(name)
+        if attribute is None:
+            attribute = CallableLookupAttribute(self, name)
+            self._attribute_cache[name] = attribute
+        return attribute
 
     def input_state(self, name: str, default: Any = None) -> State:
         if self.has_input(name):
@@ -792,14 +811,11 @@ class CallableLookup(Component, Generic[T]):
         if isinstance(value, (int, float, np.number)):
             v = float(value)
 
-            if np.isnan(v):
+            if math.isnan(v):
                 return ("nan",)
 
-            if np.isposinf(v):
-                return ("inf", 1)
-
-            if np.isneginf(v):
-                return ("inf", -1)
+            if math.isinf(v):
+                return ("inf", 1 if v > 0.0 else -1)
 
             if self.cache_tol > 0.0:
                 return round(v / self.cache_tol)
@@ -1007,16 +1023,17 @@ class CallableLookup(Component, Generic[T]):
 
         update_kwargs = dict(kwargs)
 
-        try:
-            update_signature = inspect.signature(update)
+        update_type = type(obj)
+        accepts_solve = _UPDATE_ACCEPTS_SOLVE_CACHE.get(update_type)
+        if accepts_solve is None:
+            try:
+                accepts_solve = "solve" in inspect.signature(update).parameters
+            except (TypeError, ValueError):
+                accepts_solve = False
+            _UPDATE_ACCEPTS_SOLVE_CACHE[update_type] = accepts_solve
 
-            if (
-                "solve" in update_signature.parameters
-                and "solve" not in update_kwargs
-            ):
-                update_kwargs["solve"] = False
-        except (TypeError, ValueError):
-            pass
+        if accepts_solve and "solve" not in update_kwargs:
+            update_kwargs["solve"] = False
 
         update_result = update(**update_kwargs)
 
@@ -1056,7 +1073,11 @@ class CallableLookup(Component, Generic[T]):
         if name.startswith("__"):
             raise AttributeError(name)
 
-        return CallableLookupAttribute(self, name)
+        attribute = self._attribute_cache.get(name)
+        if attribute is None:
+            attribute = CallableLookupAttribute(self, name)
+            self._attribute_cache[name] = attribute
+        return attribute
 
     def __setattr__(self, name: str, value: Any) -> None:
         if (
@@ -1147,6 +1168,7 @@ class CallableLookup(Component, Generic[T]):
             "_cache_hits",
             "_defer_count",
             "_last_error",
+            "_attribute_cache",
         }
 
     def __repr__(self) -> str:

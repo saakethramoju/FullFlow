@@ -57,6 +57,12 @@ FeedLine = DarcyWeisbach(
 solution = SteadyState(FeedSystem).solve()
 ```
 
+## 0.1.3 Core Streamline
+
+FullFlow 0.1.3 starts a core cleanup focused on API consistency and speed. The System layer now uses lighter `State`, `Composition`, `Balance`, `Component`, and `Network` internals, cached iteration-variable metadata, simpler export paths, and fewer unnecessary imports. The unused `Exceptions` package has been removed in favor of standard Python exceptions.
+
+The solver and component layers were also streamlined. `SteadyState.py` is now a thin public wrapper over the modular `Solvers/steady_state/` implementation, `Network.solve()` is available for simpler scripts, and common scalar branch calculations now avoid unnecessary NumPy calls. Lookup components cache dynamic attribute proxies and callable signature metadata, reducing overhead in ThermoProp-heavy networks.
+
 ## Features
 
 * Component-based network architecture
@@ -151,19 +157,47 @@ Examples include:
 
 Components define equations that contribute to the overall network solution.
 
+### Custom Components
+
+A minimal custom component only needs a constructor, optional explicit state calculations, and residual equations. For simple solve variables, define `_iteration_variable_names` instead of writing boilerplate properties:
+
+```python
+class PressureNode(Component):
+    _iteration_variable_names = ("pressure",)
+
+    def __init__(self, name, network, pressure, mass_flow_in=None, mass_flow_out=None):
+        self.setup()
+
+    @property
+    def residuals(self):
+        mdot_in, mdot_out = self.values("mass_flow_in", "mass_flow_out")
+        return [mdot_in - mdot_out]
+```
+
+`self.setup()` still handles FullFlow's normal conversion rules: numbers become `State` objects, existing `State` and `Composition` objects are preserved, and the component is registered with its network.
+
 ## Solvers
 
 ### SteadyState
 
 The `SteadyState` solver computes a converged operating point for the network.
+The existing explicit solver API is still supported:
 
 ```python
 solution = SteadyState(NetworkModel).solve()
 ```
 
-### Transient
+For simpler scripts, a network can now call the steady-state solver directly:
 
-Transient simulation capabilities are under active development.
+```python
+solution = NetworkModel.solve()
+```
+
+Static evaluation is also available without nonlinear iteration:
+
+```python
+solution = NetworkModel.static_evaluate()
+```
 
 ## Component Categories
 

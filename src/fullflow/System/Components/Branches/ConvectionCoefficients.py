@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import numpy as np
+import math
 from typing import TYPE_CHECKING
 
 from fullflow.System import Component
@@ -849,7 +849,7 @@ class Bartz(Component):
         rho = self.local_freestream_density.value
         rho_am = self.mean_temperature_density.value
         mu_am = self.mean_temperature_dynamic_viscosity.value
-        A = (np.pi/4) * D**2
+        A = (math.pi/4) * D**2
 
         if self.throat_converging_radius.is_assigned:
             rc = self.throat_converging_radius.value

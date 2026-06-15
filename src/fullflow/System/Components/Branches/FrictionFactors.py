@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import numpy as np
+import math
 from scipy.special import wrightomega
 from typing import TYPE_CHECKING
 
@@ -120,9 +120,9 @@ class Colebrook(Component):
     def _colebrook_explicit(self, Re, roughness, hydraulic_diameter):
         a = 2.51 / Re
         b = roughness / (3.7 * hydraulic_diameter)
-        c = 0.5 * np.log(10.0)
+        c = 0.5 * math.log(10.0)
 
-        y = np.log(c / a) + c * b / a
+        y = math.log(c / a) + c * b / a
         x = wrightomega(y) / c - b / a
 
         return 1.0 / x**2
@@ -223,7 +223,7 @@ class Churchill(Component):
         Re = self.reynolds_number.value
         relative_roughness = self.roughness.value / self.Deff
 
-        A = (2.457 * np.log(1.0 / ((7.0 / Re) ** 0.9 + 0.27 * relative_roughness))) ** 16
+        A = (2.457 * math.log(1.0 / ((7.0 / Re) ** 0.9 + 0.27 * relative_roughness))) ** 16
         B = (37530.0 / Re) ** 16
         f = 8.0 * ((8.0 / Re) ** 12 + (A + B) ** (-1.5)) ** (1.0 / 12.0)
 
@@ -328,6 +328,6 @@ class PetukhovFriction(Component):
         if Re <= self.reynolds_number_threshold.value:
             f = 4.0 * Po / Re
         else:
-            f = (0.79 * np.log(Re) - 1.64) ** -2
+            f = (0.79 * math.log(Re) - 1.64) ** -2
 
         self.friction_factor.value = f

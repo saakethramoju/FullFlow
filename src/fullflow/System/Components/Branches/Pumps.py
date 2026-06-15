@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import numpy as np
+import math
 from typing import TYPE_CHECKING
 
 from fullflow.System import Component, State
+from ._flow_math import divide_or_nan
 
 if TYPE_CHECKING:
     from fullflow.System import Network
@@ -133,7 +134,7 @@ class ConstantDensityPump(Component):
         po_in = self.upstream_total_pressure.value
         N = self.rotor_speed.value
 
-        omega = (np.pi / 30.0) * N
+        omega = (math.pi / 30.0) * N
 
         if abs(Q) < 1e-12:
             raise ValueError(f"{self.name}: volumetric_flow is too close to zero.")
@@ -321,7 +322,7 @@ class PolytropicPump(Component):
         ho_in = self.upstream_total_enthalpy.value
         N = self.rotor_speed.value
 
-        omega = (np.pi / 30.0) * N
+        omega = (math.pi / 30.0) * N
         shaft_power = T * omega
 
         if abs(mdot) < 1e-12:
@@ -352,13 +353,13 @@ class PolytropicPump(Component):
         pressure_ratio = po_out / po_in
         density_ratio = rho2 / rho1
 
-        log_pressure_ratio = np.log(pressure_ratio)
+        log_pressure_ratio = math.log(pressure_ratio)
 
         #if abs(log_pressure_ratio) < 1e-12:
         #    raise ValueError(f"{self.name}: pressure ratio is too close to 1 for beta calculation.")
 
         beta = 1.0 / (
-            1.0 - np.log(density_ratio) / log_pressure_ratio
+            1.0 - divide_or_nan(math.log(density_ratio), log_pressure_ratio)
         )
 
         self._predicted_discharge_total_pressure = rho2 * (
@@ -557,8 +558,8 @@ class SimpleEulerCentrifugalPump(Component):
         eta_v = self.volumetric_efficiency.value
 
         if self.angle_units.lower() in {"degree", "degrees", "deg"}:
-            beta1 = np.deg2rad(beta1)
-            beta2 = np.deg2rad(beta2)
+            beta1 = math.radians(beta1)
+            beta2 = math.radians(beta2)
         elif self.angle_units.lower() in {"radian", "radians", "rad"}:
             pass
         else:
@@ -573,7 +574,7 @@ class SimpleEulerCentrifugalPump(Component):
         if abs(A1) < 1e-12 or abs(A2) < 1e-12:
             raise ValueError(f"{self.name}: annular flow areas must be nonzero.")
 
-        omega = np.pi * N / 30.0
+        omega = math.pi * N / 30.0
 
         # Blade speeds.
         U1 = omega * r1
@@ -587,8 +588,8 @@ class SimpleEulerCentrifugalPump(Component):
         Cm2 = Q_impeller / A2
 
         # Tangential velocity components from velocity triangles.
-        V_theta1 = U1 - Cm1 / np.tan(beta1)
-        V_theta2 = sigma * U2 - Cm2 / np.tan(beta2)
+        V_theta1 = U1 - Cm1 / math.tan(beta1)
+        V_theta2 = sigma * U2 - Cm2 / math.tan(beta2)
 
         # Ideal Euler work and ideal head.
         specific_work_euler = U2 * V_theta2 - U1 * V_theta1

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import numpy as np
 from typing import TYPE_CHECKING
 
 from fullflow.System import Component, State
+from ._flow_math import sqrt_or_nan
 
 if TYPE_CHECKING:
     from fullflow.System import Network
@@ -127,14 +127,14 @@ class FrozenFlowRocketNozzle(Component):
         choked = pressure_ratio <= critical_pressure_ratio
 
         if choked:
-            mass_flow_ideal = A * P0 * np.sqrt(gamma / (R * T0)) * (2.0 / (gamma + 1.0))**((gamma + 1.0) / (2.0 * (gamma - 1.0)))
+            mass_flow_ideal = A * P0 * sqrt_or_nan(gamma / (R * T0)) * (2.0 / (gamma + 1.0))**((gamma + 1.0) / (2.0 * (gamma - 1.0)))
             cstar_ideal = P0 * A / mass_flow_ideal
             cstar = eta_cstar * cstar_ideal
             mass_flow = P0 * A / cstar
 
             T_star = T0 * (2.0 / (gamma + 1.0))
             P_star = P0 * critical_pressure_ratio
-            u_star = np.sqrt(gamma * R * T_star)
+            u_star = sqrt_or_nan(gamma * R * T_star)
             thrust_ideal = mass_flow_ideal * u_star + (P_star - Pb) * A
             Cf_ideal = thrust_ideal / (P0 * A)
             Cf = eta_Cf * Cf_ideal
@@ -148,10 +148,10 @@ class FrozenFlowRocketNozzle(Component):
             self.thrust.value = thrust
 
         else:
-            M = np.sqrt((2.0 / (gamma - 1.0)) * (pressure_ratio**(-(gamma - 1.0) / gamma) - 1.0))
+            M = sqrt_or_nan((2.0 / (gamma - 1.0)) * (pressure_ratio**(-(gamma - 1.0) / gamma) - 1.0))
             T = T0 / (1.0 + 0.5 * (gamma - 1.0) * M**2)
-            u = M * np.sqrt(gamma * R * T)
-            mass_flow = A * P0 * np.sqrt(gamma / (R * T0)) * M * (1.0 + 0.5 * (gamma - 1.0) * M**2)**(-(gamma + 1.0) / (2.0 * (gamma - 1.0)))
+            u = M * sqrt_or_nan(gamma * R * T)
+            mass_flow = A * P0 * sqrt_or_nan(gamma / (R * T0)) * M * (1.0 + 0.5 * (gamma - 1.0) * M**2)**(-(gamma + 1.0) / (2.0 * (gamma - 1.0)))
             thrust = mass_flow * u
             Cf_ideal = thrust / (P0 * A)
             Cf = eta_Cf * Cf_ideal

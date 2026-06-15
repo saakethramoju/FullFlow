@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import math
+
 import numpy as np
 from scipy.special import lambertw, wrightomega
 from scipy.optimize import brentq
 from typing import TYPE_CHECKING
 
 from fullflow.System import Component, State
+from ._flow_math import isclose_numpy_default, sign, sqrt_or_nan
 
 if TYPE_CHECKING:
     from fullflow.System import Network
@@ -110,11 +113,11 @@ class IsentropicCompressibleOrifice(Component):
         cp = g * R / (g - 1.0)
         self.total_enthalpy.value = cp * T1
 
-        if np.isclose(P1, P2):
+        if isclose_numpy_default(P1, P2):
             self.mass_flow.value = 0.0
             return
 
-        sign = np.sign(P1 - P2)
+        flow_sign = sign(P1 - P2)
 
         Po = max(P1, P2)
         Pb = min(P1, P2)
@@ -124,12 +127,12 @@ class IsentropicCompressibleOrifice(Component):
         critical_pressure_ratio = (2 / (g + 1)) ** (g / (g - 1))
 
         if pressure_ratio <= critical_pressure_ratio:
-            flow_function = np.sqrt((g / (R * To)) * (2 / (g + 1)) ** ((g + 1) / (g - 1)))
+            flow_function = sqrt_or_nan((g / (R * To)) * (2 / (g + 1)) ** ((g + 1) / (g - 1)))
 
         else:
-            flow_function = np.sqrt((2 * g / (R * To * (g - 1))) * (pressure_ratio ** (2 / g) - pressure_ratio ** ((g + 1) / g)))
+            flow_function = sqrt_or_nan((2 * g / (R * To * (g - 1))) * (pressure_ratio ** (2 / g) - pressure_ratio ** ((g + 1) / g)))
 
-        self.mass_flow.value = sign * CdA * Po * flow_function
+        self.mass_flow.value = flow_sign * CdA * Po * flow_function
 
 
 
@@ -296,7 +299,7 @@ class IsentropicAreaChange(Component):
                 (C / p2_p1) ** ((k - 1.0) / k) - 1.0
             )
 
-            M2 = np.sqrt(max(M2_squared, 0.0))
+            M2 = sqrt_or_nan(max(M2_squared, 0.0))
 
             A1_Astar = self._area_mach_function(M1, k)
             Astar = A1 / A1_Astar
@@ -325,11 +328,11 @@ class IsentropicAreaChange(Component):
                 "or downstream_area to be assigned."
             )
 
-        mdot = p1 * np.sqrt(k / (R * T1)) * A1 * M1
+        mdot = p1 * sqrt_or_nan(k / (R * T1)) * A1 * M1
         h0 = k * R * T0 / (k - 1.0)
 
         T2_T1 = (1 + (k-1)/2 * M1**2) / (1 + (k-1)/2 * M2**2)
-        v2_v1 = (M2/M1) * np.sqrt(T2_T1)
+        v2_v1 = (M2/M1) * sqrt_or_nan(T2_T1)
         rho2_rho1 = (p2/p1)**(1/k)
 
         self.downstream_mach_number.value = M2
@@ -367,7 +370,7 @@ class IsentropicAreaChange(Component):
         if area_ratio < 1.0:
             raise ValueError("A/A* must be >= 1.")
 
-        if np.isclose(area_ratio, 1.0):
+        if isclose_numpy_default(area_ratio, 1.0):
             return 1.0
 
         def residual(M):
@@ -552,7 +555,7 @@ class CompressibleFlowTube(Component):
         rho2 = self.downstream_density.value
         L = self.length.value
         D = self.inner_diameter.value
-        A = (np.pi/4) * (D**2)
+        A = (math.pi/4) * (D**2)
 
         u1 = mdot / (rho1 * A)
         u2 = mdot / (rho2 * A)
@@ -595,8 +598,8 @@ class CompressibleFlowTube(Component):
             friction = 0
         else:
             f = self.friction_factor.value
-            Kf = 8 * f * L / (rho1 * np.pi**2 * D**5)
-            friction = Kf * mdot * np.abs(mdot) * A
+            Kf = 8 * f * L / (rho1 * math.pi**2 * D**5)
+            friction = Kf * mdot * abs(mdot) * A
 
 
         self._residual = pressure - friction - inertia
@@ -780,7 +783,7 @@ class ChokedFannoFlow(Component):
         L = self.length.value
         D = self.inner_diameter.value
         f = self.friction_factor.value
-        A = (np.pi / 4.0) * D**2
+        A = (math.pi / 4.0) * D**2
 
         if self._use_given_mach:
             M1 = self.upstream_mach_number.value
@@ -809,7 +812,7 @@ class ChokedFannoFlow(Component):
         M2 = self.downstream_mach_number.value
 
         T2_T1 = (1 + 0.5 * (k - 1) * M1**2) / (1 + 0.5 * (k - 1) * M2**2)
-        rho2_rho1 = (M1 / M2) * np.sqrt(1 / T2_T1)
+        rho2_rho1 = (M1 / M2) * sqrt_or_nan(1 / T2_T1)
         p2_p1 = rho2_rho1 * T2_T1
         v2_v1 = 1 / rho2_rho1
         po2_po1 = (M1 / M2) * T2_T1**((k + 1) / (2 * (1 - k)))
@@ -832,7 +835,7 @@ class ChokedFannoFlow(Component):
         return (
             (1.0 - M**2) / (k * M**2)
             + (k + 1.0) / (2.0 * k)
-            * np.log(((k + 1.0) * M**2) / (2.0 + (k - 1.0) * M**2))
+            * math.log(((k + 1.0) * M**2) / (2.0 + (k - 1.0) * M**2))
         )
 
     def _valid_fanno_geometry_message(self, target: float, k: float, branch: str) -> str:
@@ -873,16 +876,16 @@ class ChokedFannoFlow(Component):
         if branch == "subsonic":
             u = wrightomega(B)
         elif branch == "supersonic":
-            u = -np.real(lambertw(-np.exp(-B), k=0))
+            u = -lambertw(-math.exp(-B), k=0).real
         else:
             raise ValueError("branch must be 'subsonic' or 'supersonic'")
 
         x = c * u - (k - 1.0) / 2.0
 
-        if x <= 0.0 or not np.isfinite(x):
+        if x <= 0.0 or not math.isfinite(x):
             raise ValueError(self._valid_fanno_geometry_message(target, k, branch))
 
-        return float(1.0 / np.sqrt(x))
+        return float(1.0 / sqrt_or_nan(x))
     
 
 
@@ -1090,7 +1093,7 @@ class ChokedRayleighFlow(Component):
         T1 = self.upstream_static_temperature.value
 
         D = self.inner_diameter.value
-        A = (np.pi / 4.0) * D**2
+        A = (math.pi / 4.0) * D**2
 
         if self._use_given_mach:
             M1 = self.upstream_mach_number.value
@@ -1434,11 +1437,11 @@ class StationaryNormalShock(Component):
             p1_p2 = self.static_pressure_ratio.value
             p2_p1 = 1.0 / p1_p2
 
-            M1 = np.sqrt(1.0 + ((k + 1.0) / (2.0 * k)) * (p2_p1 - 1.0))
+            M1 = sqrt_or_nan(1.0 + ((k + 1.0) / (2.0 * k)) * (p2_p1 - 1.0))
 
             self.upstream_mach_number.value = M1
 
-        M2 = np.sqrt((M1**2 + 2.0 / (k - 1.0)) / ((2.0 * k / (k - 1.0)) * M1**2 - 1.0))
+        M2 = sqrt_or_nan((M1**2 + 2.0 / (k - 1.0)) / ((2.0 * k / (k - 1.0)) * M1**2 - 1.0))
 
         T2_T1 = (1.0 + 0.5 * (k - 1.0) * M1**2) / (1.0 + 0.5 * (k - 1.0) * M2**2)
 

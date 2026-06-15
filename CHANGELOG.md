@@ -2,6 +2,37 @@
 
 ## 0.1.3
 
+### System Core
+
+* Refactored `State`, `Composition`, `Balance`, `Component`, and `Network` for a smaller, faster core API.
+* Removed the unused `Exceptions` package and replaced it with direct built-in exception types.
+* Replaced NumPy usage in core containers with standard-library math where possible to reduce import overhead.
+* Added cached constructor metadata in `Component.setup()` to avoid repeated signature inspection.
+* Streamlined component setup so only declared constructor parameters become public component attributes.
+* Added cached Network iteration-variable metadata, labels, bounds, and values with automatic invalidation when components or balances are added or removed.
+* Preserved the existing readable `Network.iteration_variables` summary while adding `iteration_variable_labels`, `iteration_variable_summary`, and `iteration_variable_states` for diagnostics and solver internals.
+* Centralized residual normalization and export serialization in `Network` to remove duplicated component/balance logic.
+* Kept support for assignable state-like lookup attributes as iteration variables, including `CallableLookupAttribute` inputs such as `eq.pressure`.
+
+### Solvers
+
+* Refactored `SteadyState.py` into a thin public wrapper backed by the modular `Solvers/steady_state/` implementation.
+* Added a per-solve runtime cache for iteration variables, bounds, component evaluation callables, residual owners, and state-settling references.
+* Reduced repeated network introspection inside residual evaluations and state-settling passes.
+* Preserved existing `SteadyState(network).solve(...)` and `static_evaluate(...)` behavior.
+* Added simpler call paths: `network.solve(...)`, `network.static_evaluate(...)`, `SteadyState(network).run(...)`, and `SteadyState(network)(...)`.
+* Removed the placeholder `Transient.py` module.
+* Hardened solver and network state discovery so dynamic `CallableLookup` objects are not accidentally treated as iterable compositions.
+
+
+### Components
+
+* Streamlined scalar branch math used by discharge coefficients, regulators, nozzles, friction factors, pumps, and selected compressible-flow components. Common reversible-flow helpers now live in `Branches/_flow_math.py`, preserving existing equations while avoiding unnecessary NumPy scalar dispatch.
+* Reduced component import overhead by keeping NumPy only where arrays/root solving are actually needed.
+* Improved `CallableLookup` performance by caching dynamic attribute proxies, callable signatures, and reusable-object update signature checks.
+* Made ThermoProp-dependent combustion chamber utilities import ThermoProp lazily so importing `fullflow` does not fail in environments where optional ThermoProp objects are not being used.
+* Added `Component` helper methods for custom components: `_iteration_variable_names`, `values(...)`, `state_value(...)`, `assign_state(...)`, and `iteration_states(...)`. These simplify user-written components without changing existing component physics.
+
 ### Documentation
 
 * Expanded and standardized NumPy-style docstrings throughout FullFlow.
