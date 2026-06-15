@@ -6,33 +6,14 @@ from typing import Any
 import numpy as np
 
 from fullflow.System.Composition import Composition
-from fullflow.System.State import State
+from fullflow.System.protocols import is_state_like, resolve_value
 
 
 _MISSING = object()
 
 
-def is_state_like(value: Any) -> bool:
-    """Return True for objects the solver can read/write like a State."""
-    if isinstance(value, State):
-        return True
-
-    # CallableLookupAttribute intentionally behaves like a State but lives in
-    # the Lookups package. Avoid importing it here so this module stays free of
-    # circular imports during package initialization. Avoid hasattr(), because
-    # CallableLookup dynamically creates attributes for unknown names.
-    if value.__class__.__name__ == "CallableLookupAttribute":
-        return True
-
-    return any(
-        "is_assigned" in getattr(cls, "__dict__", {})
-        and "value" in getattr(cls, "__dict__", {})
-        for cls in type(value).__mro__
-    )
-
-
 def state_value(value: Any) -> Any:
-    return value.value if is_state_like(value) else value
+    return resolve_value(value)
 
 
 class RuntimeCache:
@@ -47,14 +28,22 @@ class RuntimeCache:
     * component/balance residual owners
     * non-iteration State-like objects monitored during state propagation
 
-    The cache is deliberately rebuilt at the beginning of every solve/static
-    evaluation so model replacement and newly registered components are handled
-    exactly as before.
+    The cache is keyed to ``Network.version``.  It is reused across solver
+    residual calls and rebuilt only when the network structure changes.
     """
 
     def __init__(self, network) -> None:
         self.network = network
+        self.version = -1
         self.refresh()
+
+    def is_current(self) -> bool:
+        return self.version == self.network.version
+
+    def ensure_current(self) -> "RuntimeCache":
+        if not self.is_current():
+            self.refresh()
+        return self
 
     def refresh(self) -> None:
         self.iteration_variables = tuple(self.network.collect_all_iteration_variables())
@@ -65,6 +54,7 @@ class RuntimeCache:
             component.evaluate_states for component in self.component_list
         )
         self.state_refs = self._collect_state_refs()
+        self.version = self.network.version
 
     # ------------------------------------------------------------------
     # Iteration variables

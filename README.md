@@ -59,9 +59,11 @@ solution = SteadyState(FeedSystem).solve()
 
 ## 0.1.3 Core Streamline
 
-FullFlow 0.1.3 starts a core cleanup focused on API consistency and speed. The System layer now uses lighter `State`, `Composition`, `Balance`, `Component`, and `Network` internals, cached iteration-variable metadata, simpler export paths, and fewer unnecessary imports. The unused `Exceptions` package has been removed in favor of standard Python exceptions.
+FullFlow 0.1.3 starts a core cleanup focused on API consistency and speed. The System layer now uses lighter `State`, `Composition`, `Balance`, `Component`, and `Network` internals, cached iteration-variable metadata, safer `StateLike` handling, simpler export paths, and fewer unnecessary imports. The unused `Exceptions` package has been removed in favor of standard Python exceptions.
 
-The solver and component layers were also streamlined. `SteadyState.py` is now a thin public wrapper over the modular `Solvers/steady_state/` implementation, `Network.solve()` is available for simpler scripts, and common scalar branch calculations now avoid unnecessary NumPy calls. Lookup components cache dynamic attribute proxies and callable signature metadata, reducing overhead in ThermoProp-heavy networks.
+The solver and component layers were also streamlined. `SteadyState.py` is now a thin public wrapper over the modular `Solvers/steady_state/` implementation, `Network.solve()` is available for simpler scripts, and common scalar branch calculations now avoid unnecessary NumPy calls. Solver runtime plans are keyed to `Network.version`, so repeated residual calls reuse cached metadata until the network structure changes. Lookup components cache dynamic attribute proxies, callable signature metadata, reusable-object update checks, and optional memoized results through `memo_size`, reducing overhead in ThermoProp-heavy networks.
+
+New code may also use the lower-case import aliases `fullflow.core` and `fullflow.components.*`; the existing `fullflow.System.*` imports remain supported.
 
 ## Features
 
@@ -171,10 +173,10 @@ class PressureNode(Component):
     @property
     def residuals(self):
         mdot_in, mdot_out = self.values("mass_flow_in", "mass_flow_out")
-        return [mdot_in - mdot_out]
+        return [self.residual(mdot_in - mdot_out)]
 ```
 
-`self.setup()` still handles FullFlow's normal conversion rules: numbers become `State` objects, existing `State` and `Composition` objects are preserved, and the component is registered with its network.
+`self.setup()` still handles FullFlow's normal conversion rules: numbers become `State` objects, existing `State` and `Composition` objects are preserved, and the component is registered with its network. Helper methods such as `self.value(x)`, `self.values(...)`, `self.assign(...)`, and `self.residual(...)` keep user-written components small without exposing solver internals.
 
 ## Solvers
 

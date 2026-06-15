@@ -6,6 +6,8 @@ from typing import Any, Callable
 
 
 class State:
+    _fullflow_state_like = True
+
     """
     Lightweight value container used throughout FullFlow.
 
@@ -123,6 +125,11 @@ class State:
             self._validate_bounds(value)
 
         self._value = value
+
+    def set(self, value: Any) -> "State":
+        """Assign a value and return this State for fluent setup."""
+        self.value = value
+        return self
 
     @property
     def numeric_value(self) -> float:

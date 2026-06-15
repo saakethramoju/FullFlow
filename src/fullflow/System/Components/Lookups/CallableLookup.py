@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import OrderedDict
 import inspect
 import math
 import operator
@@ -38,6 +39,8 @@ class CallableLookupAttribute:
         reactants.mixture_ratio = OxInjector.mass_flow / FuelInjector.mass_flow
     """
 
+    _fullflow_state_like = True
+    _fullflow_assignable_state_like = True
     __slots__ = ("lookup", "name")
 
     def __init__(self, lookup: "CallableLookup", name: str):
@@ -304,12 +307,15 @@ class CallableLookup(Component, Generic[T]):
         "dirty",
         "evaluate_on_set",
         "strict_inputs",
+        "strict_outputs",
         "wrap_errors",
         "evaluate_in_pre_evaluation",
         "defer_until_inputs_available",
         "cache",
         "cache_tol",
         "reuse_existing",
+        "memo_size",
+        "_memo",
         "_signature",
         "_accepted_keywords",
         "_accepts_var_keyword",
@@ -335,12 +341,15 @@ class CallableLookup(Component, Generic[T]):
         output: State | None = None,
         evaluate_on_set: bool = False,
         strict_inputs: bool = False,
+        strict_outputs: bool = False,
         wrap_errors: bool = False,
         evaluate_in_pre_evaluation: bool = True,
+        lazy: bool | None = None,
         defer_until_inputs_available: bool = True,
         cache: bool = True,
         cache_tol: float = 0.0,
         reuse_existing: bool = True,
+        memo_size: int = 1,
         output_guesses: dict[str, Any] | None = None,
         input_guesses: dict[str, Any] | None = None,
         **kwargs: Any,
@@ -352,9 +361,13 @@ class CallableLookup(Component, Generic[T]):
         object.__setattr__(self, "kwargs", dict(kwargs))
         object.__setattr__(self, "output", output if output is not None else State())
 
+        if lazy is not None:
+            evaluate_in_pre_evaluation = not bool(lazy)
+
         object.__setattr__(self, "dirty", True)
         object.__setattr__(self, "evaluate_on_set", bool(evaluate_on_set))
         object.__setattr__(self, "strict_inputs", bool(strict_inputs))
+        object.__setattr__(self, "strict_outputs", bool(strict_outputs))
         object.__setattr__(self, "wrap_errors", bool(wrap_errors))
         object.__setattr__(self, "evaluate_in_pre_evaluation", bool(evaluate_in_pre_evaluation))
         object.__setattr__(self, "defer_until_inputs_available", bool(defer_until_inputs_available))
@@ -362,6 +375,8 @@ class CallableLookup(Component, Generic[T]):
         object.__setattr__(self, "cache", bool(cache))
         object.__setattr__(self, "cache_tol", float(cache_tol))
         object.__setattr__(self, "reuse_existing", bool(reuse_existing))
+        object.__setattr__(self, "memo_size", max(1, int(memo_size)))
+        object.__setattr__(self, "_memo", OrderedDict())
 
         object.__setattr__(self, "_last_input_key", None)
         object.__setattr__(self, "_last_structure_key", None)
@@ -902,6 +917,7 @@ class CallableLookup(Component, Generic[T]):
     def clear_cache(self) -> None:
         self._last_input_key = None
         self._last_structure_key = None
+        self._memo.clear()
         self.dirty = True
 
     def mark_dirty(self) -> None:
@@ -933,6 +949,8 @@ class CallableLookup(Component, Generic[T]):
             "callable": getattr(self.callable, "__name__", repr(self.callable)),
             "cache": self.cache,
             "reuse_existing": self.reuse_existing,
+            "memo_size": self.memo_size,
+            "memo_entries": len(self._memo),
             "dirty": self.dirty,
             "evaluation_count": self._evaluation_count,
             "build_count": self._build_count,
@@ -941,6 +959,26 @@ class CallableLookup(Component, Generic[T]):
             "defer_count": self._defer_count,
             "last_error": None if self._last_error is None else repr(self._last_error),
         }
+
+    def _memo_key(self, structure_key: Any, input_key: Any) -> Any:
+        return structure_key, input_key
+
+    def _get_memoized(self, structure_key: Any, input_key: Any) -> Any:
+        key = self._memo_key(structure_key, input_key)
+        try:
+            result = self._memo.pop(key)
+        except KeyError:
+            return _MISSING
+        self._memo[key] = result
+        return result
+
+    def _remember_result(self, structure_key: Any, input_key: Any, result: Any) -> None:
+        if not self.cache:
+            return
+        key = self._memo_key(structure_key, input_key)
+        self._memo[key] = result
+        while len(self._memo) > self.memo_size:
+            self._memo.popitem(last=False)
 
     def pre_evaluation(self) -> None:
         if self.evaluate_in_pre_evaluation:
@@ -967,10 +1005,23 @@ class CallableLookup(Component, Generic[T]):
             and not self.dirty
             and self.output.is_assigned
             and input_key == self._last_input_key
+            and structure_key == self._last_structure_key
         ):
             self._cache_hits += 1
             self._refresh_output_states()
             return
+
+        if self.cache:
+            memoized_result = self._get_memoized(structure_key, input_key)
+            if memoized_result is not _MISSING:
+                self.output.value = memoized_result
+                self._last_input_key = input_key
+                self._last_structure_key = structure_key
+                self._cache_hits += 1
+                self._last_error = None
+                self._refresh_output_states()
+                self.dirty = False
+                return
 
         can_reuse = (
             self.reuse_existing
@@ -993,6 +1044,7 @@ class CallableLookup(Component, Generic[T]):
             self._build_count += 1
 
         self.output.value = result
+        self._remember_result(structure_key, input_key, result)
         self._last_input_key = input_key
         self._last_structure_key = structure_key
         self._evaluation_count += 1
@@ -1149,12 +1201,15 @@ class CallableLookup(Component, Generic[T]):
             "dirty",
             "evaluate_on_set",
             "strict_inputs",
+            "strict_outputs",
             "wrap_errors",
             "evaluate_in_pre_evaluation",
             "defer_until_inputs_available",
             "cache",
             "cache_tol",
             "reuse_existing",
+            "memo_size",
+            "_memo",
             "_signature",
             "_accepted_keywords",
             "_accepts_var_keyword",

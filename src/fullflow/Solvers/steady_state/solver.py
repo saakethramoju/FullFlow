@@ -196,10 +196,10 @@ class SteadyState:
         return self._runtime_cache
 
     def _cache(self) -> RuntimeCache:
-        """Return the runtime cache, creating it for direct helper calls."""
+        """Return a current runtime cache, rebuilding only if the network changed."""
         if self._runtime_cache is None:
             return self._refresh_runtime_cache()
-        return self._runtime_cache
+        return self._runtime_cache.ensure_current()
 
     def residual(self, x: np.ndarray) -> np.ndarray:
         """

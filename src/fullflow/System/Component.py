@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 from .Composition import Composition
 from .Model import ModelOption
 from .State import State
+from .protocols import is_state_like, resolve_value
 
 if TYPE_CHECKING:
     from fullflow.System import Network
@@ -133,17 +134,23 @@ class Component:
         This keeps custom component equations readable without forcing users to
         write repetitive ``x.value`` plumbing everywhere.
         """
-        if isinstance(value, State):
-            return value.value
+        return resolve_value(value)
 
-        if any(
-            "value" in getattr(cls, "__dict__", {})
-            and "is_assigned" in getattr(cls, "__dict__", {})
-            for cls in type(value).__mro__
-        ):
-            return value.value
+    @staticmethod
+    def value(value: Any) -> Any:
+        """Short alias for :meth:`state_value` for user-written components."""
+        return resolve_value(value)
 
-        return value
+    @staticmethod
+    def numeric(value: Any) -> float:
+        """Return a numeric ``float`` from a State-like or numeric input."""
+        resolved = resolve_value(value)
+        return float(resolved)
+
+    @staticmethod
+    def is_state_like(value: Any) -> bool:
+        """Return True for State and State-compatible proxy objects."""
+        return is_state_like(value)
 
     def values(self, *attribute_names: str) -> tuple[Any, ...]:
         """Return current values for named component attributes."""
@@ -155,6 +162,28 @@ class Component:
     def assign_state(self, attribute_name: str, value: Any) -> None:
         """Assign a value to a named State-like output attribute."""
         getattr(self, attribute_name).value = value
+
+    def assign(self, attribute_name: str, value: Any) -> None:
+        """Short alias for :meth:`assign_state`."""
+        self.assign_state(attribute_name, value)
+
+    def make_state(self, value: Any = None, **kwargs: Any) -> State:
+        """Create a ``State`` from user code without importing ``State``."""
+        return State(value, **kwargs)
+
+    def residual(self, expression: Any, scale: float | None = None) -> float:
+        """Return a scalar residual, optionally normalized by ``scale``.
+
+        This is a convenience for custom components; existing components can
+        still return raw numbers or States from their ``residuals`` property.
+        """
+        value = float(resolve_value(expression))
+        if scale is None:
+            return value
+        scale = float(scale)
+        if scale == 0.0:
+            return value
+        return value / scale
 
     def iteration_states(self, *attribute_names: str) -> list[State]:
         """Build an ``iteration_variables`` list from attribute names."""

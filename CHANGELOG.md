@@ -4,6 +4,8 @@
 
 ### System Core
 
+* Added a shared `StateLike` protocol/helper layer so `State`, `CallableLookupAttribute`, and future state-compatible proxies are handled consistently without unsafe dynamic probing.
+* Added a monotonic `Network.version` and public `Network.mark_dirty()` / `mark_structure_changed()` hooks so solver runtime metadata can be cached safely and invalidated only when network structure changes.
 * Refactored `State`, `Composition`, `Balance`, `Component`, and `Network` for a smaller, faster core API.
 * Removed the unused `Exceptions` package and replaced it with direct built-in exception types.
 * Replaced NumPy usage in core containers with standard-library math where possible to reduce import overhead.
@@ -17,7 +19,7 @@
 ### Solvers
 
 * Refactored `SteadyState.py` into a thin public wrapper backed by the modular `Solvers/steady_state/` implementation.
-* Added a per-solve runtime cache for iteration variables, bounds, component evaluation callables, residual owners, and state-settling references.
+* Added a network-version-aware runtime plan/cache for iteration variables, bounds, component evaluation callables, residual owners, and state-settling references.
 * Reduced repeated network introspection inside residual evaluations and state-settling passes.
 * Preserved existing `SteadyState(network).solve(...)` and `static_evaluate(...)` behavior.
 * Added simpler call paths: `network.solve(...)`, `network.static_evaluate(...)`, `SteadyState(network).run(...)`, and `SteadyState(network)(...)`.
@@ -29,9 +31,14 @@
 
 * Streamlined scalar branch math used by discharge coefficients, regulators, nozzles, friction factors, pumps, and selected compressible-flow components. Common reversible-flow helpers now live in `Branches/_flow_math.py`, preserving existing equations while avoiding unnecessary NumPy scalar dispatch.
 * Reduced component import overhead by keeping NumPy only where arrays/root solving are actually needed.
-* Improved `CallableLookup` performance by caching dynamic attribute proxies, callable signatures, and reusable-object update signature checks.
+* Improved `CallableLookup` performance by caching dynamic attribute proxies, callable signatures, reusable-object update signature checks, and optional memoized lookup results via `memo_size`. Added the `lazy` alias for deferred lookup evaluation.
 * Made ThermoProp-dependent combustion chamber utilities import ThermoProp lazily so importing `fullflow` does not fail in environments where optional ThermoProp objects are not being used.
-* Added `Component` helper methods for custom components: `_iteration_variable_names`, `values(...)`, `state_value(...)`, `assign_state(...)`, and `iteration_states(...)`. These simplify user-written components without changing existing component physics.
+* Added `Component` helper methods for custom components: `_iteration_variable_names`, `values(...)`, `value(...)`, `numeric(...)`, `residual(...)`, `assign(...)`, `assign_state(...)`, `make_state(...)`, and `iteration_states(...)`. These simplify user-written components without changing existing component physics.
+* Added lower-case public re-export paths under `fullflow.core` and `fullflow.components.*` while preserving legacy imports from `fullflow.System.*`.
+
+### Packaging
+
+* Cleaned release artifacts by excluding `.git`, `.venv`, `__pycache__`, `__MACOSX`, and `.DS_Store` from generated source zips.
 
 ### Documentation
 

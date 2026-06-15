@@ -5,6 +5,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from .State import State
+from .protocols import is_assignable_state_like
 
 if TYPE_CHECKING:
     from fullflow.System import Network
@@ -25,8 +26,8 @@ class Balance:
         self.name = name
         self.network = network
 
-        if variable.is_derived:
-            raise TypeError("variable cannot be a derived State.")
+        if not is_assignable_state_like(variable):
+            raise TypeError("variable must be an assignable State-like object.")
         self.variable = variable
 
         if bounds is not None and not self.variable.has_bounds:

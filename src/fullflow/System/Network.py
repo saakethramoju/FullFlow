@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .Composition import Composition
+from .protocols import is_assignable_state_like, is_state_like, resolve_value
 
 if TYPE_CHECKING:
     from fullflow.System import Balance, Component, State
@@ -19,6 +20,10 @@ class Network:
         self.tracked_state_list: list[tuple[str, State]] = []
         self.model_list: list[Any] = []
 
+        # Incremented whenever the network structure changes. Solver runtime
+        # plans use this to rebuild only when needed.
+        self._version = 0
+
         self._iteration_cache_valid = False
         self._component_iteration_variables: tuple[State, ...] = ()
         self._balance_iteration_variables: tuple[State, ...] = ()
@@ -29,8 +34,22 @@ class Network:
     # Registration
     # ------------------------------------------------------------------
 
-    def _invalidate_iteration_cache(self) -> None:
+    @property
+    def version(self) -> int:
+        """Monotonic network-structure version for solver/runtime caches."""
+        return self._version
+
+    def mark_structure_changed(self) -> None:
+        """Invalidate cached network metadata after structural edits."""
+        self._version += 1
         self._iteration_cache_valid = False
+
+    def _invalidate_iteration_cache(self) -> None:
+        self.mark_structure_changed()
+
+    def mark_dirty(self) -> None:
+        """Public alias for invalidating solver/runtime metadata."""
+        self.mark_structure_changed()
 
     def add_component(self, component: Component) -> None:
         if component not in self.component_list:
@@ -53,9 +72,11 @@ class Network:
     def add_model(self, model) -> None:
         if model not in self.model_list:
             self.model_list.append(model)
+            self.mark_structure_changed()
 
     def track(self, name: str, state: State) -> State:
         self.tracked_state_list.append((name, state))
+        self.mark_structure_changed()
         return state
 
     @property
@@ -98,11 +119,21 @@ class Network:
 
         for component in self.component_list:
             for state in component.iteration_variables:
+                if not is_assignable_state_like(state):
+                    raise TypeError(
+                        f"{component.name}: iteration variable must be an "
+                        "assignable State-like object."
+                    )
                 component_vars.append(state)
                 labels.append(self._state_label(component, state))
 
         for balance in self.balance_list:
             for state in balance.iteration_variables:
+                if not is_assignable_state_like(state):
+                    raise TypeError(
+                        f"{balance.name}: iteration variable must be an "
+                        "assignable State-like object."
+                    )
                 balance_vars.append(state)
                 labels.append(self._state_label(balance, state))
 
@@ -240,9 +271,7 @@ class Network:
 
         residuals = []
         for value in values:
-            if Network._is_state_like(value):
-                value = value.value
-            residuals.append(float(value))
+            residuals.append(float(resolve_value(value)))
         return residuals
 
     @property
@@ -285,20 +314,11 @@ class Network:
 
     @staticmethod
     def _is_state_like(value: Any) -> bool:
-        if value.__class__.__name__ in {"State", "CallableLookupAttribute"}:
-            return True
-
-        # Avoid hasattr(): CallableLookup dynamically creates attributes for
-        # unknown names. Inspect class dictionaries instead.
-        return any(
-            "is_assigned" in getattr(cls, "__dict__", {})
-            and "value" in getattr(cls, "__dict__", {})
-            for cls in type(value).__mro__
-        )
+        return is_state_like(value)
 
     @classmethod
     def _safe_value(cls, value: Any) -> Any:
-        if cls._is_state_like(value):
+        if is_state_like(value):
             if not value.is_assigned:
                 return "<uninitialized>"
             try:
