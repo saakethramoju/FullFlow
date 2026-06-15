@@ -1062,7 +1062,7 @@ class SteadyState:
         xtol: float = 1e-8,
         gtol: float = 1e-8,
         rtol: float = 1e-2,
-        state_max_passes: int = 20,
+        state_max_passes: int = 5,
         state_tolerance: float = 1e-10,
     ):
         """
