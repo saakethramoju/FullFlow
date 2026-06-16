@@ -44,3 +44,46 @@ def divide_or_nan(numerator: float, denominator: float) -> float:
     if numerator == 0.0:
         return math.nan
     return math.copysign(math.inf, numerator)
+
+
+
+
+def _effective_area_from_mass_flow(
+    mass_flow: float,
+    pressure_drop: float,
+    density: float,
+) -> float:
+    """
+    Compute an equivalent effective area from mass flow.
+
+    `_effective_area_from_mass_flow` computes the equivalent `CdA` or effective
+    flow area that would produce the supplied mass flow for a given pressure
+    drop and density.
+
+    Parameters
+    ----------
+    mass_flow : float
+        Mass flow rate
+    pressure_drop : float
+        Pressure drop
+    density : float
+        Fluid density
+
+    Returns
+    -------
+    effective_area : float
+        Equivalent effective area
+
+    Notes
+    -----
+    Effective area is evaluated from:
+
+        ``mass_flow = effective_area * sqrt(2 * density * abs(pressure_drop))``
+    """
+    if abs(pressure_drop) < 1e-12:
+        return 0.0
+
+    if density <= 0.0:
+        raise ValueError("density must be positive.")
+
+    return abs(mass_flow) / math.sqrt(2.0 * density * abs(pressure_drop))

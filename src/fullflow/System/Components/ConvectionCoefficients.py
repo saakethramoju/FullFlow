@@ -117,16 +117,6 @@ class Gnielinski(Component):
         A = self.cross_sectional_area.value
         mdot = abs(self.mass_flow.value)
 
-        if Dh <= 0.0:
-            raise ValueError(
-                f"{self.name}: hydraulic_diameter must be greater than zero. Got {Dh}."
-            )
-
-        if A <= 0.0:
-            raise ValueError(
-                f"{self.name}: cross_sectional_area must be greater than zero. Got {A}."
-            )
-
         if self.Re_given:
             Re = self.reynolds_number.value
         else:
@@ -269,21 +259,6 @@ class Miropolskii(Component):
         k_v = self.vapor_conductivity.value
         rho_l = self.liquid_density.value
 
-        if Dh <= 0.0:
-            raise ValueError(
-                f"{self.name}: hydraulic_diameter must be greater than zero. Got {Dh}."
-            )
-
-        if A <= 0.0:
-            raise ValueError(
-                f"{self.name}: cross_sectional_area must be greater than zero. Got {A}."
-            )
-
-        if not (0.0 <= x <= 1.0):
-            raise ValueError(
-                f"{self.name}: quality must be between 0 and 1. Got {x}."
-            )
-
         G = mdot / A
 
         if self.Re_given:
@@ -422,16 +397,6 @@ class Petukhov(Component):
         A = self.cross_sectional_area.value
         mdot = abs(self.mass_flow.value)
 
-        if Dh <= 0.0:
-            raise ValueError(
-                f"{self.name}: hydraulic_diameter must be greater than zero. Got {Dh}."
-            )
-
-        if A <= 0.0:
-            raise ValueError(
-                f"{self.name}: cross_sectional_area must be greater than zero. Got {A}."
-            )
-
         if self.Re_given:
             Re = self.reynolds_number.value
         else:
@@ -565,16 +530,6 @@ class SiederTate(Component):
         A = self.cross_sectional_area.value
         mdot = abs(self.mass_flow.value)
 
-        if Dh <= 0.0:
-            raise ValueError(
-                f"{self.name}: hydraulic_diameter must be greater than zero. Got {Dh}."
-            )
-
-        if A <= 0.0:
-            raise ValueError(
-                f"{self.name}: cross_sectional_area must be greater than zero. Got {A}."
-            )
-
         if self.Re_given:
             Re = self.reynolds_number.value
         else:
@@ -701,16 +656,6 @@ class DittusBoelter(Component):
         mu = self.fluid_dynamic_viscosity.value
         A = self.cross_sectional_area.value
         mdot = abs(self.mass_flow.value)
-
-        if Dh <= 0.0:
-            raise ValueError(
-                f"{self.name}: hydraulic_diameter must be greater than zero. Got {Dh}."
-            )
-
-        if A <= 0.0:
-            raise ValueError(
-                f"{self.name}: cross_sectional_area must be greater than zero. Got {A}."
-            )
 
         if self.Re_given:
             Re = self.reynolds_number.value
@@ -853,21 +798,11 @@ class Bartz(Component):
 
         if self.throat_converging_radius.is_assigned:
             rc = self.throat_converging_radius.value
-
-            if rc <= 0.0:
-                raise ValueError(
-                    f"{self.name}: throat_converging_radius must be greater than zero. Got {rc}."
-                )
             
             geometric_correction = D/rc
         else:
             geometric_correction = 1
 
-        if D <= 0.0:
-            raise ValueError(
-                f"{self.name}: hydraulic_diameter must be greater than zero. Got {D}."
-            )
-        
         X = (0.026/(D**0.2)) * (mu0**0.2 * Cp0 / Pr0**0.6) * (mdot/A)**0.8
         sigma = (rho_am/rho)**0.8 * (mu_am/mu0)**0.2
         hg = X * sigma * geometric_correction
@@ -997,11 +932,6 @@ class NaturalConvection(Component):
         k = self.fluid_conductivity.value
         beta = self.thermal_expansion_coefficient.value
         g = self.gravity.value
-
-        if L <= 0.0:
-            raise ValueError(
-                f"{self.name}: characteristic_length must be greater than zero. Got {L}."
-            )
 
         Gr = g * beta * abs(Tw - Tf) * L**3 * rho**2 / mu**2
         Pr = Cp * mu / k
@@ -1137,11 +1067,6 @@ class ChurchillChu(Component):
         k = self.fluid_conductivity.value
         beta = self.thermal_expansion_coefficient.value
         g = self.gravity.value
-
-        if L <= 0.0:
-            raise ValueError(
-                f"{self.name}: characteristic_length must be greater than zero. Got {L}."
-            )
 
         Gr = g * beta * abs(Tw - Tf) * L**3 * rho**2 / mu**2
         Pr = Cp * mu / k

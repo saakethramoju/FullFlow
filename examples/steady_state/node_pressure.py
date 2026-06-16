@@ -191,31 +191,8 @@ GasVolume = Volume(
 )
 
 
-# -----------------------------------------------------------------------------
-# Exit nozzle
-#
-# Computes an isentropic expansion from the volume through an area increase.
-#
-# The outlet mass flow is linked directly to the volume outlet mass flow,
-# providing the outlet flow needed to satisfy the volume mass balance.
-#
-# The nozzle is configured to follow the supersonic branch of the
-# area-Mach-number relation.
-# -----------------------------------------------------------------------------
 
-Nozzle = IsentropicAreaChange(
-    "Exit Nozzle",
-    VolumeNetwork,
-    upstream_mach_number=Tube.downstream_mach_number,
-    upstream_static_pressure=GasVolume.pressure,
-    upstream_static_temperature=VolumeFluid.temperature,
-    specific_gas_constant=VolumeFluid.gas_constant,
-    specific_heat_ratio=VolumeFluid.specific_heat_ratio,
-    upstream_area=TubeFriction.cross_sectional_area,
-    downstream_area=5 * TubeFriction.cross_sectional_area,
-    exit_mach_regime="supersonic",
-    mass_flow=GasVolume.mass_flow_out,
-)
+
 
 
 # -----------------------------------------------------------------------------

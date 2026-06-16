@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from numbers import Real
 
 from fullflow.System import Component
 
@@ -132,3 +133,141 @@ class Solid(Component):
             )
 
         self.biot_number.value = h * Lc / k
+
+
+
+
+
+
+
+
+class Volume(Component):
+    """
+    Lumped steady-state fluid control volume.
+
+    `Volume` enforces mass conservation. If `enthalpy` is provided, it also
+    enforces steady-state energy conservation.
+
+    Modes
+    -----
+    Mass-only mode
+        Used when `enthalpy` is not provided.
+
+        Residual:
+
+            mass_flow_in - mass_flow_out = 0
+
+        Iteration variable:
+
+            pressure
+
+    Mass + energy mode
+        Used when `enthalpy` is provided.
+
+        Residuals:
+
+            mass_flow_in - mass_flow_out = 0
+
+            mass_flow_in * total_enthalpy_in
+            - mass_flow_out * h_out
+            + heat_rate = 0
+
+        where `h_out` is `total_enthalpy_out` if assigned, otherwise `enthalpy`.
+
+        Iteration variables:
+
+            pressure
+            enthalpy
+
+    Sign Convention
+    ---------------
+    `mass_flow_in` is positive into the volume.
+
+    `mass_flow_out` is positive out of the volume.
+
+    `heat_rate` is positive into the volume.
+
+    Parameters
+    ----------
+    name : str
+        Component name.
+    network : Network
+        Network that owns this component.
+    pressure : State
+        Volume pressure.
+    volume : State or float
+        Physical control volume. Required.
+    enthalpy : State or float, optional
+        Volume/static outlet enthalpy. Providing this turns on the energy
+        residual.
+    total_enthalpy_in : State or float, optional
+        Total specific enthalpy entering the volume. Required when `enthalpy`
+        is provided.
+    total_enthalpy_out : State or float, optional
+        Total specific enthalpy leaving the volume. If omitted, `enthalpy` is
+        used as the outlet enthalpy.
+    heat_rate : State or float, optional
+        Net heat transfer rate into the volume. Defaults to zero if omitted.
+    temperature : State, optional
+        Stored volume temperature.
+    density : State, optional
+        Stored volume density.
+    internal_energy : State, optional
+        Stored volume internal energy.
+    mass_flow_in : State or float, optional
+        Mass flow entering the volume.
+    mass_flow_out : State or float, optional
+        Mass flow leaving the volume.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        network: Network,
+        pressure: State,
+        volume: State | float,
+        enthalpy: State | float | None = None,
+        total_enthalpy_in: State | float | None = None,
+        total_enthalpy_out: State | float | None = None,
+        heat_rate: State | float | None = None,
+        temperature: State | None = None,
+        density: State | None = None,
+        internal_energy: State | None = None,
+        mass_flow_in: State | float | None = None,
+        mass_flow_out: State | float | None = None,
+    ):
+
+        self.setup()
+
+    @property
+    def iteration_variables(self) -> list[State]:
+        if (self.enthalpy.is_assigned and self.total_enthalpy_in.is_assigned):
+            return [self.pressure, self.enthalpy]
+
+        return [self.pressure]
+
+    @property
+    def residuals(self) -> list[float]:
+        mass_balance = self.mass_flow_in.value - self.mass_flow_out.value
+
+        if not (self.enthalpy.is_assigned and self.total_enthalpy_in.is_assigned):
+            return [mass_balance]
+
+        qdot = self.heat_rate.value if self.heat_rate.is_assigned else 0.0
+
+        h_out = (
+            self.total_enthalpy_out.value
+            if self.total_enthalpy_out.is_assigned
+            else self.enthalpy.value
+        )
+
+        energy_balance = (
+            self.mass_flow_in.value * self.total_enthalpy_in.value
+            - self.mass_flow_out.value * h_out
+            + qdot
+        )
+
+        return [
+            mass_balance,
+            energy_balance,
+        ]

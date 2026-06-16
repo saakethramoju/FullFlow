@@ -216,14 +216,6 @@ class Component:
     def ignored_export_attributes(self) -> set[str]:
         return set()
 
-    @property
-    def timestep_variables(self) -> list[State]:
-        return []
-
-    @property
-    def time_derivative(self) -> list[State]:
-        return []
-
     @staticmethod
     def _format_value(value):
         if isinstance(value, State):

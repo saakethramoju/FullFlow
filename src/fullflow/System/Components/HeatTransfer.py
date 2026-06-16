@@ -65,16 +65,6 @@ class Conduction(Component):
         L = self.length.value
         T1 = self.temperature1.value
         T2 = self.temperature2.value
-
-        if k <= 0.0:
-            raise ValueError(f"{self.name}: thermal_conductivity must be positive. Got {k}.")
-
-        if A <= 0.0:
-            raise ValueError(f"{self.name}: conductive_area must be positive. Got {A}.")
-
-        if L <= 0.0:
-            raise ValueError(f"{self.name}: length must be positive. Got {L}.")
-
         self.heat_rate.value = k * A / L * (T2 - T1)
 
 
@@ -161,31 +151,6 @@ class Radiation(Component):
         A2 = self.radiative_area2.value
 
         F12 = self.view_factor12.value
-
-        if eps1 <= 0.0 or eps1 > 1.0:
-            raise ValueError(
-                f"{self.name}: emissivity1 must be in (0, 1]. Got {eps1}."
-            )
-
-        if eps2 <= 0.0 or eps2 > 1.0:
-            raise ValueError(
-                f"{self.name}: emissivity2 must be in (0, 1]. Got {eps2}."
-            )
-
-        if A1 <= 0.0:
-            raise ValueError(
-                f"{self.name}: radiative_area1 must be greater than zero. Got {A1}."
-            )
-
-        if A2 <= 0.0:
-            raise ValueError(
-                f"{self.name}: radiative_area2 must be greater than zero. Got {A2}."
-            )
-
-        if F12 <= 0.0 or F12 > 1.0:
-            raise ValueError(
-                f"{self.name}: view_factor12 must be in (0, 1]. Got {F12}."
-            )
 
         denominator = (
             (1.0 - eps1) / (eps1 * A1)
