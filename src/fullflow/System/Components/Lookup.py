@@ -23,27 +23,43 @@ _MISSING = object()
 _UNAVAILABLE = object()
 
 
-class CallableLookupAttribute:
+class LookupAttribute:
     """
-    Dynamic state-like proxy for a CallableLookup input or output attribute.
+    State-like view of one attribute on a :class:`Lookup`.
 
-    Supports:
-        FuelSource.pressure
-        FuelSource.density
-        eq.pressure
-        eq.temperature
-        reactants.mixture_ratio
+    Users normally do not create this class directly. It is created on demand
+    when an attribute is accessed on a lookup, for example ``eq.pressure`` or
+    ``fuel.temperature``.
 
-    Also supports FullFlow-style math:
-        Chamber.mass_flow_in = FuelInjector.mass_flow + OxInjector.mass_flow
-        reactants.mixture_ratio = OxInjector.mass_flow / FuelInjector.mass_flow
+    The proxy behaves like a FullFlow state:
+
+    - ``value`` reads the current input or output value.
+    - assigning ``value`` updates an input when the wrapped callable accepts it.
+    - assigning ``value`` to an output stores an output guess/fallback.
+    - ``numeric_value`` returns ``float(value)`` for solver use.
+    - arithmetic returns derived :class:`State` objects, so lookup attributes can
+      be used in component equations.
+
+    Examples
+    --------
+    ``eq.pressure`` is a lookup attribute. It can be passed directly into another
+    component or used in state math::
+
+        chamber = SimpleVolume(..., pressure=eq.pressure)
+        reactants.mixture_ratio = ox.mass_flow / fuel.mass_flow
+
+    Notes
+    -----
+    ``LookupAttribute`` is intentionally assignable even though it is
+    state-like and derived from a lookup. This is what allows a solver variable
+    such as ``eq.pressure`` to be driven by a component like ``SimpleVolume``.
     """
 
     _fullflow_state_like = True
     _fullflow_assignable_state_like = True
     __slots__ = ("lookup", "name")
 
-    def __init__(self, lookup: "CallableLookup", name: str):
+    def __init__(self, lookup: "Lookup", name: str):
         self.lookup = lookup
         self.name = name
 
@@ -116,30 +132,30 @@ class CallableLookupAttribute:
     def as_state(self) -> State:
         return State._derived(lambda: self.value)
 
-    def set(self, value: Any) -> "CallableLookupAttribute":
+    def set(self, value: Any) -> "LookupAttribute":
         self.value = value
         return self
 
     @staticmethod
     def _resolve(x: Any) -> Any:
-        if isinstance(x, CallableLookupAttribute):
+        if isinstance(x, LookupAttribute):
             return x.value
 
-        if isinstance(x, CallableLookup):
+        if isinstance(x, Lookup):
             return x.value
 
         if isinstance(x, State):
             return x.value
 
         if isinstance(x, tuple):
-            return tuple(CallableLookupAttribute._resolve(v) for v in x)
+            return tuple(LookupAttribute._resolve(v) for v in x)
 
         if isinstance(x, list):
-            return [CallableLookupAttribute._resolve(v) for v in x]
+            return [LookupAttribute._resolve(v) for v in x]
 
         if isinstance(x, dict):
             return {
-                CallableLookupAttribute._resolve(k): CallableLookupAttribute._resolve(v)
+                LookupAttribute._resolve(k): LookupAttribute._resolve(v)
                 for k, v in x.items()
             }
 
@@ -279,24 +295,228 @@ class CallableLookupAttribute:
         return np.asarray(self.value, dtype=dtype)
 
 
-class CallableLookup(Component, Generic[T]):
+class Lookup(Component, Generic[T]):
     """
-    Generic callable/object lookup component.
+    Wrap a function, class, or external model as a FullFlow component.
 
-    Features:
-        - wraps functions/classes/ThermoProp objects
-        - supports chained lookups
-        - supports State math
-        - supports order-independent initialization
-        - keeps old values as fallbacks for dynamic inputs
-        - caches unchanged inputs
-        - reuses existing wrapped objects when possible for speed
+    ``Lookup`` is the bridge between a FullFlow network and code that
+    lives outside the normal component system. It can wrap simple functions,
+    classes, property packages, interpolation objects, ThermoProp objects, or any
+    other Python callable. Inputs may be constants, :class:`State` objects,
+    derived states, other ``Lookup`` objects, or attributes from other
+    lookups.
 
-    Important:
-        Object reuse is automatic by default. Users do not need to pass
-        reuse_existing=True.
+    The wrapped callable is evaluated during network state evaluation. The
+    returned object is stored in ``output`` and its attributes are exposed as
+    state-like proxies. For example, after creating ``eq = Lookup(...)``,
+    expressions like ``eq.temperature``, ``eq.pressure``, and ``eq.gamma`` are
+    valid FullFlow-style values.
+
+    Common usage
+    ------------
+    Property object or constructor::
+
+        fuel = Lookup(
+            "Fuel",
+            network,
+            Propellant,
+            "rp-1",
+            temperature=298.15,
+        )
+
+    Chained lookup::
+
+        reactants = Lookup(
+            "Reactants",
+            network,
+            Reactants,
+            fuels=fuel,
+            oxidizers=oxidizer,
+            mixture_ratio=2.0,
+        )
+
+        eq = Lookup(
+            "Combustion",
+            network,
+            Equilibrium,
+            reactants=reactants,
+            pressure=chamber.pressure,
+        )
+
+    Simple scalar-returning function::
+
+        density = Lookup(
+            "Density",
+            network,
+            density_function,
+            pressure=source.pressure,
+            temperature=source.temperature,
+        )
+
+    Important behavior
+    ------------------
+    - Attribute access creates state-like proxies. ``lookup.temperature`` does
+      not immediately copy a value; it points back to the lookup.
+    - Inputs are resolved lazily from their current values. If a keyword input is
+      a ``State`` or derived state, the wrapped callable receives the current
+      numeric/object value at evaluation time.
+    - Output guesses are used before the wrapped object has been evaluated. This
+      is useful when a lookup output is also an iteration variable.
+    - Input fallback guesses are used when an input is temporarily unavailable,
+      usually during order-independent network initialization.
+    - Caching avoids repeated calls when inputs have not changed.
+    - Object reuse attempts to update an existing output object instead of
+      rebuilding it when the wrapped object supports ``update(...)``.
+
+    Parameters
+    ----------
+    name : str
+        Component name shown in reports and diagnostics.
+
+    network : Network
+        Network that owns this lookup. The lookup registers itself with this
+        network during construction.
+
+    callable_ : Callable[..., T]
+        Function, class, constructor, or callable object to evaluate. The return
+        value becomes ``self.output.value``.
+
+    *args : Any
+        Positional arguments passed to ``callable_``. Any nested ``State``,
+        ``Lookup``, or ``LookupAttribute`` values are resolved
+        before evaluation.
+
+    output : State, optional
+        State used to store the returned object. If omitted, a new empty
+        ``State`` is created. Most users can omit this.
+
+    evaluate_on_set : bool, default=False
+        If True, changing an input immediately evaluates the lookup. If False,
+        input changes only mark the lookup dirty and evaluation happens during
+        normal network evaluation.
+
+    strict_inputs : bool, default=False
+        If True, assigning an unknown attribute raises an error instead of
+        treating it as an output guess. Keep this False for flexible interactive
+        use. Turn it on when debugging typos in input names.
+
+    strict_outputs : bool, default=False
+        Reserved for stricter output checking. The current implementation stores
+        the flag but does not enforce much behavior with it yet.
+
+    wrap_errors : bool, default=False
+        If True, exceptions raised by ``callable_`` are wrapped in a
+        ``RuntimeError`` that includes this lookup's name. If False, the original
+        exception is raised.
+
+    evaluate_in_pre_evaluation : bool, default=True
+        If True, the lookup evaluates during the network pre-evaluation pass.
+        This is the normal behavior for property packages whose outputs are used
+        by downstream components.
+
+    lazy : bool, optional
+        Convenience inverse of ``evaluate_in_pre_evaluation``. Passing
+        ``lazy=True`` sets ``evaluate_in_pre_evaluation=False``. Passing
+        ``lazy=False`` sets ``evaluate_in_pre_evaluation=True``. If ``None``,
+        ``evaluate_in_pre_evaluation`` is used directly.
+
+    defer_until_inputs_available : bool, default=True
+        If True, missing/unavailable inputs defer evaluation instead of raising
+        immediately. This makes order-independent network construction easier.
+        If False, missing inputs raise an error.
+
+    cache : bool, default=True
+        If True, skip evaluation when the resolved input values and callable
+        structure are unchanged.
+
+    cache_tol : float, default=0.0
+        Optional numeric tolerance used when building cache fingerprints. A value
+        of ``0.0`` requires exact numeric equality. A positive value rounds
+        numeric inputs by that tolerance before comparing cache keys.
+
+    reuse_existing : bool, default=True
+        If True and the output object already exists, try to update that object
+        using ``output.update(**kwargs)`` instead of constructing a new object.
+        This is useful for expensive objects that support cheap updates. Users
+        usually do not need to change this.
+
+    memo_size : int, default=1
+        Number of previously evaluated input/output combinations to retain.
+        ``1`` caches only the most recent result. Larger values can help when a
+        solver repeatedly revisits several states.
+
+    output_guesses : dict[str, Any], optional
+        Initial values for output attributes before the wrapped callable has
+        successfully evaluated. Example: ``output_guesses={"pressure": 2e6}``
+        makes ``lookup.pressure`` usable immediately. Values are stored as
+        output fallback ``State`` objects.
+
+    input_guesses : dict[str, Any], optional
+        Fallback values for inputs that may be temporarily unavailable. Example:
+        ``input_guesses={"temperature": 300.0}``. These guesses are updated
+        with real input values whenever available.
+
+    **kwargs : Any
+        Keyword arguments passed to ``callable_``. Keyword arguments also become
+        named lookup inputs, so ``lookup.temperature`` refers to the input if
+        ``temperature=...`` was supplied.
+
+    Public attributes
+    -----------------
+    value, obj
+        The current wrapped output object, equivalent to ``self.output.value``.
+
+    dirty
+        True when inputs have changed or the cache was cleared and the lookup
+        should be evaluated again.
+
+    evaluation_count
+        Number of completed fresh evaluations. Cache hits do not increment this.
+
+    build_count
+        Number of times a new output object was built by calling ``callable_``.
+
+    reuse_count
+        Number of times an existing output object was updated/reused.
+
+    cache_hits
+        Number of times evaluation was skipped because cached data was valid.
+
+    defer_count
+        Number of times evaluation was deferred because inputs were unavailable.
+
+    Internal attributes
+    -------------------
+    ``_signature``, ``_accepted_keywords``, and ``_accepts_var_keyword`` cache
+    callable signature information so setting inputs does not repeatedly call
+    ``inspect.signature``.
+
+    ``_output_states`` stores fallback states for output attributes. These make
+    values such as ``eq.pressure`` available before the first successful lookup.
+
+    ``_input_fallback_states`` stores fallback states for unavailable inputs and
+    remembers the last real value when a constant input is replaced by a dynamic
+    state-like input.
+
+    ``_last_input_key`` and ``_last_structure_key`` are cache fingerprints for
+    the last successful evaluation. ``_memo`` stores recent result objects.
+
+    ``_attribute_cache`` keeps one ``LookupAttribute`` proxy per name so
+    repeated access like ``eq.pressure`` returns a stable lightweight object.
+
+    Notes
+    -----
+    This class intentionally does not call ``Component.setup()`` because it must
+    preserve raw positional and keyword dependency objects. Calling setup would
+    wrap/assign constructor arguments in ways that break dynamic lookup inputs.
     """
 
+    # Names that belong to the lookup implementation itself.
+    #
+    # ``__setattr__`` uses this set to decide whether an assignment should modify
+    # the lookup object directly or be interpreted as a callable input/output.
+    # For example, ``lookup.dirty = True`` should set an internal flag, while
+    # ``lookup.pressure = 2e6`` should update an input or output guess.
     _INTERNAL_ATTRS = {
         "name",
         "network",
@@ -412,7 +632,7 @@ class CallableLookup(Component, Generic[T]):
         self._inspect_callable_signature()
 
         # Do not call Component.setup().
-        # CallableLookup must preserve raw args/kwargs dependency objects.
+        # Lookup must preserve raw args/kwargs dependency objects.
         self.initialize_component(name, network)
 
     @property
@@ -431,21 +651,21 @@ class CallableLookup(Component, Generic[T]):
         if isinstance(x, State):
             return x.value
 
-        if isinstance(x, CallableLookupAttribute):
+        if isinstance(x, LookupAttribute):
             return x.value
 
-        if isinstance(x, CallableLookup):
+        if isinstance(x, Lookup):
             return x.value
 
         if isinstance(x, tuple):
-            return tuple(CallableLookup._value(v) for v in x)
+            return tuple(Lookup._value(v) for v in x)
 
         if isinstance(x, list):
-            return [CallableLookup._value(v) for v in x]
+            return [Lookup._value(v) for v in x]
 
         if isinstance(x, dict):
             return {
-                CallableLookup._value(k): CallableLookup._value(v)
+                Lookup._value(k): Lookup._value(v)
                 for k, v in x.items()
             }
 
@@ -453,19 +673,19 @@ class CallableLookup(Component, Generic[T]):
 
     @staticmethod
     def _is_dynamic_input(x: Any) -> bool:
-        if isinstance(x, (State, CallableLookup, CallableLookupAttribute)):
+        if isinstance(x, (State, Lookup, LookupAttribute)):
             return True
 
         if isinstance(x, tuple):
-            return any(CallableLookup._is_dynamic_input(v) for v in x)
+            return any(Lookup._is_dynamic_input(v) for v in x)
 
         if isinstance(x, list):
-            return any(CallableLookup._is_dynamic_input(v) for v in x)
+            return any(Lookup._is_dynamic_input(v) for v in x)
 
         if isinstance(x, dict):
             return any(
-                CallableLookup._is_dynamic_input(k)
-                or CallableLookup._is_dynamic_input(v)
+                Lookup._is_dynamic_input(k)
+                or Lookup._is_dynamic_input(v)
                 for k, v in x.items()
             )
 
@@ -628,19 +848,19 @@ class CallableLookup(Component, Generic[T]):
         if changed and self.evaluate_on_set:
             self.evaluate_states()
 
-    def update(self, **kwargs: Any) -> "CallableLookup[T]":
+    def update(self, **kwargs: Any) -> "Lookup[T]":
         for name, value in kwargs.items():
             self.set_input(name, value)
 
         return self
 
-    def input(self, name: str) -> CallableLookupAttribute:
+    def input(self, name: str) -> LookupAttribute:
         if not self.has_input(name) and not self.accepts_input(name):
             raise AttributeError(f"{self.name!r} has no input named {name!r}.")
 
         attribute = self._attribute_cache.get(name)
         if attribute is None:
-            attribute = CallableLookupAttribute(self, name)
+            attribute = LookupAttribute(self, name)
             self._attribute_cache[name] = attribute
         return attribute
 
@@ -793,11 +1013,11 @@ class CallableLookup(Component, Generic[T]):
         if isinstance(value, State):
             return ("State", id(value))
 
-        if isinstance(value, CallableLookup):
-            return ("CallableLookup", id(value))
+        if isinstance(value, Lookup):
+            return ("Lookup", id(value))
 
-        if isinstance(value, CallableLookupAttribute):
-            return ("CallableLookupAttribute", id(value.lookup), value.name)
+        if isinstance(value, LookupAttribute):
+            return ("LookupAttribute", id(value.lookup), value.name)
 
         if isinstance(value, tuple):
             return ("tuple", tuple(self._storage_key(v) for v in value))
@@ -1121,13 +1341,13 @@ class CallableLookup(Component, Generic[T]):
             except Exception:
                 pass
 
-    def __getattr__(self, name: str) -> CallableLookupAttribute:
+    def __getattr__(self, name: str) -> LookupAttribute:
         if name.startswith("__"):
             raise AttributeError(name)
 
         attribute = self._attribute_cache.get(name)
         if attribute is None:
-            attribute = CallableLookupAttribute(self, name)
+            attribute = LookupAttribute(self, name)
             self._attribute_cache[name] = attribute
         return attribute
 
@@ -1245,3 +1465,18 @@ class CallableLookup(Component, Generic[T]):
             f"cache_hits={self._cache_hits}, "
             f"value={value_repr})"
         )
+
+
+# Backward-compatible aliases.
+#
+# ``Lookup`` and ``LookupAttribute`` are the canonical names. The old names are
+# kept so existing FullFlow scripts that use ``CallableLookup`` continue to run.
+CallableLookup = Lookup
+CallableLookupAttribute = LookupAttribute
+
+__all__ = [
+    "Lookup",
+    "LookupAttribute",
+    "CallableLookup",
+    "CallableLookupAttribute",
+]
