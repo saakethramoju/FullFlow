@@ -25,34 +25,18 @@ _UNAVAILABLE = object()
 
 class LookupAttribute:
     """
-    State-like view of one attribute on a :class:`Lookup`.
+    Dynamic state-like proxy for a Lookup input or output attribute.
 
-    Users normally do not create this class directly. It is created on demand
-    when an attribute is accessed on a lookup, for example ``eq.pressure`` or
-    ``fuel.temperature``.
+    Supports:
+        FuelSource.pressure
+        FuelSource.density
+        eq.pressure
+        eq.temperature
+        reactants.mixture_ratio
 
-    The proxy behaves like a FullFlow state:
-
-    - ``value`` reads the current input or output value.
-    - assigning ``value`` updates an input when the wrapped callable accepts it.
-    - assigning ``value`` to an output stores an output guess/fallback.
-    - ``numeric_value`` returns ``float(value)`` for solver use.
-    - arithmetic returns derived :class:`State` objects, so lookup attributes can
-      be used in component equations.
-
-    Examples
-    --------
-    ``eq.pressure`` is a lookup attribute. It can be passed directly into another
-    component or used in state math::
-
-        chamber = SimpleVolume(..., pressure=eq.pressure)
-        reactants.mixture_ratio = ox.mass_flow / fuel.mass_flow
-
-    Notes
-    -----
-    ``LookupAttribute`` is intentionally assignable even though it is
-    state-like and derived from a lookup. This is what allows a solver variable
-    such as ``eq.pressure`` to be driven by a component like ``SimpleVolume``.
+    Also supports FullFlow-style math:
+        Chamber.mass_flow_in = FuelInjector.mass_flow + OxInjector.mass_flow
+        reactants.mixture_ratio = OxInjector.mass_flow / FuelInjector.mass_flow
     """
 
     _fullflow_state_like = True
@@ -65,7 +49,7 @@ class LookupAttribute:
 
     @property
     def is_input(self) -> bool:
-        return self.lookup.has_input(self.name)
+        return self.lookup.input_is_active(self.name)
 
     @property
     def is_output(self) -> bool:
@@ -109,25 +93,57 @@ class LookupAttribute:
     def is_derived(self) -> bool:
         return True
 
+    def _constraint_state(self) -> State | None:
+        """Return the backing State that should provide solver constraints."""
+        if self.name in self.lookup.kwargs:
+            current = self.lookup.kwargs[self.name]
+
+            if isinstance(current, State):
+                return current
+
+        state = self.lookup._output_states.get(self.name)
+
+        if state is not None:
+            return state
+
+        return self.lookup._input_fallback_states.get(self.name)
+
     @property
     def lower_bound(self) -> float:
-        return -math.inf
+        state = self._constraint_state()
+
+        if state is None:
+            return -math.inf
+
+        return state.lower_bound
 
     @property
     def upper_bound(self) -> float:
-        return math.inf
+        state = self._constraint_state()
+
+        if state is None:
+            return math.inf
+
+        return state.upper_bound
 
     @property
     def bounds(self) -> tuple[float, float]:
-        return self.lower_bound, self.upper_bound
+        state = self._constraint_state()
+
+        if state is None:
+            return self.lower_bound, self.upper_bound
+
+        return state.bounds
 
     @property
     def has_bounds(self) -> bool:
-        return False
+        state = self._constraint_state()
+        return bool(state is not None and state.has_bounds)
 
     @property
     def keep_feasible(self) -> bool:
-        return False
+        state = self._constraint_state()
+        return bool(state is not None and state.keep_feasible)
 
     def as_state(self) -> State:
         return State._derived(lambda: self.value)
@@ -299,20 +315,59 @@ class Lookup(Component, Generic[T]):
     """
     Wrap a function, class, or external model as a FullFlow component.
 
-    ``Lookup`` is the bridge between a FullFlow network and code that
-    lives outside the normal component system. It can wrap simple functions,
-    classes, property packages, interpolation objects, ThermoProp objects, or any
-    other Python callable. Inputs may be constants, :class:`State` objects,
-    derived states, other ``Lookup`` objects, or attributes from other
-    lookups.
+    ``Lookup`` is the bridge between a FullFlow network and external code such
+    as ThermoProp objects, CoolProp wrappers, interpolation functions, property
+    packages, correlations, or user-defined callables. Inputs may be constants,
+    :class:`State` objects, derived states, other ``Lookup`` objects, or
+    attributes from other lookups.
 
     The wrapped callable is evaluated during network state evaluation. The
     returned object is stored in ``output`` and its attributes are exposed as
-    state-like proxies. For example, after creating ``eq = Lookup(...)``,
-    expressions like ``eq.temperature``, ``eq.pressure``, and ``eq.gamma`` are
-    valid FullFlow-style values.
+    state-like proxies. For example, after creating ``gas = Lookup(...)``,
+    expressions like ``gas.pressure``, ``gas.temperature``, and
+    ``gas.enthalpy`` can be passed directly into other components.
 
-    Common usage
+    Priority Inputs
+    ---------------
+    Some property packages allow multiple state-input pairs, but only one value
+    from each interchangeable group should be passed at a time. ``priority``
+    handles this without requiring full input-mode definitions.
+
+    For each priority group, only the first available value is passed to the
+    wrapped callable. A value may come from an existing lookup input or from an
+    already evaluated output attribute when the callable accepts that attribute
+    name as an input. All inputs not listed in a priority group are passed
+    normally.
+
+    Example: initialize an ideal gas with pressure-temperature, then switch to
+    pressure-enthalpy once enthalpy becomes a solver variable::
+
+        gas = Lookup(
+            "Gas",
+            network,
+            IdealGas,
+            fluid="gn2",
+            pressure=3e7,
+            temperature=300,
+            priority=("enthalpy", "temperature"),
+        )
+
+    Initial evaluation passes::
+
+        IdealGas(fluid="gn2", pressure=3e7, temperature=300)
+
+    After ``gas.enthalpy`` becomes assigned, evaluation passes::
+
+        IdealGas(fluid="gn2", pressure=..., enthalpy=...)
+
+    Multiple independent priority groups are supported::
+
+        priority=[
+            ("enthalpy", "temperature"),
+            ("density", "pressure"),
+        ]
+
+    Common Usage
     ------------
     Property object or constructor::
 
@@ -343,180 +398,64 @@ class Lookup(Component, Generic[T]):
             pressure=chamber.pressure,
         )
 
-    Simple scalar-returning function::
-
-        density = Lookup(
-            "Density",
-            network,
-            density_function,
-            pressure=source.pressure,
-            temperature=source.temperature,
-        )
-
-    Important behavior
-    ------------------
-    - Attribute access creates state-like proxies. ``lookup.temperature`` does
-      not immediately copy a value; it points back to the lookup.
-    - Inputs are resolved lazily from their current values. If a keyword input is
-      a ``State`` or derived state, the wrapped callable receives the current
-      numeric/object value at evaluation time.
-    - Output guesses are used before the wrapped object has been evaluated. This
-      is useful when a lookup output is also an iteration variable.
-    - Input fallback guesses are used when an input is temporarily unavailable,
-      usually during order-independent network initialization.
-    - Caching avoids repeated calls when inputs have not changed.
-    - Object reuse attempts to update an existing output object instead of
-      rebuilding it when the wrapped object supports ``update(...)``.
-
     Parameters
     ----------
     name : str
         Component name shown in reports and diagnostics.
-
     network : Network
-        Network that owns this lookup. The lookup registers itself with this
-        network during construction.
-
+        Network that owns this lookup.
     callable_ : Callable[..., T]
-        Function, class, constructor, or callable object to evaluate. The return
-        value becomes ``self.output.value``.
-
+        Function, class, constructor, or callable object to evaluate.
     *args : Any
-        Positional arguments passed to ``callable_``. Any nested ``State``,
-        ``Lookup``, or ``LookupAttribute`` values are resolved
-        before evaluation.
-
+        Positional arguments passed to ``callable_``. Nested FullFlow states and
+        lookup attributes are resolved before evaluation.
     output : State, optional
-        State used to store the returned object. If omitted, a new empty
-        ``State`` is created. Most users can omit this.
-
+        State used to store the returned object. Most users can omit this.
     evaluate_on_set : bool, default=False
-        If True, changing an input immediately evaluates the lookup. If False,
-        input changes only mark the lookup dirty and evaluation happens during
-        normal network evaluation.
-
+        If True, changing an input immediately evaluates the lookup.
     strict_inputs : bool, default=False
-        If True, assigning an unknown attribute raises an error instead of
-        treating it as an output guess. Keep this False for flexible interactive
-        use. Turn it on when debugging typos in input names.
-
+        If True, assigning an unknown attribute raises instead of creating an
+        output guess.
     strict_outputs : bool, default=False
-        Reserved for stricter output checking. The current implementation stores
-        the flag but does not enforce much behavior with it yet.
-
+        Reserved for stricter output checking.
     wrap_errors : bool, default=False
-        If True, exceptions raised by ``callable_`` are wrapped in a
-        ``RuntimeError`` that includes this lookup's name. If False, the original
-        exception is raised.
-
+        If True, exceptions from the wrapped callable are wrapped with this
+        lookup's name.
     evaluate_in_pre_evaluation : bool, default=True
-        If True, the lookup evaluates during the network pre-evaluation pass.
-        This is the normal behavior for property packages whose outputs are used
-        by downstream components.
-
+        If True, evaluate during the network pre-evaluation pass.
     lazy : bool, optional
-        Convenience inverse of ``evaluate_in_pre_evaluation``. Passing
-        ``lazy=True`` sets ``evaluate_in_pre_evaluation=False``. Passing
-        ``lazy=False`` sets ``evaluate_in_pre_evaluation=True``. If ``None``,
-        ``evaluate_in_pre_evaluation`` is used directly.
-
+        Convenience inverse of ``evaluate_in_pre_evaluation``.
     defer_until_inputs_available : bool, default=True
-        If True, missing/unavailable inputs defer evaluation instead of raising
-        immediately. This makes order-independent network construction easier.
-        If False, missing inputs raise an error.
-
+        If True, unavailable inputs defer evaluation instead of raising
+        immediately.
     cache : bool, default=True
-        If True, skip evaluation when the resolved input values and callable
-        structure are unchanged.
-
+        If True, skip evaluation when resolved inputs and callable structure are
+        unchanged.
     cache_tol : float, default=0.0
-        Optional numeric tolerance used when building cache fingerprints. A value
-        of ``0.0`` requires exact numeric equality. A positive value rounds
-        numeric inputs by that tolerance before comparing cache keys.
-
+        Optional numeric tolerance used when building cache fingerprints.
     reuse_existing : bool, default=True
-        If True and the output object already exists, try to update that object
-        using ``output.update(**kwargs)`` instead of constructing a new object.
-        This is useful for expensive objects that support cheap updates. Users
-        usually do not need to change this.
-
+        If True, try to update an existing output object via ``update(...)``
+        before constructing a new one.
     memo_size : int, default=1
-        Number of previously evaluated input/output combinations to retain.
-        ``1`` caches only the most recent result. Larger values can help when a
-        solver repeatedly revisits several states.
-
+        Number of recent input/output combinations to retain.
     output_guesses : dict[str, Any], optional
-        Initial values for output attributes before the wrapped callable has
-        successfully evaluated. Example: ``output_guesses={"pressure": 2e6}``
-        makes ``lookup.pressure`` usable immediately. Values are stored as
-        output fallback ``State`` objects.
-
+        Initial guesses for output attributes before first evaluation.
     input_guesses : dict[str, Any], optional
-        Fallback values for inputs that may be temporarily unavailable. Example:
-        ``input_guesses={"temperature": 300.0}``. These guesses are updated
-        with real input values whenever available.
-
+        Fallback values for temporarily unavailable inputs.
+    priority : tuple[str, ...] or sequence of tuple[str, ...], optional
+        Input priority group or groups. For each group, only the first available
+        input is passed.
     **kwargs : Any
         Keyword arguments passed to ``callable_``. Keyword arguments also become
-        named lookup inputs, so ``lookup.temperature`` refers to the input if
-        ``temperature=...`` was supplied.
-
-    Public attributes
-    -----------------
-    value, obj
-        The current wrapped output object, equivalent to ``self.output.value``.
-
-    dirty
-        True when inputs have changed or the cache was cleared and the lookup
-        should be evaluated again.
-
-    evaluation_count
-        Number of completed fresh evaluations. Cache hits do not increment this.
-
-    build_count
-        Number of times a new output object was built by calling ``callable_``.
-
-    reuse_count
-        Number of times an existing output object was updated/reused.
-
-    cache_hits
-        Number of times evaluation was skipped because cached data was valid.
-
-    defer_count
-        Number of times evaluation was deferred because inputs were unavailable.
-
-    Internal attributes
-    -------------------
-    ``_signature``, ``_accepted_keywords``, and ``_accepts_var_keyword`` cache
-    callable signature information so setting inputs does not repeatedly call
-    ``inspect.signature``.
-
-    ``_output_states`` stores fallback states for output attributes. These make
-    values such as ``eq.pressure`` available before the first successful lookup.
-
-    ``_input_fallback_states`` stores fallback states for unavailable inputs and
-    remembers the last real value when a constant input is replaced by a dynamic
-    state-like input.
-
-    ``_last_input_key`` and ``_last_structure_key`` are cache fingerprints for
-    the last successful evaluation. ``_memo`` stores recent result objects.
-
-    ``_attribute_cache`` keeps one ``LookupAttribute`` proxy per name so
-    repeated access like ``eq.pressure`` returns a stable lightweight object.
+        named lookup inputs.
 
     Notes
     -----
-    This class intentionally does not call ``Component.setup()`` because it must
+    ``Lookup`` intentionally does not call ``Component.setup()`` because it must
     preserve raw positional and keyword dependency objects. Calling setup would
-    wrap/assign constructor arguments in ways that break dynamic lookup inputs.
+    wrap constructor arguments in ways that break dynamic lookup inputs.
     """
 
-    # Names that belong to the lookup implementation itself.
-    #
-    # ``__setattr__`` uses this set to decide whether an assignment should modify
-    # the lookup object directly or be interpreted as a callable input/output.
-    # For example, ``lookup.dirty = True`` should set an internal flag, while
-    # ``lookup.pressure = 2e6`` should update an input or output guess.
     _INTERNAL_ATTRS = {
         "name",
         "network",
@@ -535,6 +474,7 @@ class Lookup(Component, Generic[T]):
         "cache_tol",
         "reuse_existing",
         "memo_size",
+        "priority",
         "_memo",
         "_signature",
         "_accepted_keywords",
@@ -543,6 +483,8 @@ class Lookup(Component, Generic[T]):
         "_input_fallback_states",
         "_last_input_key",
         "_last_structure_key",
+        "_last_priority",
+        "_inactive_priority_inputs",
         "_evaluation_count",
         "_build_count",
         "_reuse_count",
@@ -572,6 +514,12 @@ class Lookup(Component, Generic[T]):
         memo_size: int = 1,
         output_guesses: dict[str, Any] | None = None,
         input_guesses: dict[str, Any] | None = None,
+        priority: (
+            tuple[str, ...]
+            | list[tuple[str, ...]]
+            | tuple[tuple[str, ...], ...]
+            | None
+        ) = None,
         **kwargs: Any,
     ):
         object.__setattr__(self, "name", name)
@@ -579,6 +527,7 @@ class Lookup(Component, Generic[T]):
         object.__setattr__(self, "callable", callable_)
         object.__setattr__(self, "args", tuple(args))
         object.__setattr__(self, "kwargs", dict(kwargs))
+        object.__setattr__(self, "priority", self._normalize_priority(priority))
         object.__setattr__(self, "output", output if output is not None else State())
 
         if lazy is not None:
@@ -600,6 +549,8 @@ class Lookup(Component, Generic[T]):
 
         object.__setattr__(self, "_last_input_key", None)
         object.__setattr__(self, "_last_structure_key", None)
+        object.__setattr__(self, "_last_priority", {})
+        object.__setattr__(self, "_inactive_priority_inputs", set())
         object.__setattr__(self, "_evaluation_count", 0)
         object.__setattr__(self, "_build_count", 0)
         object.__setattr__(self, "_reuse_count", 0)
@@ -691,13 +642,125 @@ class Lookup(Component, Generic[T]):
 
         return False
 
+    @staticmethod
+    def _normalize_priority(
+        priority: (
+            tuple[str, ...]
+            | list[tuple[str, ...]]
+            | tuple[tuple[str, ...], ...]
+            | None
+        ),
+    ) -> tuple[tuple[str, ...], ...]:
+        """Normalize priority input selection into tuple-of-tuples form."""
+        if priority is None:
+            return ()
+
+        if not priority:
+            return ()
+
+        # Single group:
+        #
+        #     priority=("enthalpy", "temperature")
+        #
+        # becomes:
+        #
+        #     (("enthalpy", "temperature"),)
+        if all(isinstance(item, str) for item in priority):
+            return (tuple(str(item) for item in priority),)
+
+        # Multiple independent groups:
+        #
+        #     priority=[
+        #         ("enthalpy", "temperature"),
+        #         ("density", "pressure"),
+        #     ]
+        return tuple(
+            tuple(str(name) for name in group)
+            for group in priority
+        )
+
+    def _priority_candidate_value(self, name: str) -> Any:
+        """
+        Resolve one candidate from a priority group.
+
+        A priority candidate can come from either:
+
+        1. an existing lookup keyword input, or
+        2. an already available output attribute, if the wrapped callable accepts
+           that name as an input.
+
+        This second case is what allows property lookups to initialize with an
+        easy state pair such as pressure-temperature and later switch to a solver
+        state pair such as pressure-enthalpy without the user manually adding an
+        ``enthalpy`` keyword input up front.
+        """
+        if name in self.kwargs:
+            return self.get_input(name)
+
+        if self.accepts_input(name):
+            return self.get_output(name)
+
+        raise AttributeError(
+            f"{self.name!r} has no available priority input or output named {name!r}."
+        )
+
     def _resolve_args_kwargs(self) -> tuple[list[Any], dict[str, Any]]:
         args = [self._value(arg) for arg in self.args]
+
+        if not self.priority:
+            kwargs = {
+                key: self.get_input(key)
+                for key in self.kwargs
+            }
+            object.__setattr__(self, "_last_priority", {})
+            object.__setattr__(self, "_inactive_priority_inputs", set())
+            return args, kwargs
+
+        priority_names: set[str] = set()
+        selected_inputs: dict[str, Any] = {}
+        selected_report: dict[str, str] = {}
+
+        for group_index, group in enumerate(self.priority):
+            # Every name in the group is mutually exclusive, so every name in
+            # the group must be removed from the normal kwargs pass-through.
+            # The previous implementation only added names as it tested them.
+            # If the first candidate succeeded, lower-priority names were never
+            # excluded, causing e.g. pressure + enthalpy + temperature to be
+            # passed to ThermoProp.
+            group_names = tuple(group)
+            priority_names.update(group_names)
+
+            chosen_name = None
+            chosen_value = None
+
+            for name in group_names:
+                try:
+                    chosen_value = self._priority_candidate_value(name)
+                except Exception:
+                    continue
+
+                chosen_name = name
+                break
+
+            if chosen_name is not None:
+                selected_inputs[chosen_name] = chosen_value
+                selected_report[f"group_{group_index}"] = chosen_name
 
         kwargs = {
             key: self.get_input(key)
             for key in self.kwargs
+            if key not in priority_names
         }
+        kwargs.update(selected_inputs)
+
+        inactive_priority_inputs = {
+            name
+            for name in priority_names
+            if name in self.kwargs and name not in selected_inputs
+        }
+
+        object.__setattr__(self, "_last_priority", selected_report)
+        object.__setattr__(self, "_inactive_priority_inputs", inactive_priority_inputs)
 
         return args, kwargs
 
@@ -741,6 +804,17 @@ class Lookup(Component, Generic[T]):
 
     def has_input(self, name: str) -> bool:
         return name in self.kwargs
+
+    def input_is_active(self, name: str) -> bool:
+        """Return True when a raw keyword input is currently active.
+
+        Priority groups can temporarily deactivate lower-priority keyword
+        inputs. For example, with ``priority=("enthalpy", "temperature")``,
+        ``temperature`` is a construction-time input during the initial
+        pressure-temperature evaluation, but becomes an output once enthalpy is
+        selected.
+        """
+        return name in self.kwargs and name not in self._inactive_priority_inputs
 
     def input_is_assigned(self, name: str) -> bool:
         if name not in self.kwargs:
@@ -831,6 +905,20 @@ class Lookup(Component, Generic[T]):
             and not new_is_dynamic
         ):
             current.value = value
+        elif (
+            current is _MISSING
+            and not new_is_dynamic
+            and name in self._output_states
+        ):
+            # Promote an output fallback/guess State to a real callable input.
+            #
+            # This preserves bounds and keep_feasible for lookup outputs that
+            # later become solver variables. Example: initialize a property
+            # lookup with pressure-temperature, then let the solver drive
+            # pressure-enthalpy.
+            state = self._output_states[name]
+            state.value = value
+            self.kwargs[name] = state
         else:
             self.kwargs[name] = value
 
@@ -1170,6 +1258,9 @@ class Lookup(Component, Generic[T]):
             "cache": self.cache,
             "reuse_existing": self.reuse_existing,
             "memo_size": self.memo_size,
+            "priority": self.priority,
+            "last_priority": self._last_priority,
+            "inactive_priority_inputs": tuple(sorted(self._inactive_priority_inputs)),
             "memo_entries": len(self._memo),
             "dirty": self.dirty,
             "evaluation_count": self._evaluation_count,
@@ -1429,6 +1520,7 @@ class Lookup(Component, Generic[T]):
             "cache_tol",
             "reuse_existing",
             "memo_size",
+            "priority",
             "_memo",
             "_signature",
             "_accepted_keywords",
@@ -1437,6 +1529,8 @@ class Lookup(Component, Generic[T]):
             "_input_fallback_states",
             "_last_input_key",
             "_last_structure_key",
+            "_last_priority",
+            "_inactive_priority_inputs",
             "_evaluation_count",
             "_build_count",
             "_reuse_count",
@@ -1465,7 +1559,6 @@ class Lookup(Component, Generic[T]):
             f"cache_hits={self._cache_hits}, "
             f"value={value_repr})"
         )
-
 
 # Backward-compatible aliases.
 #

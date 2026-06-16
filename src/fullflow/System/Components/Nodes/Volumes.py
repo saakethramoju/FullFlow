@@ -9,17 +9,74 @@ if TYPE_CHECKING:
     from fullflow.System import Network, State
 
 
+
 class SimpleVolume(Component):
     """
-    Lumped fluid volume with mass conservation only.
+    Lumped fluid control volume with mass conservation only.
 
-    Residual:
-        mass_flow_in - mass_flow_out = 0
+    `SimpleVolume` represents a zero-dimensional fluid node whose pressure is
+    solved from a steady-state continuity equation. It is useful when the node
+    pressure must be an iteration variable, but energy storage, enthalpy mixing,
+    and temperature evolution are either handled elsewhere or intentionally
+    neglected.
 
-    Iteration variable:
-        pressure
+    This component is commonly used for simple junctions, chambers, tanks, or
+    internal nodes where only mass balance is required.
+
+    Sign Convention
+    ---------------
+    `mass_flow_in` is positive into the volume.
+
+    `mass_flow_out` is positive out of the volume.
+
+    Residuals
+    ---------
+    mass_balance : float
+        Enforces steady-state mass conservation.
+
+        ``mass_flow_in - mass_flow_out = 0``
+
+    Iteration Variables
+    -------------------
+    pressure : State
+        Volume pressure solved by the steady-state solver.
+
+    Inputs
+    ------
+    pressure : State
+        Volume pressure. This is the only iteration variable.
+    volume : float
+        Physical volume of the control volume. Currently stored for model
+        completeness and future transient use; it is not used in the
+        steady-state mass residual.
+    density : State, optional
+        Fluid density in the volume. Stored for downstream components or future
+        extensions; not used by the mass-only residual.
+    temperature : State, optional
+        Fluid temperature in the volume. Stored for downstream components or
+        future extensions; not used by the mass-only residual.
+    enthalpy : State, optional
+        Fluid specific enthalpy in the volume. Stored for downstream components
+        or future extensions; not used by the mass-only residual.
+    composition : Composition, optional
+        Fluid composition inside the volume.
+    composition_in : Composition, optional
+        Incoming fluid composition.
+
+    Flow Inputs
+    -----------
+    mass_flow_in : State, optional
+        Total mass flow rate entering the volume.
+    mass_flow_out : State, optional
+        Total mass flow rate leaving the volume.
+
+    Outputs
+    -------
+    pressure : State
+        Solved volume pressure.
+    mass_flow_out : State
+        Outlet mass flow state when not externally assigned.
     """
-
     def __init__(
         self,
         name: str,
@@ -47,41 +104,150 @@ class SimpleVolume(Component):
         ]
 
 
+
+
+
+
+
 class Volume(Component):
     """
-    Lumped fluid volume with optional steady-state energy balance.
+    Lumped fluid control volume with optional steady-state energy balance.
 
-    By default, Volume automatically chooses its mode:
+    `Volume` represents a zero-dimensional fluid node. It can operate in either
+    mass-only mode or mass-plus-energy mode.
 
-    1. Mass-only mode
-       Used when no enthalpy inputs are provided.
+    By default, the mode is selected automatically:
 
-       Residual:
-           mass_flow_in - mass_flow_out = 0
+    * If no enthalpy inputs are provided, `Volume` behaves like
+      `SimpleVolume` and enforces only mass conservation.
+    * If `enthalpy`, `total_enthalpy_in`, or `total_enthalpy_out` is provided,
+      `Volume` also enforces a steady-state energy balance.
 
-       Iteration variable:
-           pressure
+    This allows the same component to be used as a simple pressure node or as an
+    enthalpy-solving control volume.
 
-    2. Mass + energy mode
-       Used when `enthalpy`, `total_enthalpy_in`, or `energy_balance=True`
-       is provided.
+    Sign Convention
+    ---------------
+    `mass_flow_in` is positive into the volume.
 
-       Residuals:
-           mass_flow_in - mass_flow_out = 0
+    `mass_flow_out` is positive out of the volume.
 
-           mass_flow_in * total_enthalpy_in
-           - mass_flow_out * total_enthalpy_out
-           + heat_rate = 0
+    `heat_rate` is positive when heat is added to the volume.
 
-       Iteration variables:
-           pressure
-           enthalpy
-
-    Notes
+    Modes
     -----
-    This keeps old behavior when enthalpy arguments are supplied, but allows:
+    Mass-only mode
+        Used when `energy_balance=False`, or when `energy_balance=None` and no
+        enthalpy inputs are provided.
 
-        Volume(
+        Residual:
+
+        ``mass_flow_in - mass_flow_out = 0``
+
+        Iteration variable:
+
+        ``pressure``
+
+    Mass + energy mode
+        Used when `energy_balance=True`, or when `energy_balance=None` and
+        enthalpy inputs are provided.
+
+        Residuals:
+
+        ``mass_flow_in - mass_flow_out = 0``
+
+        ``mass_flow_in * total_enthalpy_in - mass_flow_out * h_out + heat_rate = 0``
+
+        where `h_out` is `total_enthalpy_out` when assigned, otherwise
+        `enthalpy`.
+
+        Iteration variables:
+
+        ``pressure`` and ``enthalpy``
+
+    Residuals
+    ---------
+    mass_balance : float
+        Enforces steady-state mass conservation.
+
+        ``mass_flow_in - mass_flow_out = 0``
+
+    energy_balance : float
+        Enforces steady-state energy conservation when energy balance mode is
+        enabled.
+
+        ``mass_flow_in * total_enthalpy_in - mass_flow_out * h_out + heat_rate = 0``
+
+    Iteration Variables
+    -------------------
+    pressure : State
+        Volume pressure solved by the steady-state solver.
+
+    enthalpy : State
+        Volume outlet/static enthalpy solved by the steady-state solver when
+        energy balance mode is enabled.
+
+    Inputs
+    ------
+    pressure : State
+        Volume pressure.
+    enthalpy : State or float, optional
+        Volume enthalpy. In energy-balance mode, this becomes an iteration
+        variable and is used as the outlet enthalpy if `total_enthalpy_out` is
+        not assigned.
+    volume : float, optional
+        Physical volume of the control volume. Stored for model completeness and
+        future transient use; it is not used directly in the current
+        steady-state residuals.
+    total_enthalpy_in : State or float, optional
+        Total specific enthalpy entering the volume.
+    total_enthalpy_out : State or float, optional
+        Total specific enthalpy leaving the volume. If omitted or unassigned in
+        energy-balance mode, `enthalpy` is used instead.
+    heat_rate : State or float, optional
+        Net heat transfer rate into the volume. Positive values add energy.
+        Defaults to zero when omitted.
+    temperature : State, optional
+        Volume temperature. Stored for downstream components or future
+        extensions; not used directly in the residuals.
+    density : State, optional
+        Volume density. Stored for downstream components or future extensions;
+        not used directly in the residuals.
+    internal_energy : State, optional
+        Volume specific internal energy. Stored for downstream components or
+        future extensions; not used directly in the residuals.
+    composition : Composition, optional
+        Fluid composition inside the volume.
+    composition_in : Composition, optional
+        Incoming fluid composition.
+    mass_flow_in : State, optional
+        Total mass flow rate entering the volume.
+    mass_flow_out : State, optional
+        Total mass flow rate leaving the volume.
+    energy_balance : bool, optional
+        Controls whether the energy equation is included.
+
+        * `None`: automatically enable energy balance when enthalpy inputs are
+          provided.
+        * `False`: force mass-only mode.
+        * `True`: force mass + energy mode.
+
+    Outputs
+    -------
+    pressure : State
+        Solved volume pressure.
+
+    enthalpy : State
+        Solved volume enthalpy when energy balance mode is enabled.
+
+    mass_flow_out : State
+        Outlet mass flow state when not externally assigned.
+
+    Examples
+    --------
+    Mass-only pressure node::
+
+        node = Volume(
             "Node",
             network,
             pressure=node_pressure,
@@ -90,14 +256,19 @@ class Volume(Component):
             mass_flow_out=outlet.mass_flow,
         )
 
-    to behave like SimpleVolume.
+    Energy-balancing volume::
 
-    Parameters
-    ----------
-    energy_balance : bool | None
-        If None, automatically enables energy balance when enthalpy inputs are
-        provided. If False, forces mass-only behavior. If True, forces the
-        mass + energy formulation.
+        chamber = Volume(
+            "Chamber",
+            network,
+            pressure=chamber_pressure,
+            enthalpy=chamber_enthalpy,
+            volume=0.01,
+            total_enthalpy_in=inlet.total_enthalpy,
+            mass_flow_in=inlet.mass_flow,
+            mass_flow_out=nozzle.mass_flow,
+            heat_rate=0.0,
+        )
     """
 
     def __init__(
