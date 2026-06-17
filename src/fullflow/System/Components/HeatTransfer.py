@@ -9,42 +9,7 @@ if TYPE_CHECKING:
 
 
 class Conduction(Component):
-    """
-    One-dimensional conduction heat transfer between two temperature nodes.
-
-    `Conduction` computes conductive heat transfer between two thermal nodes
-    using a one-dimensional Fourier-law resistance. Positive heat rate means
-    heat is added to `temperature1` from `temperature2`.
-
-    Parameters
-    ----------
-    name : str
-        Component name
-    network : Network
-        Network that owns this component
-    temperature1 : State
-        Receiving-side temperature
-    temperature2 : State
-        Source-side temperature
-    thermal_conductivity : State
-        Thermal conductivity
-    length : float
-        Conduction length
-    conductive_area : float
-        Conductive area
-
-    Outputs
-    -------
-    heat_rate : State, optional
-        Conductive heat transfer rate
-
-    Notes
-    -----
-    Conductive heat transfer is evaluated from:
-
-        ``heat_rate = thermal_conductivity * conductive_area
-        / length * (temperature2 - temperature1)``
-    """
+    """One-dimensional conduction heat transfer between two temperature nodes."""
 
     def __init__(
         self,
@@ -70,56 +35,7 @@ class Conduction(Component):
 
 
 class Radiation(Component):
-    """
-    Diffuse-gray radiation exchange between two temperature nodes.
-
-    `Radiation` computes radiative heat transfer between two diffuse-gray
-    surfaces using emissivities, radiating areas, and a view factor. Positive
-    heat rate indicates net radiative heat transfer from `temperature2` to
-    `temperature1`.
-
-    This component can be used for surface-to-surface radiation or vacuum
-    jacketed tube radiation.
-
-    Parameters
-    ----------
-    name : str
-        Component name
-    network : Network
-        Network that owns this component
-    temperature1 : State
-        Receiving-side surface temperature
-    temperature2 : State
-        Source-side surface temperature
-    emissivity1 : float
-        Receiving-side surface emissivity
-    emissivity2 : float
-        Source-side surface emissivity
-    radiative_area1 : float
-        Receiving-side radiative area
-    radiative_area2 : float, optional
-        Source-side radiative area
-    view_factor12 : float, optional
-        View factor from surface 1 to surface 2
-
-    Outputs
-    -------
-    heat_rate : State, optional
-        Radiative heat transfer rate
-
-    Notes
-    -----
-    The radiation denominator is evaluated from:
-
-        ``denominator = (1 - emissivity1) / (emissivity1 * radiative_area1)
-        + 1 / (radiative_area1 * view_factor12)
-        + (1 - emissivity2) / (emissivity2 * radiative_area2)``
-
-    Radiative heat transfer is evaluated from:
-
-        ``heat_rate = sigma * (temperature2^4 - temperature1^4)
-        / denominator``
-    """
+    """Diffuse-gray radiation exchange between two temperature nodes."""
     SIGMA = 5.670374419e-8  # W/m^2-K^4
 
     def __init__(
@@ -174,47 +90,7 @@ class Radiation(Component):
 
 
 class AmbientRadiation(Component):
-    """
-    Radiation exchange between a surface and an ambient enclosure.
-
-    `AmbientRadiation` computes radiative heat transfer between a solid surface
-    and a surrounding ambient enclosure. Positive heat rate indicates net
-    radiative heat transfer to the solid surface from the ambient surroundings.
-
-    Parameters
-    ----------
-    name : str
-        Component name
-    network : Network
-        Network that owns this component
-    solid_temperature : State
-        Solid surface temperature
-    ambient_temperature : State or float
-        Ambient enclosure temperature
-    emissivity : State or float
-        Solid surface emissivity
-    radiative_area : State or float
-        Radiative area
-    ambient_emissivity : State or float, optional
-        Ambient enclosure emissivity
-
-    Outputs
-    -------
-    heat_rate : State, optional
-        Radiative heat transfer rate
-
-    Notes
-    -----
-    The radiation denominator is evaluated from:
-
-        ``denominator = 1 / emissivity + 1 / ambient_emissivity - 1``
-
-    Radiative heat transfer is evaluated from:
-
-        ``heat_rate = sigma * radiative_area
-        * (ambient_temperature^4 - solid_temperature^4)
-        / denominator``
-    """
+    """Radiation exchange between a surface and an ambient enclosure."""
     SIGMA = 5.670374419e-8  # W/m^2-K^4
 
     def __init__(
@@ -279,40 +155,7 @@ class AmbientRadiation(Component):
 
 
 class Convection(Component):
-    """
-    Convective heat transfer between a surface and a fluid.
-
-    `Convection` computes heat transfer between a surface and a surrounding
-    fluid using a prescribed convection coefficient. Positive heat rate means
-    heat is added to the surface from the fluid.
-
-    Parameters
-    ----------
-    name : str
-        Component name
-    network : Network
-        Network that owns this component
-    surface_temperature : State
-        Surface temperature
-    fluid_temperature : State or float
-        Fluid temperature
-    convective_area : State or float
-        Convective area
-    convection_coefficient : State or float
-        Convective heat transfer coefficient
-
-    Outputs
-    -------
-    heat_rate : State, optional
-        Convective heat transfer rate
-
-    Notes
-    -----
-    Convective heat transfer is evaluated from:
-
-        ``heat_rate = convection_coefficient * convective_area
-        * (fluid_temperature - surface_temperature)``
-    """
+    """Convective heat transfer between a surface and a fluid."""
     def __init__(
         self,
         name: str,
@@ -345,47 +188,7 @@ class Convection(Component):
 
 
 class TemperatureRecoveryFactor(Component):
-    """
-    Compressible boundary-layer temperature recovery factor.
-
-    `TemperatureRecoveryFactor` computes the recovery factor used to estimate
-    adiabatic wall temperature in compressible boundary-layer heat transfer. If
-    no Prandtl number is provided, the recovery factor defaults to one.
-
-    Parameters
-    ----------
-    name : str
-        Component name
-    network : Network
-        Network that owns this component
-    prandtl_number : State, optional
-        Prandtl number
-    turbulent : bool, optional
-        Whether to use the turbulent boundary-layer exponent
-
-    Outputs
-    -------
-    recovery_factor : State, optional
-        Temperature recovery factor
-
-    Notes
-    -----
-    The adiabatic wall temperature relation is:
-
-        ``T_aw = T + r * (T0 - T)``
-
-    For turbulent boundary layers, the recovery factor is evaluated from:
-
-        ``r = Pr^(1/3)``
-
-    For laminar boundary layers, the recovery factor is evaluated from:
-
-        ``r = Pr^(1/2)``
-
-    If no Prandtl number is provided, the recovery factor is:
-
-        ``r = 1``
-    """
+    """Compressible boundary-layer temperature recovery factor."""
     def __init__(
         self,
         name: str,
@@ -420,40 +223,7 @@ class TemperatureRecoveryFactor(Component):
 
 
 class AdiabaticWallTemperature(Component):
-    """
-    Adiabatic wall temperature for compressible flow.
-
-    `AdiabaticWallTemperature` computes the temperature an insulated wall would
-    attain when exposed to a compressible flow, using total temperature, static
-    temperature, and a recovery factor.
-
-    Parameters
-    ----------
-    name : str
-        Component name
-    network : Network
-        Network that owns this component
-    total_temperature : State
-        Total temperature
-    static_temperature : State
-        Static temperature
-    recovery_factor : State
-        Temperature recovery factor
-
-    Outputs
-    -------
-    adiabatic_wall_temperature : State, optional
-        Adiabatic wall temperature
-
-    Notes
-    -----
-    Adiabatic wall temperature is evaluated from:
-
-        ``T_aw = T + r * (T0 - T)``
-
-    where `T_aw` is adiabatic wall temperature, `T` is static temperature, `T0`
-    is total temperature, and `r` is the recovery factor.
-    """
+    """Adiabatic wall temperature for compressible flow."""
     def __init__(
         self,
         name: str,

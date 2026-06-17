@@ -1,30 +1,97 @@
 from __future__ import annotations
 
 import math
+from functools import lru_cache
 from numbers import Real
-from typing import Any, Callable
+from typing import Any, Callable, Protocol, runtime_checkable
+
+
+__all__ = [
+    "State",
+    "StateLike",
+    "is_state_like",
+    "resolve_value",
+    "resolve_numeric",
+    "is_assignable_state_like",
+]
+
+
+@runtime_checkable
+class StateLike(Protocol):
+    """Runtime shape used by solvers for assignable scalar-like quantities."""
+
+    @property
+    def value(self) -> Any: ...
+
+    @value.setter
+    def value(self, value: Any) -> None: ...
+
+    @property
+    def is_assigned(self) -> bool: ...
+
+    @property
+    def numeric_value(self) -> float: ...
+
+    @property
+    def lower_bound(self) -> float: ...
+
+    @property
+    def upper_bound(self) -> float: ...
+
+    @property
+    def has_bounds(self) -> bool: ...
+
+    @property
+    def keep_feasible(self) -> bool: ...
+
+
+@lru_cache(maxsize=512)
+def _is_state_like_type(value_type: type) -> bool:
+    if bool(getattr(value_type, "_fullflow_state_like", False)):
+        return True
+
+    return any(
+        "value" in getattr(cls, "__dict__", {})
+        and "is_assigned" in getattr(cls, "__dict__", {})
+        for cls in value_type.__mro__
+    )
+
+
+def is_state_like(value: Any) -> bool:
+    """Return True for State and State-compatible proxy objects."""
+    return _is_state_like_type(type(value))
+
+
+def resolve_value(value: Any) -> Any:
+    """Return the underlying value for State-like inputs; otherwise unchanged."""
+    return value.value if is_state_like(value) else value
+
+
+def resolve_numeric(value: Any) -> float:
+    """Return a float from a State-like or plain numeric value."""
+    if is_state_like(value):
+        return float(value.numeric_value)
+    return float(value)
+
+
+def is_assignable_state_like(value: Any) -> bool:
+    """Return True for State-like objects the solver may assign."""
+    if not is_state_like(value):
+        return False
+
+    if bool(getattr(type(value), "_fullflow_assignable_state_like", False)):
+        return True
+
+    try:
+        return not bool(value.is_derived)
+    except Exception:
+        return True
 
 
 class State:
+    """Lightweight value container used throughout FullFlow."""
+
     _fullflow_state_like = True
-
-    """
-    Lightweight value container used throughout FullFlow.
-
-    A ``State`` can hold an assignable value or a derived expression. Numeric
-    states are used by solvers as iteration variables and residual inputs;
-    object states are useful for passing backend objects between components.
-
-    Parameters
-    ----------
-    value : object, optional
-        Initial value. Real numeric values are stored as ``float``. ``None``
-        creates an unassigned state.
-    bounds : tuple[float or None, float or None], optional
-        Lower and upper solver bounds. ``None`` maps to an infinite bound.
-    keep_feasible : bool, optional
-        Passed through to SciPy bounded solvers.
-    """
 
     __slots__ = (
         "_value",

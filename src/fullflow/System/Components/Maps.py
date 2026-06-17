@@ -11,44 +11,7 @@ if TYPE_CHECKING:
 
 
 class Map1D(Component):
-    """
-    Generic one-dimensional map lookup.
-
-    `Map1D` interpolates one or more output values from a single independent
-    variable. The map input may be a list, tuple, NumPy array, pandas Series,
-    or any array-like object accepted by `np.asarray`.
-
-    Multiple output maps can be evaluated simultaneously from the same
-    independent variable.
-
-    Parameters
-    ----------
-    name : str
-        Component name
-    network : Network
-        Network that owns this component
-    x_value : State
-        Current independent-variable value
-    x_map : array-like
-        Independent-variable map coordinates
-    y_maps : dict[str, array-like]
-        Dictionary of dependent-variable maps
-
-    Outputs
-    -------
-    <map name> : State
-        One output State is automatically created for every key in `y_maps`.
-
-    Notes
-    -----
-    Each output map is evaluated from:
-
-        ``y = interp(x, x_map, y_map)``
-
-    where `interp` is linear interpolation.
-
-    All maps are automatically sorted by `x_map` during initialization.
-    """
+    """Generic one-dimensional map lookup."""
 
     def __init__(
         self,
@@ -103,45 +66,7 @@ class Map1D(Component):
 
 
 class Map2D(Component):
-    """
-    Generic two-dimensional map lookup.
-
-    `Map2D` interpolates one or more output maps from two input values. Inputs
-    can be lists, tuples, NumPy arrays, pandas Series, or any array-like object
-    accepted by `np.asarray`.
-
-    The `z_maps` values must be 2D arrays with shape:
-
-        (len(y_map), len(x_map))
-
-    Example
-    -------
-    PumpMap = Map2D(
-        "Pump Map",
-        network,
-        x_value=volumetric_flow,
-        y_value=rotor_speed,
-        x_map=[0.01, 0.02, 0.03],
-        y_map=[10000, 20000, 30000],
-        z_maps={
-            "head_rise": [
-                [100, 90, 80],
-                [150, 140, 120],
-                [200, 180, 160],
-            ],
-            "torque": [
-                [1.0, 1.2, 1.4],
-                [2.0, 2.4, 2.8],
-                [3.0, 3.6, 4.2],
-            ],
-        },
-    )
-
-    Outputs are created automatically:
-
-        PumpMap.head_rise
-        PumpMap.torque
-    """
+    """Generic two-dimensional map lookup."""
 
     def __init__(
         self,

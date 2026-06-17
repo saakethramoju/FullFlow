@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .Composition import Composition
-from .protocols import is_assignable_state_like, is_state_like, resolve_value
+from .State import is_assignable_state_like, is_state_like, resolve_value
 
 if TYPE_CHECKING:
     from fullflow.System import Balance, Component, State
@@ -44,17 +44,10 @@ class Network:
         self._version += 1
         self._iteration_cache_valid = False
 
-    def _invalidate_iteration_cache(self) -> None:
-        self.mark_structure_changed()
-
-    def mark_dirty(self) -> None:
-        """Public alias for invalidating solver/runtime metadata."""
-        self.mark_structure_changed()
-
     def add_component(self, component: Component) -> None:
         if component not in self.component_list:
             self.component_list.append(component)
-            self._invalidate_iteration_cache()
+            self.mark_structure_changed()
 
     def remove_component(self, component: Component) -> None:
         if component not in self.component_list:
@@ -62,12 +55,12 @@ class Network:
                 f"Component {component.name!r} is not registered with network {self.name!r}."
             )
         self.component_list.remove(component)
-        self._invalidate_iteration_cache()
+        self.mark_structure_changed()
 
     def add_balance(self, balance: Balance) -> None:
         if balance not in self.balance_list:
             self.balance_list.append(balance)
-            self._invalidate_iteration_cache()
+            self.mark_structure_changed()
 
     def add_model(self, model) -> None:
         if model not in self.model_list:
@@ -151,66 +144,49 @@ class Network:
         return list(self._iteration_variable_labels)
 
     @property
-    def iteration_variables(self) -> str:
-        """Return readable labels for all iteration variables.
-
-        This preserves the pre-0.1.3 public API. Solver code should use
-        ``collect_all_iteration_variables()`` when it needs the actual
-        State-like objects.
-        """
-        return "\n".join(self.iteration_variable_labels)
+    def component_iteration_variables(self) -> list[State]:
+        self._ensure_iteration_cache()
+        return list(self._component_iteration_variables)
 
     @property
-    def iteration_variable_summary(self) -> str:
-        return self.iteration_variables
+    def balance_iteration_variables(self) -> list[State]:
+        self._ensure_iteration_cache()
+        return list(self._balance_iteration_variables)
 
     @property
     def iteration_variable_states(self) -> list[State]:
-        """Return actual State-like objects used by the nonlinear solver."""
         self._ensure_iteration_cache()
         return list(self._all_iteration_variables)
 
     @property
     def lower_bounds(self) -> list[float]:
-        return [state.lower_bound for state in self.collect_all_iteration_variables()]
+        return [state.lower_bound for state in self.iteration_variable_states]
 
     @property
     def upper_bounds(self) -> list[float]:
-        return [state.upper_bound for state in self.collect_all_iteration_variables()]
+        return [state.upper_bound for state in self.iteration_variable_states]
 
     @property
     def has_bounds(self) -> bool:
-        return any(state.has_bounds for state in self.collect_all_iteration_variables())
+        return any(state.has_bounds for state in self.iteration_variable_states)
 
     @property
     def keep_feasible(self) -> list[bool]:
-        return [state.keep_feasible for state in self.collect_all_iteration_variables()]
+        return [state.keep_feasible for state in self.iteration_variable_states]
 
     @property
     def iteration_values(self) -> list[float]:
-        return [state.numeric_value for state in self.collect_all_iteration_variables()]
-
-    def collect_iteration_variables(self) -> list[State]:
-        self._ensure_iteration_cache()
-        return list(self._component_iteration_variables)
-
-    def collect_balance_iteration_variables(self) -> list[State]:
-        self._ensure_iteration_cache()
-        return list(self._balance_iteration_variables)
-
-    def collect_all_iteration_variables(self) -> list[State]:
-        self._ensure_iteration_cache()
-        return list(self._all_iteration_variables)
+        return [state.numeric_value for state in self.iteration_variable_states]
 
     def assign_iteration_values(self, iteration_values: list[float]) -> None:
-        iteration_variables = self.collect_all_iteration_variables()
-        if len(iteration_values) != len(iteration_variables):
+        variables = self.iteration_variable_states
+        if len(iteration_values) != len(variables):
             raise ValueError(
                 f"Length mismatch: got {len(iteration_values)} iteration values "
-                f"but expected {len(iteration_variables)}."
+                f"but expected {len(variables)}."
             )
 
-        for value, state in zip(iteration_values, iteration_variables):
+        for value, state in zip(iteration_values, variables):
             state.value = value
 
     def _validate_no_iteration_overlap(
@@ -218,8 +194,8 @@ class Network:
         component_vars: list[State] | None = None,
         balance_vars: list[State] | None = None,
     ) -> None:
-        component_vars = component_vars if component_vars is not None else self.collect_iteration_variables()
-        balance_vars = balance_vars if balance_vars is not None else self.collect_balance_iteration_variables()
+        component_vars = component_vars if component_vars is not None else self.component_iteration_variables
+        balance_vars = balance_vars if balance_vars is not None else self.balance_iteration_variables
 
         component_ids = {id(state) for state in component_vars}
         balance_ids = {id(state) for state in balance_vars}
@@ -311,10 +287,6 @@ class Network:
     # ------------------------------------------------------------------
     # Export helpers
     # ------------------------------------------------------------------
-
-    @staticmethod
-    def _is_state_like(value: Any) -> bool:
-        return is_state_like(value)
 
     @classmethod
     def _safe_value(cls, value: Any) -> Any:

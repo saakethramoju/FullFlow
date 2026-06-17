@@ -1,44 +1,5 @@
 class ModelOption:
-    """
-    Deferred component option used by `Model`.
-
-    `ModelOption` stores enough information to build either one component or a
-    group of components later. Unlike a normal `Component`, a `ModelOption` does
-    not register itself with a `Network` when it is created.
-
-    Model options are useful when a solver should be able to try alternate
-    component implementations without constructing all of them at once.
-
-    Parameters
-    ----------
-    name : str
-        Model option name
-    *model_options : ModelOption
-        Grouped model options
-    component_class : type, optional
-        Component class to construct
-    kwargs : dict, optional
-        Keyword arguments passed to the component constructor
-    components : list[ModelOption], optional
-        Grouped model options
-
-    Notes
-    -----
-    A single-component option stores a component class and constructor keyword
-    arguments:
-
-        ``ModelOption("Choked", component_class=ChokedFlow, kwargs={...})``
-
-    A grouped option stores multiple `ModelOption` objects that should be built
-    and removed together:
-
-        ``ModelOption("Full Model", option1, option2, option3)``
-
-    A `ModelOption` must define either a single `component_class` or grouped
-    component options, but not both.
-
-    Grouped options return a list of components when built.
-    """
+    """Deferred component option used by `Model`."""
     def __init__(
         self,
         name: str,
@@ -142,58 +103,7 @@ class ModelOption:
 
 
 class Model:
-    """
-    Collection of alternative component implementations.
-
-    `Model` stores one or more `ModelOption` objects and builds one selected
-    option into a `Network`. Only the active option is converted into real
-    components.
-
-    Models are useful for trying alternate physical regimes, component
-    formulations, or grouped component implementations between solve attempts.
-
-    Parameters
-    ----------
-    name : str
-        Model name
-    network : Network
-        Network the selected option will be added to
-    *model_options : ModelOption
-        Model options passed positionally
-    components : list[ModelOption], optional
-        Model options passed by keyword
-    order : list[str], optional
-        Option names defining the try order
-
-    Notes
-    -----
-    `Model` does not build automatically during initialization. The selected
-    option is built when `build()` is called:
-
-        ``model.build("Choked")``
-
-    If no option name is supplied, `build()` uses the first option in `order`:
-
-        ``model.build()``
-
-    The active option can be removed from the network with:
-
-        ``model.clear()``
-
-    The active option can be replaced with another option using:
-
-        ``model.replace("Unchoked")``
-
-    The next option in the try order can be built with:
-
-        ``model.build_next()``
-
-    Switching options should happen between solve attempts, not during a Newton
-    iteration.
-
-    Option names must be unique, and every name in `order` must correspond to a
-    valid option.
-    """
+    """Collection of alternative component implementations."""
     def __init__(
         self,
         name: str,

@@ -6,7 +6,7 @@ from typing import Any
 import numpy as np
 
 from fullflow.System.Composition import Composition
-from fullflow.System.protocols import is_state_like, resolve_value
+from fullflow.System.State import is_state_like, resolve_value
 
 
 _MISSING = object()
@@ -46,7 +46,7 @@ class RuntimeCache:
         return self
 
     def refresh(self) -> None:
-        self.iteration_variables = tuple(self.network.collect_all_iteration_variables())
+        self.iteration_variables = tuple(self.network.iteration_variable_states)
         self.iteration_ids = {id(state) for state in self.iteration_variables}
         self.component_list = tuple(self.network.component_list)
         self.balance_list = tuple(self.network.balance_list)

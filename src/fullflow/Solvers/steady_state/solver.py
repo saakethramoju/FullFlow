@@ -1351,7 +1351,7 @@ class SteadyState:
         table.add_row("Components", str(len(self.network.components)))
         table.add_row(
             "Iteration variables",
-            str(len(self.network.collect_all_iteration_variables())),
+            str(len(self.network.iteration_variable_states)),
         )
         table.add_row("Residuals", str(len(self.network.residuals)))
 
@@ -1517,7 +1517,7 @@ class SteadyState:
 
         variable_labels = [
             self._find_variable_labels(var)
-            for var in self.network.collect_all_iteration_variables()
+            for var in self.network.iteration_variable_states
         ]
 
         for i, val in enumerate(sol.x):
@@ -1647,7 +1647,7 @@ class SteadyState:
 
             variable_labels = [
                 self._find_variable_labels(var)
-                for var in self.network.collect_all_iteration_variables()
+                for var in self.network.iteration_variable_states
             ]
 
             for i, val in enumerate(x):

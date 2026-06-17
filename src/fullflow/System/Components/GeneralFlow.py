@@ -4,11 +4,47 @@ import math
 from typing import TYPE_CHECKING
 
 from fullflow.System import Component
-from ._flow_math import pressure_drop_flow_rate, sqrt_or_nan, _effective_area_from_mass_flow
 
 if TYPE_CHECKING:
     from fullflow.System import Network, State
 
+
+def _sign(value: float) -> float:
+    if value > 0.0:
+        return 1.0
+    if value < 0.0:
+        return -1.0
+    return 0.0
+
+
+def _sqrt_or_nan(value: float) -> float:
+    return math.sqrt(value) if value >= 0.0 else math.nan
+
+
+def _pressure_drop_flow_rate(
+    pressure_drop: float,
+    density: float,
+    discharge_coefficient: float,
+    area: float,
+) -> float:
+    return (
+        _sign(pressure_drop)
+        * discharge_coefficient
+        * area
+        * _sqrt_or_nan(2.0 * density * abs(pressure_drop))
+    )
+
+
+def _effective_area_from_mass_flow(
+    mass_flow: float,
+    pressure_drop: float,
+    density: float,
+) -> float:
+    if abs(pressure_drop) < 1e-12:
+        return 0.0
+    if density <= 0.0:
+        raise ValueError("density must be positive.")
+    return abs(mass_flow) / math.sqrt(2.0 * density * abs(pressure_drop))
 
 
 
@@ -180,78 +216,14 @@ class DischargeCoefficient(Component):
         Cd = self.discharge_coefficient.value
         A = self.cross_sectional_area.value
 
-        self.mass_flow.value = pressure_drop_flow_rate(P1 - P2, rho, Cd, A)
+        self.mass_flow.value = _pressure_drop_flow_rate(P1 - P2, rho, Cd, A)
 
 
 
 
 
 class CavitatingVenturi(Component):
-    """
-    Cavitating liquid venturi model.
-
-    `CavitatingVenturi` computes mass flow through a liquid venturi using a
-    noncavitating restriction model or a cavitating venturi model. The active
-    mode is selected using a critical downstream-to-upstream pressure ratio.
-
-    In cavitating mode, the throat pressure is assumed to be pinned to the
-    vapor pressure corresponding to the upstream fluid state. If upstream
-    temperature and critical temperature are both assigned, cavitation is
-    disabled above the critical temperature.
-
-    Cavitation onset and stable cavitating flow are not identical. Incipient
-    cavitation begins when the throat pressure first reaches saturation
-    pressure, while fully established cavitating flow depends on geometry and
-    empirical behavior.
-
-    Parameters
-    ----------
-    name : str
-        Component name
-    network : Network
-        Network that owns this component
-    upstream_pressure : State
-        Upstream pressure
-    downstream_pressure : State
-        Downstream pressure
-    density : State
-        Fluid density
-    throat_area : float
-        Venturi throat area
-    vapor_pressure : State
-        Fluid vapor pressure
-    critical_pressure_ratio : float, optional
-        Pressure ratio below which cavitating mode is activated
-    cavitating_discharge_coefficient : float, optional
-        Discharge coefficient used in cavitating mode
-    noncavitating_discharge_coefficient : float, optional
-        Discharge coefficient used in noncavitating mode
-    upstream_temperature : State, optional
-        Upstream fluid temperature
-    critical_temperature : State, optional
-        Fluid critical temperature
-
-    Outputs
-    -------
-    mass_flow : State, optional
-        Computed venturi mass flow rate
-    is_cavitating : bool, optional
-        Whether cavitating mode is active
-
-    Notes
-    -----
-    Noncavitating mass flow is evaluated from:
-
-        ``mass_flow = sign(P1 - P2) * Cd_noncav * A_t * sqrt(2 * rho * abs(P1 - P2))``
-
-    Cavitating mass flow is evaluated from:
-
-        ``mass_flow = Cd_cav * A_t * sqrt(2 * rho * (P1 - vapor_pressure))``
-
-    Cavitating mode is activated when:
-
-        ``downstream_pressure / upstream_pressure < critical_pressure_ratio``
-    """
+    """Cavitating liquid venturi model."""
 
     def __init__(
         self,
@@ -295,14 +267,14 @@ class CavitatingVenturi(Component):
         if above_critical_temperature or pressure_ratio >= PRcrit:
             self.is_cavitating = False
             dP = P1 - P2
-            self.mass_flow.value = pressure_drop_flow_rate(dP, rho, Cd_noncav, A)
+            self.mass_flow.value = _pressure_drop_flow_rate(dP, rho, Cd_noncav, A)
         else:
             self.is_cavitating = True
 
             Pvap = self.vapor_pressure.value
             dP = P1 - Pvap
 
-            self.mass_flow.value = Cd_cav * A * sqrt_or_nan(2.0 * rho * dP)
+            self.mass_flow.value = Cd_cav * A * _sqrt_or_nan(2.0 * rho * dP)
 
 
 
@@ -310,33 +282,7 @@ class CavitatingVenturi(Component):
 
 
 class SeriesCdA(Component):
-    """
-    Equivalent effective area for restrictions in series.
-
-    `SeriesCdA` combines multiple effective flow areas into a single equivalent
-    effective area. This is useful when several restrictions are arranged in
-    series and should be represented as one equivalent restriction.
-
-    Parameters
-    ----------
-    name : str
-        Component name
-    network : Network
-        Network that owns this component
-    effective_areas : list[State or float]
-        Effective areas connected in series
-
-    Outputs
-    -------
-    effective_area : State, optional
-        Equivalent effective area
-
-    Notes
-    -----
-    Series effective area is evaluated from:
-
-        ``1 / effective_area_eq^2 = sum(1 / effective_area_i^2)``
-    """
+    """Equivalent effective area for restrictions in series."""
     def __init__(
         self,
         name: str,
@@ -365,34 +311,7 @@ class SeriesCdA(Component):
 
 
 class ParallelCdA(Component):
-    """
-    Equivalent effective area for restrictions in parallel.
-
-    `ParallelCdA` combines multiple effective flow areas into a single
-    equivalent effective area. This is useful when several restrictions are
-    arranged in parallel and should be represented as one equivalent
-    restriction.
-
-    Parameters
-    ----------
-    name : str
-        Component name
-    network : Network
-        Network that owns this component
-    effective_areas : list[State or float]
-        Effective areas connected in parallel
-
-    Outputs
-    -------
-    effective_area : State, optional
-        Equivalent effective area
-
-    Notes
-    -----
-    Parallel effective area is evaluated from:
-
-        ``effective_area_eq = sum(effective_area_i)``
-    """
+    """Equivalent effective area for restrictions in parallel."""
     def __init__(
         self,
         name: str,
@@ -413,40 +332,7 @@ class ParallelCdA(Component):
 
 
 class RectanglePoiseuille(Component):
-    """
-    Poiseuille number correlation for rectangular ducts.
-
-    `RectanglePoiseuille` computes an approximate Poiseuille number for a
-    rectangular duct from its height and width. The result can be used by
-    laminar duct-flow pressure-loss or friction-factor calculations.
-
-    Parameters
-    ----------
-    name : str
-        Component name
-    network : Network
-        Network that owns this component
-    height : float
-        Rectangle height
-    width : float
-        Rectangle width
-
-    Outputs
-    -------
-    poiseuille_number : State, optional
-        Computed Poiseuille number
-
-    Notes
-    -----
-    The aspect ratio is evaluated from the smaller half-dimension divided by
-    the larger half-dimension:
-
-        ``x = b / a``
-
-    The Poiseuille number is evaluated from:
-
-        ``Po = A0 + A1 * x + A2 * x^2 + A3 * x^3 + A4 * x^4``
-    """
+    """Poiseuille number correlation for rectangular ducts."""
     def __init__(
         self,
         name: str,
@@ -477,40 +363,7 @@ class RectanglePoiseuille(Component):
 
 
 class EllipsePoiseuille(Component):
-    """
-    Poiseuille number correlation for elliptical ducts.
-
-    `EllipsePoiseuille` computes an approximate Poiseuille number for an
-    elliptical duct from its semi-major and semi-minor axes. The result can be
-    used by laminar duct-flow pressure-loss or friction-factor calculations.
-
-    Parameters
-    ----------
-    name : str
-        Component name
-    network : Network
-        Network that owns this component
-    semi_major_axis : float
-        Ellipse semi-major axis
-    semi_minor_axis : float
-        Ellipse semi-minor axis
-
-    Outputs
-    -------
-    poiseuille_number : State, optional
-        Computed Poiseuille number
-
-    Notes
-    -----
-    The aspect ratio is evaluated from the smaller semi-axis divided by the
-    larger semi-axis:
-
-        ``x = b / a``
-
-    The Poiseuille number is evaluated from:
-
-        ``Po = A0 + A1 * x + A2 * x^2 + A3 * x^3 + A4 * x^4``
-    """
+    """Poiseuille number correlation for elliptical ducts."""
     def __init__(
         self,
         name: str,
@@ -542,43 +395,7 @@ class EllipsePoiseuille(Component):
 
 
 class CircularAnnulusPoiseuille(Component):
-    """
-    Poiseuille number correlation for circular annuli.
-
-    `CircularAnnulusPoiseuille` computes an approximate Poiseuille number for a circular
-    annulus from its inner and outer diameters. The result can be used by
-    laminar annular duct-flow pressure-loss or friction-factor calculations.
-
-    Parameters
-    ----------
-    name : str
-        Component name
-    network : Network
-        Network that owns this component
-    inner_diameter : float
-        Annulus inner diameter
-    outer_diameter : float
-        Annulus outer diameter
-
-    Outputs
-    -------
-    poiseuille_number : State, optional
-        Computed Poiseuille number
-
-    Notes
-    -----
-    The diameter ratio is evaluated from:
-
-        ``x = inner_diameter / outer_diameter``
-
-    For small diameter ratios, the Poiseuille number is evaluated from:
-
-        ``Po = A0 * x^A1``
-
-    Otherwise, the Poiseuille number is evaluated from:
-
-        ``Po = A0 + A1 * x + A2 * x^2 + A3 * x^3 + A4 * x^4``
-    """
+    """Poiseuille number correlation for circular annuli."""
     def __init__(
         self,
         name: str,
@@ -617,35 +434,7 @@ class CircularAnnulusPoiseuille(Component):
 
 
 class HydraulicDiameter(Component):
-    """
-    Hydraulic diameter from flow area and wetted perimeter.
-
-    `HydraulicDiameter` computes hydraulic diameter from cross-sectional flow
-    area and wetted perimeter. The result is commonly used as the characteristic
-    diameter for Reynolds number, Nusselt number, and duct-flow correlations.
-
-    Parameters
-    ----------
-    name : str
-        Component name
-    network : Network
-        Network that owns this component
-    cross_sectional_area : State or float
-        Flow cross-sectional area
-    wetted_perimeter : State or float
-        Wetted perimeter
-
-    Outputs
-    -------
-    hydraulic_diameter : State, optional
-        Hydraulic diameter
-
-    Notes
-    -----
-    Hydraulic diameter is evaluated from:
-
-        ``hydraulic_diameter = 4 * cross_sectional_area / wetted_perimeter``
-    """
+    """Hydraulic diameter from flow area and wetted perimeter."""
     def __init__(
         self,
         name: str,

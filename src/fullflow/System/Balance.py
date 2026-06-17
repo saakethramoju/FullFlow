@@ -1,19 +1,15 @@
 from __future__ import annotations
 
-import math
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from .State import State
-from .protocols import is_assignable_state_like
+from .State import State, is_assignable_state_like
 
 if TYPE_CHECKING:
     from fullflow.System import Network
 
 
 class Balance:
-    """User-defined algebraic solve target."""
-
     def __init__(
         self,
         name: str,
@@ -23,54 +19,24 @@ class Balance:
         bounds: tuple[float | None, float | None] | None = None,
         keep_feasible: bool = False,
     ) -> None:
+        if not is_assignable_state_like(variable):
+            raise TypeError("variable must be an assignable, non-derived State-like object.")
+
         self.name = name
         self.network = network
-
-        if not is_assignable_state_like(variable):
-            raise TypeError("variable must be an assignable State-like object.")
         self.variable = variable
 
-        if bounds is not None and not self.variable.has_bounds:
-            self.variable.set_bounds(bounds, keep_feasible=keep_feasible)
+        if bounds is not None and not variable.has_bounds:
+            variable.set_bounds(bounds, keep_feasible=keep_feasible)
 
         if isinstance(function, State):
             self._residual = lambda: function.value
-            self._residual_source = function
         elif callable(function):
             self._residual = function
-            self._residual_source = None
         else:
             raise TypeError("function must be a State or a callable returning float.")
 
-        self.network.add_balance(self)
-
-    @staticmethod
-    def _normalize_bounds(
-        bounds: tuple[float | None, float | None] | None,
-    ) -> tuple[float, float]:
-        if bounds is None:
-            return -math.inf, math.inf
-        return State._normalize_bounds(bounds)
-
-    @property
-    def bounds(self) -> tuple[float, float]:
-        return self.variable.bounds
-
-    @property
-    def lower_bound(self) -> float:
-        return self.variable.lower_bound
-
-    @property
-    def upper_bound(self) -> float:
-        return self.variable.upper_bound
-
-    @property
-    def has_bounds(self) -> bool:
-        return self.variable.has_bounds
-
-    @property
-    def keep_feasible(self) -> bool:
-        return self.variable.keep_feasible
+        network.add_balance(self)
 
     @property
     def iteration_variables(self) -> list[State]:
@@ -86,7 +52,7 @@ class Balance:
         except Exception:
             value = "<uninitialized>"
 
-        lower, upper = self.bounds
+        lower, upper = self.variable.bounds
         return (
             f"Balance(name={self.name}, variable={value}, "
             f"bounds=({lower:.4g}, {upper:.4g}))"

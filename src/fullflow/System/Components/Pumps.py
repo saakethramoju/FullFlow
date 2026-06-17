@@ -4,10 +4,17 @@ import math
 from typing import TYPE_CHECKING
 
 from fullflow.System import Component, State
-from ._flow_math import divide_or_nan
 
 if TYPE_CHECKING:
     from fullflow.System import Network
+
+
+def _divide_or_nan(numerator: float, denominator: float) -> float:
+    if denominator != 0.0:
+        return numerator / denominator
+    if numerator == 0.0:
+        return math.nan
+    return math.copysign(math.inf, numerator)
 
 
 class ConstantDensityPump(Component):
@@ -120,7 +127,7 @@ class PolytropicPump(Component):
 
         log_pressure_ratio = math.log(pressure_ratio)
 
-        beta = 1.0 / (1.0 - divide_or_nan(math.log(density_ratio), log_pressure_ratio))
+        beta = 1.0 / (1.0 - _divide_or_nan(math.log(density_ratio), log_pressure_ratio))
 
         self._predicted_discharge_pressure = rho2 * (H_specific / beta + p_in / rho1)
 
