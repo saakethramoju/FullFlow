@@ -148,7 +148,4 @@ PipeFriction = Colebrook(
 # Solve network
 # -----------------------------------------------------------------------------
 
-PipeNetwork.solve(
-    verbose=True,
-    print_solution=True,
-)
+SteadyState(PipeNetwork).solve(print_solution=True, verbose=True)

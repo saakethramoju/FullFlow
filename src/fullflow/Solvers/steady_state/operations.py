@@ -1,0 +1,225 @@
+"""One-shot steady-state operations.
+
+This file contains the executable pieces that the public ``SteadyState`` wrapper
+calls after model options have been selected:
+
+``StaticEvaluation``
+    Runs pre-evaluation and derived-state propagation without nonlinear solving.
+``NonlinearSolve``
+    Builds the iteration vector, calls SciPy ``least_squares``, checks the final
+    residual, and writes the solution back into the network.
+
+The classes here intentionally do not know about model fallback, printing, or
+user-facing argument names. That keeps numerical behavior isolated and easier to
+debug.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
+import time
+
+import numpy as np
+from scipy.optimize import Bounds, least_squares
+
+from .settings import LeastSquaresSettings, StateEvaluationSettings
+
+
+@dataclass(slots=True)
+class StaticDiagnostics:
+    """Timing information for a static evaluation."""
+
+    elapsed_time: float
+
+
+@dataclass(slots=True)
+class SolveDiagnostics:
+    """Data needed for verbose nonlinear-solver reporting."""
+
+    sol: Any
+    x0: np.ndarray
+    settings: LeastSquaresSettings
+    overconstrained: bool
+    elapsed_time: float
+
+
+class StaticEvaluation:
+    """Evaluate a network without changing any iteration variable by solving.
+
+    Static evaluation is useful for networks whose outputs are fully determined
+    by assigned inputs and component ``evaluate_states()`` methods. It also acts
+    as the degenerate solve path when a network has no iteration variables and
+    no residuals.
+    """
+
+    def __init__(self, network, refresh_cache: Callable[[], Any], evaluator) -> None:
+        self.network = network
+        self.refresh_cache = refresh_cache
+        self.evaluator = evaluator
+
+    def run_once(
+        self,
+        filename: str | None = None,
+        return_type: str = "dict",
+        state_settings: StateEvaluationSettings | None = None,
+    ):
+        """Run pre-evaluation, settle derived states, and export results."""
+        state_settings = state_settings or StateEvaluationSettings()
+        state_settings.validate()
+
+        start_time = time.perf_counter()
+
+        # Pre-evaluation can create/remove components through models or update
+        # cached callables, so rebuild the runtime cache afterward.
+        cache = self.refresh_cache()
+        cache.run_pre_evaluation()
+        self.refresh_cache()
+
+        self.evaluator.run(
+            max_passes=state_settings.max_passes,
+            tolerance=state_settings.tolerance,
+        )
+        elapsed_time = time.perf_counter() - start_time
+
+        return (
+            self.network.save(filename=filename, return_type=return_type),
+            StaticDiagnostics(elapsed_time=elapsed_time),
+        )
+
+
+class NonlinearSolve:
+    """Execute one bounded or unbounded nonlinear least-squares solve."""
+
+    def __init__(
+        self,
+        network,
+        refresh_cache: Callable[[], Any],
+        evaluator,
+        residual_function: Callable[[np.ndarray], np.ndarray],
+        static_runner: StaticEvaluation,
+    ) -> None:
+        self.network = network
+        self.refresh_cache = refresh_cache
+        self.evaluator = evaluator
+        self.residual_function = residual_function
+        self.static_runner = static_runner
+
+    def run_once(
+        self,
+        filename: str | None = None,
+        return_type: str = "dict",
+        least_squares_settings: LeastSquaresSettings | None = None,
+        state_settings: StateEvaluationSettings | None = None,
+    ):
+        """Run one steady-state solve on the current concrete network.
+
+        The model system is handled one layer above this class. By the time this
+        method runs, ``network.component_list`` already contains the components
+        for the active model options.
+        """
+        ls_settings = least_squares_settings or LeastSquaresSettings()
+        state_settings = state_settings or StateEvaluationSettings(max_passes=5)
+        ls_settings.validate()
+        state_settings.validate()
+
+        # Let components prepare themselves, then rebuild the runtime view in
+        # case those hooks changed network structure or iteration metadata.
+        cache = self.refresh_cache()
+        cache.run_pre_evaluation()
+        cache = self.refresh_cache()
+
+        x0 = np.array(cache.iteration_values, dtype=float)
+
+        # Compute derived states and the initial residual once before calling
+        # SciPy. This catches bad setup early and lets us detect static networks.
+        self.evaluator.run(
+            max_passes=state_settings.max_passes,
+            tolerance=state_settings.tolerance,
+        )
+        r0 = cache.collect_residuals()
+
+        if len(x0) == 0 and len(r0) == 0:
+            return self.static_runner.run_once(
+                filename=filename,
+                return_type=return_type,
+                state_settings=state_settings,
+            )
+
+        if len(r0) < len(x0):
+            raise ValueError(
+                "SteadyState solve requires at least as many residuals as iteration variables. "
+                f"Got {len(x0)} iteration variables and {len(r0)} residuals."
+            )
+
+        solver_kwargs = self._least_squares_kwargs(cache, x0, ls_settings)
+
+        start_time = time.perf_counter()
+        sol = least_squares(**solver_kwargs)
+        elapsed_time = time.perf_counter() - start_time
+
+        self._check_solution(sol, ls_settings)
+
+        # ``least_squares`` does not automatically update the user's States.
+        # Push the accepted solution back into the network, then recompute all
+        # derived outputs one final time so saved/printed results are current.
+        cache.assign_iteration_values(sol.x)
+        self.evaluator.run(
+            max_passes=state_settings.max_passes,
+            tolerance=state_settings.tolerance,
+        )
+
+        diagnostics = SolveDiagnostics(
+            sol=sol,
+            x0=x0,
+            settings=ls_settings,
+            overconstrained=len(r0) > len(x0),
+            elapsed_time=elapsed_time,
+        )
+        return self.network.save(filename=filename, return_type=return_type), diagnostics
+
+    def _least_squares_kwargs(
+        self,
+        cache,
+        x0: np.ndarray,
+        settings: LeastSquaresSettings,
+    ) -> dict[str, Any]:
+        """Build SciPy keyword arguments from current States and settings."""
+        kwargs: dict[str, Any] = {
+            "fun": self.residual_function,
+            "x0": x0,
+            "method": settings.solver_method,
+            "x_scale": "jac",
+            "jac": settings.jacobian_method,
+            "ftol": settings.ftol,
+            "xtol": settings.xtol,
+            "gtol": settings.gtol,
+        }
+
+        if settings.solver_method == "lm":
+            if any(state.has_bounds for state in cache.iteration_variables):
+                raise ValueError("solver_method='lm' does not support bounded States.")
+            return kwargs
+
+        kwargs["bounds"] = Bounds(
+            cache.lower_bounds,
+            cache.upper_bounds,
+            cache.keep_feasible,
+        )
+        return kwargs
+
+    @staticmethod
+    def _check_solution(sol: Any, settings: LeastSquaresSettings) -> None:
+        """Raise if SciPy failed or the final residual is too large."""
+        final_residual = np.array(sol.fun, dtype=float)
+        max_residual = np.max(np.abs(final_residual)) if len(final_residual) else 0.0
+
+        if not sol.success or max_residual > settings.rtol:
+            raise RuntimeError(
+                "Steady-state solve failed or converged to unacceptable residuals.\n"
+                f"success = {sol.success}\n"
+                f"message = {sol.message}\n"
+                f"max |residual| = {max_residual:.3e}\n"
+                f"residual tolerance = {settings.rtol:.3e}"
+            )
