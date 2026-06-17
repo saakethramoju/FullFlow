@@ -73,7 +73,6 @@ class Solid(Component):
 
 
 
-
 class Volume(Component):
     """Lumped steady-state fluid control volume."""
 
@@ -93,12 +92,12 @@ class Volume(Component):
         mass_flow_in: State | float | None = None,
         mass_flow_out: State | float | None = None,
     ):
-
+        self._has_energy_balance = enthalpy is not None and total_enthalpy_in is not None
         self.setup()
 
     @property
     def iteration_variables(self) -> list[State]:
-        if (self.enthalpy.is_assigned and self.total_enthalpy_in.is_assigned):
+        if self._has_energy_balance:
             return [self.pressure, self.enthalpy]
 
         return [self.pressure]
@@ -107,24 +106,11 @@ class Volume(Component):
     def residuals(self) -> list[float]:
         mass_balance = self.mass_flow_in.value - self.mass_flow_out.value
 
-        if not (self.enthalpy.is_assigned and self.total_enthalpy_in.is_assigned):
+        if not self._has_energy_balance:
             return [mass_balance]
 
         qdot = self.heat_rate.value if self.heat_rate.is_assigned else 0.0
+        h_out = self.total_enthalpy_out.value if self.total_enthalpy_out.is_assigned else self.enthalpy.value
+        energy_balance = self.mass_flow_in.value * self.total_enthalpy_in.value - self.mass_flow_out.value * h_out + qdot
 
-        h_out = (
-            self.total_enthalpy_out.value
-            if self.total_enthalpy_out.is_assigned
-            else self.enthalpy.value
-        )
-
-        energy_balance = (
-            self.mass_flow_in.value * self.total_enthalpy_in.value
-            - self.mass_flow_out.value * h_out
-            + qdot
-        )
-
-        return [
-            mass_balance,
-            energy_balance,
-        ]
+        return [mass_balance, energy_balance]

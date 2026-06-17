@@ -59,7 +59,7 @@ class FlowTube(Component):
         downstream_static_pressure: State,
         length: float,
         hydraulic_diameter: float,
-        cross_sectional_area: float,
+        cross_sectional_area: float | None = None,
         upstream_density: State | None = None,
         downstream_density: State | None = None,
         friction_factor: float | None = None,
@@ -83,6 +83,7 @@ class FlowTube(Component):
             A = self.cross_sectional_area.value
         else:
             A = (math.pi / 4.0) * D**2
+            self.cross_sectional_area.value = A
 
         pressure = (p1 - p2) * A
         friction = 0.0

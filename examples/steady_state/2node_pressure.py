@@ -129,19 +129,16 @@ VolumeFluid = Lookup(
 # the tube and volume part of the same nonlinear system.
 # -----------------------------------------------------------------------------
 
-Tube = CompressibleFlowTube(
+Tube = FlowTube(
     "Pressurant Tube",
     VolumeNetwork,
     mass_flow=30,  # Initial guess [kg/s]
     upstream_static_pressure=SourceFluid.pressure,
-    upstream_static_temperature=SourceFluid.temperature,
     upstream_density=SourceFluid.density,
     downstream_static_pressure=VolumeFluid.pressure,
-    downstream_static_temperature=VolumeFluid.temperature,
     downstream_density=VolumeFluid.density,
-    downstream_speed_of_sound=VolumeFluid.speed_of_sound,
     length=10,                 # m
-    inner_diameter=1 / 39.3701,  # 1 inch [m]
+    hydraulic_diameter=1 / 39.3701,  # 1 inch [m]
     friction_factor=0.002,     # Initial guess
 )
 
@@ -162,7 +159,7 @@ TubeFriction = Churchill(
     VolumeNetwork,
     mass_flow=Tube.mass_flow,
     friction_factor=Tube.friction_factor,
-    hydraulic_diameter=Tube.inner_diameter,
+    hydraulic_diameter=Tube.hydraulic_diameter,
     cross_sectional_area=(np.pi / 4) * (1 / 39.3701) ** 2,
     dynamic_viscosity=SourceFluid.dynamic_viscosity,
     roughness=1e-7,  # m
@@ -188,7 +185,12 @@ GasVolume = Volume(
     pressure=VolumeFluid.pressure,
     volume=1.0,                 # m^3
     mass_flow_in=Tube.mass_flow,
+    mass_flow_out=10
 )
+
+
+
+
 
 
 
