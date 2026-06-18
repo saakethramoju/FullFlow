@@ -304,5 +304,4 @@ VentOrifice = IsentropicCompressibleOrifice(
 
 SteadyState(VentSystem).solve(
     verbose=True,
-    print_solution=True,
-)
+    )

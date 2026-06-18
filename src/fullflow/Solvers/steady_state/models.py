@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .results import format_records, save_model_option_results
+from .statistics import model_option_statistics_path
 
 
 @dataclass(slots=True)
@@ -117,7 +118,7 @@ class ModelOptionRunner:
         network,
         model_manager: ModelManager,
         printer,
-        success_printer: Callable[[bool, bool], None],
+        success_printer: Callable[[bool], None],
     ) -> None:
         self.network = network
         self.model_manager = model_manager
@@ -132,7 +133,7 @@ class ModelOptionRunner:
         filename: str | None,
         return_type: str,
         verbose: bool,
-        print_solution: bool,
+        statistics: bool,
         run_once: Callable[..., Any],
     ):
         """Run one operation with optional model-option fallback/evaluation."""
@@ -143,7 +144,7 @@ class ModelOptionRunner:
                 filename=filename,
                 return_type=return_type,
                 verbose=verbose,
-                print_solution=print_solution,
+                statistics=statistics,
                 run_once=run_once,
             )
 
@@ -155,7 +156,7 @@ class ModelOptionRunner:
                 filename=filename,
                 return_type=return_type,
                 verbose=verbose,
-                print_solution=print_solution,
+                statistics=statistics,
                 run_once=run_once,
             )
 
@@ -164,7 +165,7 @@ class ModelOptionRunner:
             filename=filename,
             return_type=return_type,
             verbose=verbose,
-            print_solution=print_solution,
+            statistics=statistics,
             run_once=run_once,
         )
 
@@ -174,13 +175,17 @@ class ModelOptionRunner:
         filename: str | None,
         return_type: str,
         verbose: bool,
-        print_solution: bool,
+        statistics: bool,
         run_once: Callable[..., Any],
     ):
         """Build default model options and run the operation once."""
         self.model_manager.build_unbuilt()
-        solution = run_once(filename=filename, return_type=return_type)
-        self.success_printer(verbose, print_solution)
+        solution = run_once(
+            filename=filename,
+            return_type=return_type,
+            statistics_filename=filename if statistics else None,
+        )
+        self.success_printer(verbose)
         return solution
 
     def _run_first_working_option(
@@ -190,7 +195,7 @@ class ModelOptionRunner:
         filename: str | None,
         return_type: str,
         verbose: bool,
-        print_solution: bool,
+        statistics: bool,
         run_once: Callable[..., Any],
     ):
         """Try model options in order and return the first successful result."""
@@ -199,13 +204,17 @@ class ModelOptionRunner:
         for option_name in selected_model.order:
             selected_model.replace(option_name)
             try:
-                solution = run_once(filename=filename, return_type=return_type)
+                solution = run_once(
+                    filename=filename,
+                    return_type=return_type,
+                    statistics_filename=filename if statistics else None,
+                )
             except Exception as error:
                 failures.append(ModelFailure.from_error(self.network, error, selected_model))
                 continue
 
             self.printer.print_model_failures(failures)
-            self.success_printer(verbose, print_solution)
+            self.success_printer(verbose)
             return solution
 
         self.printer.print_model_failures(failures)
@@ -218,14 +227,14 @@ class ModelOptionRunner:
         filename: str | None,
         return_type: str,
         verbose: bool,
-        print_solution: bool,
+        statistics: bool,
         run_once: Callable[..., Any],
     ):
         """Evaluate every model option and return a dict keyed by option name.
 
         The network is left on the last successful option so subsequent
-        ``print_solution()`` or ``network.save()`` calls show a valid concrete
-        model rather than a failed/skipped option.
+        ``network.save()`` calls show a valid concrete model rather than a
+        failed/skipped option.
         """
         results: dict[str, Any] = {}
         raw_results: dict[str, list[dict[str, Any]]] = {}
@@ -235,7 +244,15 @@ class ModelOptionRunner:
         for option_name in selected_model.order:
             selected_model.replace(option_name)
             try:
-                run_once(filename=None, return_type="dict")
+                run_once(
+                    filename=None,
+                    return_type="dict",
+                    statistics_filename=(
+                        model_option_statistics_path(filename, option_name)
+                        if statistics and filename is not None
+                        else None
+                    ),
+                )
             except Exception as error:
                 failures.append(ModelFailure.from_error(self.network, error, selected_model))
                 continue
@@ -252,11 +269,11 @@ class ModelOptionRunner:
         # Re-run the last successful option so the live network values match the
         # option left active after this method returns.
         selected_model.replace(last_success_option)
-        run_once(filename=None, return_type="dict")
+        run_once(filename=None, return_type="dict", statistics_filename=None)
 
         if filename is not None:
             save_model_option_results(raw_results, filename)
 
         self.printer.print_model_failures(failures)
-        self.success_printer(verbose, print_solution)
+        self.success_printer(verbose)
         return results

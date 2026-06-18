@@ -30,7 +30,7 @@ class SteadyStatePrinter:
         self._cache_getter = cache_getter
         self.console = console or Console()
 
-    def print_solution(self) -> None:
+    def print_network_solution(self) -> None:
         """Print the exported network state table."""
         records = self.network.save(return_type="dict")
         table = Table(

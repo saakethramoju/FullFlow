@@ -25,6 +25,7 @@ import numpy as np
 from scipy.optimize import Bounds, least_squares
 
 from .settings import LeastSquaresSettings, StateEvaluationSettings
+from .statistics import SolverStatistics
 
 
 @dataclass(slots=True)
@@ -112,6 +113,8 @@ class NonlinearSolve:
         return_type: str = "dict",
         least_squares_settings: LeastSquaresSettings | None = None,
         state_settings: StateEvaluationSettings | None = None,
+        statistics: SolverStatistics | None = None,
+        statistics_filename: str | None = None,
     ):
         """Run one steady-state solve on the current concrete network.
 
@@ -121,6 +124,7 @@ class NonlinearSolve:
         """
         ls_settings = least_squares_settings or LeastSquaresSettings()
         state_settings = state_settings or StateEvaluationSettings(max_passes=5)
+        statistics = statistics or SolverStatistics(enabled=False)
         ls_settings.validate()
         state_settings.validate()
 
@@ -131,6 +135,13 @@ class NonlinearSolve:
         cache = self.refresh_cache()
 
         x0 = np.array(cache.iteration_values, dtype=float)
+        statistics.reset()
+        statistics.configure(
+            cache=cache,
+            least_squares_settings=ls_settings,
+            state_settings=state_settings,
+            x0=x0,
+        )
 
         # Compute derived states and the initial residual once before calling
         # SciPy. This catches bad setup early and lets us detect static networks.
@@ -139,6 +150,7 @@ class NonlinearSolve:
             tolerance=state_settings.tolerance,
         )
         r0 = cache.collect_residuals()
+        statistics.record(x0, r0, cache, phase="initial")
 
         if len(x0) == 0 and len(r0) == 0:
             return self.static_runner.run_once(
@@ -156,10 +168,27 @@ class NonlinearSolve:
         solver_kwargs = self._least_squares_kwargs(cache, x0, ls_settings)
 
         start_time = time.perf_counter()
-        sol = least_squares(**solver_kwargs)
+        try:
+            sol = least_squares(**solver_kwargs)
+        except Exception:
+            statistics.export(statistics_filename)
+            raise
         elapsed_time = time.perf_counter() - start_time
 
-        self._check_solution(sol, ls_settings)
+        statistics.finalize(
+            sol=sol,
+            elapsed_time=elapsed_time,
+            cache=cache,
+            least_squares_settings=ls_settings,
+            state_settings=state_settings,
+            overconstrained=len(r0) > len(x0),
+        )
+
+        try:
+            self._check_solution(sol, ls_settings, cache, statistics)
+        except Exception:
+            statistics.export(statistics_filename)
+            raise
 
         # ``least_squares`` does not automatically update the user's States.
         # Push the accepted solution back into the network, then recompute all
@@ -169,6 +198,7 @@ class NonlinearSolve:
             max_passes=state_settings.max_passes,
             tolerance=state_settings.tolerance,
         )
+        statistics.export(statistics_filename)
 
         diagnostics = SolveDiagnostics(
             sol=sol,
@@ -210,16 +240,50 @@ class NonlinearSolve:
         return kwargs
 
     @staticmethod
-    def _check_solution(sol: Any, settings: LeastSquaresSettings) -> None:
+    def _check_solution(
+        sol: Any,
+        settings: LeastSquaresSettings,
+        cache,
+        statistics: SolverStatistics,
+    ) -> None:
         """Raise if SciPy failed or the final residual is too large."""
         final_residual = np.array(sol.fun, dtype=float)
         max_residual = np.max(np.abs(final_residual)) if len(final_residual) else 0.0
 
-        if not sol.success or max_residual > settings.rtol:
-            raise RuntimeError(
-                "Steady-state solve failed or converged to unacceptable residuals.\n"
-                f"success = {sol.success}\n"
-                f"message = {sol.message}\n"
-                f"max |residual| = {max_residual:.3e}\n"
-                f"residual tolerance = {settings.rtol:.3e}"
+        if sol.success and max_residual <= settings.rtol:
+            return
+
+        try:
+            residual_labels = cache.collect_residual_labels()
+        except Exception:
+            residual_labels = []
+
+        if len(residual_labels) < len(final_residual):
+            residual_labels.extend(
+                f"residual[{i}]"
+                for i in range(len(residual_labels), len(final_residual))
             )
+
+        worst_rows = sorted(
+            zip(residual_labels, final_residual),
+            key=lambda pair: abs(pair[1]),
+            reverse=True,
+        )[:10]
+
+        lines = [
+            "Steady-state solve failed or converged to unacceptable residuals.",
+            f"success = {sol.success}",
+            f"message = {sol.message}",
+            f"max |residual| = {max_residual:.3e}",
+            f"residual tolerance = {settings.rtol:.3e}",
+        ]
+
+        if worst_rows:
+            lines.extend(["", "Largest residuals:"])
+            lines.extend(
+                f"  - {label}: {value:.6e}"
+                for label, value in worst_rows
+            )
+
+        statistics.print_failure_report(residual=final_residual, residual_labels=residual_labels)
+        raise RuntimeError("\n".join(lines))

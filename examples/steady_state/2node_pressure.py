@@ -203,5 +203,4 @@ GasVolume = Volume(
 
 SteadyState(VolumeNetwork).solve(
     verbose=True,
-    print_solution=True,
-)
+    )

@@ -26,6 +26,7 @@ from .models import ModelManager, ModelOptionRunner
 from .operations import NonlinearSolve, StaticDiagnostics, StaticEvaluation, SolveDiagnostics
 from .runtime import RuntimeCache
 from .settings import LeastSquaresSettings, StateEvaluationSettings
+from .statistics import SolverStatistics
 
 if TYPE_CHECKING:
     from fullflow.System import Network
@@ -52,6 +53,7 @@ class SteadyState:
     def __init__(self, network: Network) -> None:
         self.network = network
         self.console = Console()
+        self.statistics = SolverStatistics(console=self.console)
         self._runtime_cache: RuntimeCache | None = None
         self._active_state_settings = StateEvaluationSettings()
 
@@ -125,6 +127,7 @@ class SteadyState:
             )
             residual = cache.collect_residuals()
             self._last_debug_residual = residual
+            self.statistics.record(x, residual, cache, phase="solver")
             return residual
 
         except Exception as error:
@@ -171,14 +174,19 @@ class SteadyState:
         return_type: str = "dict",
         least_squares_settings: LeastSquaresSettings | None = None,
         state_settings: StateEvaluationSettings | None = None,
+        statistics: bool = False,
+        statistics_filename: str | None = None,
     ):
         """Run one nonlinear solve after model options have been selected."""
         self._active_state_settings = state_settings or StateEvaluationSettings(max_passes=5)
+        self.statistics.enabled = statistics
         solution, diagnostics = self.nonlinear_runner.run_once(
             filename=filename,
             return_type=return_type,
             least_squares_settings=least_squares_settings,
             state_settings=self._active_state_settings,
+            statistics=self.statistics,
+            statistics_filename=statistics_filename,
         )
 
         if isinstance(diagnostics, StaticDiagnostics):
@@ -199,7 +207,7 @@ class SteadyState:
         filename: str | None = None,
         return_type: str = "dict",
         verbose: bool = False,
-        print_solution: bool = False,
+        statistics: bool = False,
         state_max_passes: int = 20,
         state_tolerance: float = 1e-10,
     ):
@@ -246,9 +254,6 @@ class SteadyState:
         verbose : bool, default=False
             Print model-selection and evaluation progress.
 
-        print_solution : bool, default=False
-            Print the exported network values after evaluation.
-
         state_max_passes : int, default=20
             Maximum number of passes used to settle derived states.
 
@@ -278,7 +283,11 @@ class SteadyState:
             tolerance=state_tolerance,
         )
 
-        def run_once(filename: str | None = None, return_type: str = "dict"):
+        def run_once(
+            filename: str | None = None,
+            return_type: str = "dict",
+            statistics_filename: str | None = None,
+        ):
             return self._static_evaluate_once(
                 filename=filename,
                 return_type=return_type,
@@ -291,7 +300,7 @@ class SteadyState:
             filename=filename,
             return_type=return_type,
             verbose=verbose,
-            print_solution=print_solution,
+            statistics=statistics,
             run_once=run_once,
         )
 
@@ -302,8 +311,8 @@ class SteadyState:
         filename: str | None = None,
         return_type: str = "dict",
         verbose: bool = False,
+        statistics: bool = False,
         static: bool = False,
-        print_solution: bool = False,
         solver_method: str = "trf",
         jacobian_method: str = "3-point",
         ftol: float = 1e-8,
@@ -359,15 +368,15 @@ class SteadyState:
             Format of the returned results.
 
         verbose : bool, default=False
-            Print model-selection, solver, and convergence information.
+            Print the final solver summary and final network solution.
+
+        statistics : bool, default=False
+            Print per-evaluation solver progress and export detailed statistics when filename is provided.
 
         static : bool, default=False
             Skip nonlinear solving and perform a static evaluation instead.
 
             Equivalent to calling :meth:`static_evaluate`.
-
-        print_solution : bool, default=False
-            Print exported network values after convergence.
 
         solver_method : str, default="trf"
             SciPy ``least_squares`` algorithm.
@@ -434,7 +443,7 @@ class SteadyState:
                 filename=filename,
                 return_type=return_type,
                 verbose=verbose,
-                print_solution=print_solution,
+                statistics=statistics,
                 state_max_passes=state_max_passes,
                 state_tolerance=state_tolerance,
             )
@@ -452,12 +461,18 @@ class SteadyState:
             tolerance=state_tolerance,
         )
 
-        def run_once(filename: str | None = None, return_type: str = "dict"):
+        def run_once(
+            filename: str | None = None,
+            return_type: str = "dict",
+            statistics_filename: str | None = None,
+        ):
             return self._solve_once(
                 filename=filename,
                 return_type=return_type,
                 least_squares_settings=least_squares_settings,
                 state_settings=state_settings,
+                statistics=statistics,
+                statistics_filename=statistics_filename,
             )
 
         return self.model_runner.run(
@@ -466,36 +481,33 @@ class SteadyState:
             filename=filename,
             return_type=return_type,
             verbose=verbose,
-            print_solution=print_solution,
+            statistics=statistics,
             run_once=run_once,
         )
 
-    def _print_last_success(self, verbose: bool, print_solution: bool) -> None:
-        """Print verbose summaries requested by the caller after a success."""
-        if verbose:
-            if self._last_success_kind == "static":
-                self.printer.print_static(self._last_static_elapsed_time or 0.0)
-            elif self._last_success_kind == "solve":
-                diagnostics = self._last_solve_diagnostics
-                if diagnostics is None:
-                    return
-                settings = diagnostics.settings
-                self.printer.print_solve(
-                    diagnostics.sol,
-                    diagnostics.x0,
-                    settings.solver_method,
-                    settings.jacobian_method,
-                    settings.ftol,
-                    settings.xtol,
-                    settings.gtol,
-                    settings.rtol,
-                    overconstrained=diagnostics.overconstrained,
-                    elapsed_time=diagnostics.elapsed_time,
-                )
+    def _print_last_success(self, verbose: bool) -> None:
+        """Print final summaries requested by the caller after a success."""
+        if not verbose:
+            return
 
-        if print_solution:
-            self.print_solution()
+        if self._last_success_kind == "static":
+            self.printer.print_static(self._last_static_elapsed_time or 0.0)
+        elif self._last_success_kind == "solve":
+            diagnostics = self._last_solve_diagnostics
+            if diagnostics is None:
+                return
+            settings = diagnostics.settings
+            self.printer.print_solve(
+                diagnostics.sol,
+                diagnostics.x0,
+                settings.solver_method,
+                settings.jacobian_method,
+                settings.ftol,
+                settings.xtol,
+                settings.gtol,
+                settings.rtol,
+                overconstrained=diagnostics.overconstrained,
+                elapsed_time=diagnostics.elapsed_time,
+            )
 
-    def print_solution(self) -> None:
-        """Print the current network values using ``network.save()`` records."""
-        self.printer.print_solution()
+        self.printer.print_network_solution()
