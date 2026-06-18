@@ -9,44 +9,6 @@ if TYPE_CHECKING:
     from fullflow.System import Network, State
 
 
-def _sign(value: float) -> float:
-    if value > 0.0:
-        return 1.0
-    if value < 0.0:
-        return -1.0
-    return 0.0
-
-
-def _sqrt_or_nan(value: float) -> float:
-    return math.sqrt(value) if value >= 0.0 else math.nan
-
-
-def _pressure_drop_flow_rate(
-    pressure_drop: float,
-    density: float,
-    discharge_coefficient: float,
-    area: float,
-) -> float:
-    return (
-        _sign(pressure_drop)
-        * discharge_coefficient
-        * area
-        * _sqrt_or_nan(2.0 * density * abs(pressure_drop))
-    )
-
-
-def _effective_area_from_mass_flow(
-    mass_flow: float,
-    pressure_drop: float,
-    density: float,
-) -> float:
-    if abs(pressure_drop) < 1e-12:
-        return 0.0
-    if density <= 0.0:
-        raise ValueError("density must be positive.")
-    return abs(mass_flow) / math.sqrt(2.0 * density * abs(pressure_drop))
-
-
 
 class FlowTube(Component):
 
@@ -174,7 +136,14 @@ class DarcyWeisbach(Component):
 
         Kf = 8.0 * f * L / (rho * math.pi**2 * D**5)
 
-        self.effective_area.value = _effective_area_from_mass_flow(mdot, p1-p2, rho)
+        pressure_drop = p1 - p2
+
+        if abs(pressure_drop) < 1e-12:
+            self.effective_area.value = 0.0
+        elif rho <= 0.0:
+            raise ValueError("density must be positive.")
+        else:
+            self.effective_area.value = abs(mdot) / math.sqrt(2.0 * rho * abs(pressure_drop))
 
         pressure = p1 - p2
         friction = Kf * mdot * abs(mdot) * A
@@ -217,7 +186,21 @@ class DischargeCoefficient(Component):
         Cd = self.discharge_coefficient.value
         A = self.cross_sectional_area.value
 
-        self.mass_flow.value = _pressure_drop_flow_rate(P1 - P2, rho, Cd, A)
+        dP = P1 - P2
+
+        if dP > 0.0:
+            sign = 1.0
+        elif dP < 0.0:
+            sign = -1.0
+        else:
+            sign = 0.0
+
+        value = 2.0 * rho * abs(dP)
+
+        if value >= 0.0:
+            self.mass_flow.value = sign * Cd * A * math.sqrt(value)
+        else:
+            self.mass_flow.value = math.nan
 
 
 
@@ -267,15 +250,33 @@ class CavitatingVenturi(Component):
 
         if above_critical_temperature or pressure_ratio >= PRcrit:
             self.is_cavitating.value = False
+
             dP = P1 - P2
-            self.mass_flow.value = _pressure_drop_flow_rate(dP, rho, Cd_noncav, A)
+
+            if dP > 0.0:
+                sign = 1.0
+            elif dP < 0.0:
+                sign = -1.0
+            else:
+                sign = 0.0
+
+            value = 2.0 * rho * abs(dP)
+
+            if value >= 0.0:
+                self.mass_flow.value = sign * Cd_noncav * A * math.sqrt(value)
+            else:
+                self.mass_flow.value = math.nan
         else:
             self.is_cavitating.value = True
 
             Pvap = self.vapor_pressure.value
             dP = P1 - Pvap
+            value = 2.0 * rho * dP
 
-            self.mass_flow.value = Cd_cav * A * _sqrt_or_nan(2.0 * rho * dP)
+            if value >= 0.0:
+                self.mass_flow.value = Cd_cav * A * math.sqrt(value)
+            else:
+                self.mass_flow.value = math.nan
 
 
 

@@ -9,12 +9,9 @@ if TYPE_CHECKING:
     from fullflow.System import Network
 
 
-def _divide_or_nan(numerator: float, denominator: float) -> float:
-    if denominator != 0.0:
-        return numerator / denominator
-    if numerator == 0.0:
-        return math.nan
-    return math.copysign(math.inf, numerator)
+class Rotor(Component): pass
+
+
 
 
 class ConstantDensityPump(Component):
@@ -126,8 +123,16 @@ class PolytropicPump(Component):
         density_ratio = rho2 / rho1
 
         log_pressure_ratio = math.log(pressure_ratio)
+        log_density_ratio = math.log(density_ratio)
 
-        beta = 1.0 / (1.0 - _divide_or_nan(math.log(density_ratio), log_pressure_ratio))
+        if log_pressure_ratio != 0.0:
+            density_pressure_slope = log_density_ratio / log_pressure_ratio
+        elif log_density_ratio == 0.0:
+            density_pressure_slope = math.nan
+        else:
+            density_pressure_slope = math.copysign(math.inf, log_density_ratio)
+
+        beta = 1.0 / (1.0 - density_pressure_slope)
 
         self._predicted_discharge_pressure = rho2 * (H_specific / beta + p_in / rho1)
 

@@ -1,6 +1,6 @@
 from .GeneralFlow import *
 from .CompressibleFlow import *
-from .Pumps import *
+from .Turbomachinery import *
 from .Maps import *
 from .FrictionFactors import *
 from .HeatTransfer import *
