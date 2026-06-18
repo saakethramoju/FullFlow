@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import sys
+from numbers import Real
 from typing import TYPE_CHECKING, Any
 
 from .Composition import Composition
@@ -83,11 +84,8 @@ class Component:
         value: State | Composition | float | int | str | bool | None = None,
         is_default_value: bool = False,
     ) -> Any:
-        if is_default_value and isinstance(value, Composition):
-            return Composition()
-
         if isinstance(value, Composition):
-            return value
+            return Composition() if is_default_value else value
 
         if isinstance(value, State):
             return value
@@ -135,7 +133,7 @@ class Component:
         if isinstance(value, State):
             if not value.is_assigned:
                 return "<uninitialized>"
-            return value.value
+            return Component._format_value(value.value)
 
         if isinstance(value, list):
             return [Component._format_value(item) for item in value]

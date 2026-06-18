@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -16,7 +17,7 @@ class Network:
         self.component_list: list[Component] = []
         self.balance_list: list[Balance] = []
         self.model_list: list[Any] = []
-        self.tracked_state_list: list[tuple[str, State]] = []
+        self.tracked_state_list: list[dict[str, Any]] = []
         self._version = 0
 
     @property
@@ -48,10 +49,31 @@ class Network:
     def add_model(self, model: Any) -> None:
         self._add_unique(model, self.model_list)
 
-    def track(self, name: str, state: State) -> State:
-        self.tracked_state_list.append((name, state))
+    def track(
+        self,
+        name: str,
+        value: Any,
+        attributes: str | list[str] | tuple[str, ...] | dict[str, str] | None = None,
+        items: str | list[str] | tuple[str, ...] | dict[str, str] | None = None,
+        minimum: float | None = None,
+        maximum: float | None = None,
+        max_items: int | None = None,
+        flatten: bool = True,
+    ) -> Any:
+        self.tracked_state_list.append(
+            {
+                "name": name,
+                "value": value,
+                "attributes": attributes,
+                "items": items,
+                "minimum": minimum,
+                "maximum": maximum,
+                "max_items": max_items,
+                "flatten": flatten,
+            }
+        )
         self.mark_structure_changed()
-        return state
+        return value
 
     @property
     def components(self) -> list[str]:
@@ -131,6 +153,109 @@ class Network:
         return value
 
     @staticmethod
+    def _selection_map(
+        selection: str | list[str] | tuple[str, ...] | dict[str, str] | None,
+    ) -> dict[str, str]:
+        if selection is None:
+            return {}
+
+        if isinstance(selection, str):
+            return {selection: selection}
+
+        if isinstance(selection, dict):
+            return dict(selection)
+
+        return {name: name for name in selection}
+
+    @staticmethod
+    def _object_attribute(value: Any, attribute: str) -> Any:
+        current = value
+
+        for name in attribute.split("."):
+            current = getattr(current, name)
+
+        return current
+
+    @staticmethod
+    def _filtered_items(
+        values: Any,
+        minimum: float | None = None,
+        maximum: float | None = None,
+        max_items: int | None = None,
+    ) -> dict[Any, Any]:
+        if isinstance(values, Mapping):
+            items = dict(values)
+        else:
+            items = dict(values)
+
+        if minimum is not None or maximum is not None:
+            filtered_items = {}
+
+            for key, value in items.items():
+                try:
+                    if minimum is not None and value < minimum:
+                        continue
+
+                    if maximum is not None and value > maximum:
+                        continue
+                except Exception:
+                    continue
+
+                filtered_items[key] = value
+
+            items = filtered_items
+
+        def sort_key(pair: tuple[Any, Any]) -> float:
+            try:
+                return abs(float(pair[1]))
+            except Exception:
+                return 0.0
+
+        items = dict(
+            sorted(
+                items.items(),
+                key=sort_key,
+                reverse=True,
+            )
+        )
+
+        if max_items is not None:
+            items = dict(list(items.items())[:max_items])
+
+        return items
+
+    def _tracked_value(self, tracked: dict[str, Any]) -> Any:
+        value = self._safe_value(tracked["value"])
+
+        attributes = tracked["attributes"]
+        items = tracked["items"]
+
+        if attributes is None and items is None:
+            return value
+
+        data: dict[str, Any] = {}
+
+        for label, attribute in self._selection_map(attributes).items():
+            try:
+                data[label] = self._safe_value(self._object_attribute(value, attribute))
+            except Exception:
+                data[label] = "<unavailable>"
+
+        for label, attribute in self._selection_map(items).items():
+            try:
+                item_values = self._object_attribute(value, attribute)
+                data[label] = self._filtered_items(
+                    item_values,
+                    minimum=tracked["minimum"],
+                    maximum=tracked["maximum"],
+                    max_items=tracked["max_items"],
+                )
+            except Exception:
+                data[label] = "<unavailable>"
+
+        return data
+
+    @staticmethod
     def _append_record(
         records: list[dict[str, Any]],
         owner_name: str,
@@ -145,6 +270,35 @@ class Network:
                 "attribute": attribute,
                 "value": value,
             }
+        )
+
+    def _append_tracked_records(
+        self,
+        records: list[dict[str, Any]],
+        name: str,
+        value: Any,
+        flatten: bool,
+        prefix: str | None = None,
+    ) -> None:
+        attribute = name if prefix is None else f"{prefix}.{name}"
+
+        if flatten and isinstance(value, dict):
+            for key, item in value.items():
+                self._append_tracked_records(
+                    records,
+                    str(key),
+                    item,
+                    flatten=True,
+                    prefix=attribute,
+                )
+            return
+
+        self._append_record(
+            records,
+            self.name,
+            "TrackedState",
+            attribute,
+            self._safe_value(value),
         )
 
     def _export_owner(
@@ -197,13 +351,12 @@ class Network:
         for balance in self.balance_list:
             self._export_owner(balance, records, {"name", "network"})
 
-        for name, state in self.tracked_state_list:
-            self._append_record(
+        for tracked in self.tracked_state_list:
+            self._append_tracked_records(
                 records,
-                self.name,
-                "TrackedState",
-                name,
-                self._safe_value(state),
+                tracked["name"],
+                self._tracked_value(tracked),
+                flatten=tracked["flatten"],
             )
 
         dataframe = None

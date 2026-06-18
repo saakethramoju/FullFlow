@@ -915,18 +915,38 @@ class Lookup(Component, Generic[T]):
     def attribute_state(self, name: str) -> State:
         """Return a ``State`` view of a lookup input or output.
 
-        Active lookup inputs return the actual backing input ``State``. This is
-        what lets ``Component.setup()`` safely turn ``LookupAttribute`` objects
+        Normal active lookup inputs return the actual backing input ``State``.
+        This lets ``Component.setup()`` safely turn ``LookupAttribute`` objects
         such as ``Chamber.pressure`` into solver variables without breaking the
         connection to the wrapped callable keyword input.
 
-        Attributes that are not active inputs are treated as outputs. They stay
-        derived from the current lookup result, even if the wrapped callable
-        could technically accept a keyword with the same name. This prevents
-        outputs like ``density`` or ``gamma`` from being accidentally promoted
-        into inputs just because the callable has an optional parameter with
-        that name.
+        Priority groups need one extra rule. The first name in a priority group
+        is the solver-preferred input and should become an assignable input
+        state when requested. Lower-priority names stay derived through the
+        lookup attribute so they can switch from construction-time inputs to
+        outputs once the preferred input is available. For example, with
+        ``priority=("enthalpy", "temperature")``, ``enthalpy`` can be solved
+        while ``temperature`` becomes an output.
+
+        Non-input attributes are treated as outputs. They stay derived from the
+        current lookup result, even if the wrapped callable could technically
+        accept a keyword with the same name. This prevents outputs like
+        ``density`` or ``gamma`` from being accidentally promoted into inputs.
         """
+        for group in self.priority:
+            if name not in group:
+                continue
+
+            if name == group[0] and self.accepts_input(name):
+                return self.input_state(name)
+
+            state = self._output_states.get(name)
+
+            if state is not None:
+                return state
+
+            return State._derived(lambda: self._attribute_for(name).value)
+
         if self.input_is_active(name):
             return self.input_state(name)
 
@@ -936,6 +956,7 @@ class Lookup(Component, Generic[T]):
             return state
 
         return State._derived(lambda: self.get_output(name))
+
     def input(self, name: str) -> LookupAttribute:
         if not self.has_input(name) and not self.accepts_input(name):
             raise AttributeError(f"{self.name!r} has no input named {name!r}.")
