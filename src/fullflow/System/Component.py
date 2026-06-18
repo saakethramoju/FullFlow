@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import inspect
 import sys
-from numbers import Real
 from typing import TYPE_CHECKING, Any
 
 from .Composition import Composition
@@ -87,19 +86,18 @@ class Component:
         if is_default_value and isinstance(value, Composition):
             return Composition()
 
-        if isinstance(value, (State, Composition)):
+        if isinstance(value, Composition):
             return value
 
-        if value is None:
-            return State()
-
-        if isinstance(value, bool):
+        if isinstance(value, State):
             return value
 
-        if isinstance(value, Real):
-            return State(float(value))
+        as_state = getattr(value, "as_state", None)
 
-        return value
+        if callable(as_state):
+            return as_state()
+
+        return State(value)
 
     def initialize_component(self, name: str, network: Network) -> None:
         self.name = name

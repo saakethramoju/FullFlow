@@ -146,7 +146,7 @@ class LookupAttribute:
         return bool(state is not None and state.keep_feasible)
 
     def as_state(self) -> State:
-        return State._derived(lambda: self.value)
+        return self.lookup.attribute_state(self.name)
 
     def set(self, value: Any) -> "LookupAttribute":
         self.value = value
@@ -158,6 +158,8 @@ class LookupAttribute:
             return x.value
 
         if isinstance(x, Lookup):
+            if (not x.output.is_assigned or x.dirty) and not x._is_evaluating:
+                x.evaluate_states()
             return x.value
 
         if isinstance(x, State):
@@ -312,7 +314,106 @@ class LookupAttribute:
 
 
 class Lookup(Component, Generic[T]):
-    """Wrap a function, class, or external model as a FullFlow component."""
+    """
+    Wrap a function, class, or external model as a FullFlow component.
+
+    `Lookup` lets arbitrary Python callables participate in a FullFlow network.
+    Keyword inputs can be plain values, `State` objects, other `Lookup` objects,
+    or `LookupAttribute` objects. When a lookup input is used as a solver variable,
+    for example `Model.pressure`, `Lookup` exposes the live mutable input state so
+    the solver can iterate on that value and re-evaluate the wrapped callable.
+
+    ## Examples
+
+    A normal Python function can be solved through `Lookup`:
+
+    ```
+    def LinearModel(x, slope, intercept):
+        return SimpleNamespace(y=slope * x + intercept)
+
+    Model = Lookup(
+        "Model",
+        network,
+        LinearModel,
+        x=0.0,
+        slope=2.0,
+        intercept=1.0,
+    )
+
+    Balance(
+        "Solve x",
+        network,
+        variable=Model.x,
+        function=Model.y - 9.0,
+    )
+    ```
+
+    Here `Model.x` is a callable keyword input, but it still behaves like a
+    solver variable. The solver can change `x`, `Lookup` re-runs `LinearModel`,
+    and `Model.y` updates from the new result.
+
+    The same pattern works with user-defined classes:
+
+    ```
+    class GasModel:
+        def __init__(self, pressure, temperature):
+            self.pressure = pressure
+            self.temperature = temperature
+            self.density = pressure / (287.0 * temperature)
+
+    Gas = Lookup(
+        "Gas",
+        network,
+        GasModel,
+        pressure=1.0e5,
+        temperature=300.0,
+    )
+
+    Balance(
+        "Solve pressure",
+        network,
+        variable=Gas.pressure,
+        function=Gas.density - 2.0,
+    )
+    ```
+
+    This is not limited to ThermoProp. Any callable with inspectable keyword
+    inputs can be wrapped and driven by the network solver.
+
+    ## Caching Notes
+
+    `Lookup` can automatically detect changes in ordinary values such as numbers,
+    strings, booleans, arrays, lists, tuples, dictionaries, `State` objects,
+    `Lookup` objects, and `LookupAttribute` objects.
+
+    One limitation is hidden mutation inside arbitrary custom objects. For example:
+
+    ```
+    obj = SomeCustomObject()
+    Lookup(..., model=obj)
+
+    obj.internal_value = new_value
+    ```
+
+    The object identity is still the same, so `Lookup` cannot know which internal
+    attributes matter for caching unless the object tells it. For mutable custom
+    objects, either disable caching:
+
+    ```
+    Lookup(..., cache=False)
+    ```
+
+    or define a cache key on the object:
+
+    ```
+    def cache_key(self):
+        return (self.internal_value,)
+    ```
+
+    When `cache_key()` is provided, `Lookup` uses it to detect meaningful internal
+    changes and avoid stale cached results.
+    """
+
 
     _INTERNAL_ATTRS = {
         "name",
@@ -349,6 +450,7 @@ class Lookup(Component, Generic[T]):
         "_cache_hits",
         "_defer_count",
         "_last_error",
+        "_is_evaluating",
         "_attribute_cache",
     }
 
@@ -415,6 +517,7 @@ class Lookup(Component, Generic[T]):
         object.__setattr__(self, "_cache_hits", 0)
         object.__setattr__(self, "_defer_count", 0)
         object.__setattr__(self, "_last_error", None)
+        object.__setattr__(self, "_is_evaluating", False)
         object.__setattr__(self, "_attribute_cache", {})
 
         output_guesses = output_guesses or {}
@@ -464,6 +567,8 @@ class Lookup(Component, Generic[T]):
             return x.value
 
         if isinstance(x, Lookup):
+            if (not x.output.is_assigned or x.dirty) and not x._is_evaluating:
+                x.evaluate_states()
             return x.value
 
         if isinstance(x, tuple):
@@ -800,15 +905,42 @@ class Lookup(Component, Generic[T]):
 
         return self
 
-    def input(self, name: str) -> LookupAttribute:
-        if not self.has_input(name) and not self.accepts_input(name):
-            raise AttributeError(f"{self.name!r} has no input named {name!r}.")
-
+    def _attribute_for(self, name: str) -> LookupAttribute:
         attribute = self._attribute_cache.get(name)
         if attribute is None:
             attribute = LookupAttribute(self, name)
             self._attribute_cache[name] = attribute
         return attribute
+
+    def attribute_state(self, name: str) -> State:
+        """Return a ``State`` view of a lookup input or output.
+
+        Active lookup inputs return the actual backing input ``State``. This is
+        what lets ``Component.setup()`` safely turn ``LookupAttribute`` objects
+        such as ``Chamber.pressure`` into solver variables without breaking the
+        connection to the wrapped callable keyword input.
+
+        Attributes that are not active inputs are treated as outputs. They stay
+        derived from the current lookup result, even if the wrapped callable
+        could technically accept a keyword with the same name. This prevents
+        outputs like ``density`` or ``gamma`` from being accidentally promoted
+        into inputs just because the callable has an optional parameter with
+        that name.
+        """
+        if self.input_is_active(name):
+            return self.input_state(name)
+
+        state = self._output_states.get(name)
+
+        if state is not None:
+            return state
+
+        return State._derived(lambda: self.get_output(name))
+    def input(self, name: str) -> LookupAttribute:
+        if not self.has_input(name) and not self.accepts_input(name):
+            raise AttributeError(f"{self.name!r} has no input named {name!r}.")
+
+        return self._attribute_for(name)
 
     def input_state(self, name: str, default: Any = None) -> State:
         if self.has_input(name):
@@ -820,7 +952,7 @@ class Lookup(Component, Generic[T]):
             try:
                 state = State(self.get_input(name))
             except Exception:
-                state = State(default)
+                state = State() if default is None else State(default)
 
             self.kwargs[name] = state
             self.dirty = True
@@ -829,7 +961,13 @@ class Lookup(Component, Generic[T]):
         if not self.accepts_input(name):
             raise AttributeError(f"{self.name!r} cannot accept {name!r} as an input.")
 
-        state = State(default)
+        if default is None:
+            try:
+                default = self.get_output(name)
+            except Exception:
+                pass
+
+        state = State() if default is None else State(default)
         self.kwargs[name] = state
         self.dirty = True
         return state
@@ -880,13 +1018,28 @@ class Lookup(Component, Generic[T]):
             if state is not None and state.is_assigned:
                 return state.value
 
-            raise ValueError(
-                f"{self.name!r}.{name} is not available yet. "
-                "Evaluate the lookup first, place it earlier in the network, "
-                "or provide an output guess with "
-                f"{self.name}.output_state({name!r}, guess) or "
-                f"{self.name}.{name}.value = guess."
-            ) from exc
+            if not self._is_evaluating:
+                try:
+                    self.evaluate_states()
+                    obj = self.output.value
+                    value = getattr(obj, name)
+                except Exception as eval_exc:
+                    self._last_error = eval_exc
+                    raise ValueError(
+                        f"{self.name!r}.{name} is not available yet. "
+                        "Evaluate the lookup first, place it earlier in the network, "
+                        "or provide an output guess with "
+                        f"{self.name}.output_state({name!r}, guess) or "
+                        f"{self.name}.{name}.value = guess."
+                    ) from eval_exc
+            else:
+                raise ValueError(
+                    f"{self.name!r}.{name} is not available yet. "
+                    "Evaluate the lookup first, place it earlier in the network, "
+                    "or provide an output guess with "
+                    f"{self.name}.output_state({name!r}, guess) or "
+                    f"{self.name}.{name}.value = guess."
+                ) from exc
 
         if name in self._output_states:
             try:
@@ -895,15 +1048,11 @@ class Lookup(Component, Generic[T]):
                 pass
 
         return value
-
     def state(self, name: str, default: Any = _MISSING) -> State:
-        if self.has_input(name) or self.accepts_input(name):
-            return State._derived(lambda: self.get_input(name))
-
-        if default is not _MISSING:
+        if default is not _MISSING and not self.accepts_input(name):
             self.output_state(name, default)
 
-        return State._derived(lambda: self.get_output(name))
+        return self.attribute_state(name)
 
     def set_arg(self, index: int, value: Any) -> None:
         old_key = self._safe_resolved_key(self.args)
@@ -1154,73 +1303,80 @@ class Lookup(Component, Generic[T]):
             self.evaluate_states()
 
     def evaluate_states(self) -> None:
-        try:
-            args, kwargs = self._resolve_args_kwargs()
-        except Exception as exc:
-            self._last_error = exc
-
-            if self.defer_until_inputs_available:
-                self._defer_count += 1
-                self.dirty = True
-                return
-
-            raise
-
-        input_key = self._input_key(args, kwargs)
-        structure_key = self._structure_key(args, kwargs)
-
-        if (
-            self.cache
-            and not self.dirty
-            and self.output.is_assigned
-            and input_key == self._last_input_key
-            and structure_key == self._last_structure_key
-        ):
-            self._cache_hits += 1
-            self._refresh_output_states()
+        if self._is_evaluating:
             return
 
-        if self.cache:
-            memoized_result = self._get_memoized(structure_key, input_key)
-            if memoized_result is not _MISSING:
-                self.output.value = memoized_result
-                self._last_input_key = input_key
-                self._last_structure_key = structure_key
+        object.__setattr__(self, "_is_evaluating", True)
+
+        try:
+            try:
+                args, kwargs = self._resolve_args_kwargs()
+            except Exception as exc:
+                self._last_error = exc
+
+                if self.defer_until_inputs_available:
+                    self._defer_count += 1
+                    self.dirty = True
+                    return
+
+                raise
+
+            input_key = self._input_key(args, kwargs)
+            structure_key = self._structure_key(args, kwargs)
+
+            if (
+                self.cache
+                and not self.dirty
+                and self.output.is_assigned
+                and input_key == self._last_input_key
+                and structure_key == self._last_structure_key
+            ):
                 self._cache_hits += 1
-                self._last_error = None
                 self._refresh_output_states()
-                self.dirty = False
                 return
 
-        can_reuse = (
-            self.reuse_existing
-            and self.output.is_assigned
-            and structure_key == self._last_structure_key
-        )
+            if self.cache:
+                memoized_result = self._get_memoized(structure_key, input_key)
+                if memoized_result is not _MISSING:
+                    self.output.value = memoized_result
+                    self._last_input_key = input_key
+                    self._last_structure_key = structure_key
+                    self._cache_hits += 1
+                    self._last_error = None
+                    self._refresh_output_states()
+                    self.dirty = False
+                    return
 
-        if can_reuse:
-            try:
-                result = self._update_existing_output(args, kwargs)
-                self._reuse_count += 1
-            except NotImplementedError:
+            can_reuse = (
+                self.reuse_existing
+                and self.output.is_assigned
+                and structure_key == self._last_structure_key
+            )
+
+            if can_reuse:
+                try:
+                    result = self._update_existing_output(args, kwargs)
+                    self._reuse_count += 1
+                except NotImplementedError:
+                    result = self._call_new(args, kwargs)
+                    self._build_count += 1
+                except Exception:
+                    result = self._call_new(args, kwargs)
+                    self._build_count += 1
+            else:
                 result = self._call_new(args, kwargs)
                 self._build_count += 1
-            except Exception:
-                result = self._call_new(args, kwargs)
-                self._build_count += 1
-        else:
-            result = self._call_new(args, kwargs)
-            self._build_count += 1
 
-        self.output.value = result
-        self._remember_result(structure_key, input_key, result)
-        self._last_input_key = input_key
-        self._last_structure_key = structure_key
-        self._evaluation_count += 1
-        self._last_error = None
-        self._refresh_output_states()
-        self.dirty = False
-
+            self.output.value = result
+            self._remember_result(structure_key, input_key, result)
+            self._last_input_key = input_key
+            self._last_structure_key = structure_key
+            self._evaluation_count += 1
+            self._last_error = None
+            self._refresh_output_states()
+            self.dirty = False
+        finally:
+            object.__setattr__(self, "_is_evaluating", False)
     def _call_new(self, args: list[Any], kwargs: dict[str, Any]) -> Any:
         if self.wrap_errors:
             try:
