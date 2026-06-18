@@ -9,7 +9,85 @@ if TYPE_CHECKING:
     from fullflow.System import Network
 
 
-class Rotor(Component): pass
+class Rotor(Component):
+    def __init__(
+        self,
+        name: str,
+        network: Network,
+        rotor_speed: State,
+        polar_moment_of_inertia: float,
+        net_torque: State | None = None,
+    ):
+        self.setup()
+
+    @property
+    def iteration_variables(self) -> list[State]:
+        return [self.rotor_speed]
+
+    @property
+    def residuals(self) -> list[float]:
+        return [self.net_torque.value]
+
+
+
+
+
+
+class GasTurbine(Component):
+    def __init__(self, 
+                 name: str,
+                 network: Network,
+                 rotor_speed: State,
+                 torque: State,
+                 flow_parameter: State,
+                 upstream_total_pressure: State,
+                 upstream_total_temperature: State,
+                 downstream_pressure: State,
+                 gas_constant: float,
+                 specific_heat_ratio: float,
+                 upstream_total_enthalpy: State | None = None,
+                 ideal_total_enthalpy_change: float | None = None,
+                 
+                 efficiency: State | None = None,
+                 discharge_total_enthalpy: State | None = None,
+                 shaft_power: State | None = None,
+                 mass_flow: State | None = None):
+        self.setup()
+
+
+    def evaluate_states(self):
+        N = self.rotor_speed.value
+        T = self.torque.value
+        FP = self.flow_parameter.value
+        Po = self.upstream_total_pressure.value
+        To = self.upstream_total_temperature.value
+        Pout = self.downstream_pressure.value
+        R = self.gas_constant.value
+        g = self.specific_heat_ratio.value
+
+        omega = (math.pi / 30.0) * N
+
+        mdot = FP * Po / math.sqrt(R * To)
+        shaft_power = T * omega
+
+        self.mass_flow.value = mdot
+        self.shaft_power.value = shaft_power
+
+        if self.upstream_total_enthalpy.is_assigned:
+            ho_in = self.upstream_total_enthalpy.value
+
+            actual_total_enthalpy_change = shaft_power / mdot
+
+            if self.ideal_total_enthalpy_change.is_assigned:
+                ideal_total_enthalpy_change = self.ideal_total_enthalpy_change.value
+            else:
+                cp = g * R / (g - 1.0)
+                ideal_total_enthalpy_change = cp * To * (1.0 - (Pout / Po) ** ((g - 1.0) / g))
+
+            self.discharge_total_enthalpy.value = ho_in - actual_total_enthalpy_change
+            self.efficiency.value = actual_total_enthalpy_change / ideal_total_enthalpy_change
+
+
 
 
 
@@ -74,6 +152,8 @@ class ConstantDensityPump(Component):
 
 
 
+
+
 class PolytropicPump(Component):
 
     def __init__(self,
@@ -94,8 +174,6 @@ class PolytropicPump(Component):
                  efficiency: State | None = None,
                  shaft_power: State | None = None):
         self.setup()
-    
-        self._predicted_discharge_pressure = None
 
     def evaluate_states(self):
         H = self.head_rise.value

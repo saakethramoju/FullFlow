@@ -25,7 +25,6 @@ class Solid(Component):
         biot_number: State | None = None,
         heat_rate: State | float = 0.0,
     ):
-        # Store whether the user actually requested Biot-number evaluation.
         self._has_biot_inputs = (
             characteristic_length is not None
             and thermal_conductivity is not None
@@ -49,21 +48,6 @@ class Solid(Component):
         Lc = self.characteristic_length.value
         k = self.thermal_conductivity.value
         h = self.convection_coefficient.value
-
-        if Lc <= 0.0:
-            raise ValueError(
-                f"{self.name}: characteristic_length must be greater than zero. Got {Lc}."
-            )
-
-        if k <= 0.0:
-            raise ValueError(
-                f"{self.name}: thermal_conductivity must be greater than zero. Got {k}."
-            )
-
-        if h < 0.0:
-            raise ValueError(
-                f"{self.name}: convection_coefficient must be nonnegative. Got {h}."
-            )
 
         self.biot_number.value = h * Lc / k
 
