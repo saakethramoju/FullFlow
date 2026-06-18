@@ -112,9 +112,22 @@ class Network:
             if not value.is_assigned:
                 return "<uninitialized>"
             try:
-                return value.value
+                return Network._safe_value(value.value)
             except Exception:
                 return "<unavailable>"
+
+        if isinstance(value, list):
+            return [Network._safe_value(item) for item in value]
+
+        if isinstance(value, tuple):
+            return tuple(Network._safe_value(item) for item in value)
+
+        if isinstance(value, dict):
+            return {
+                key: Network._safe_value(item)
+                for key, item in value.items()
+            }
+
         return value
 
     @staticmethod

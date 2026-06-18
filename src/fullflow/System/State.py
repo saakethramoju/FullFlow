@@ -184,7 +184,9 @@ class State:
         if self._expr is not None:
             raise AttributeError("Cannot assign to a derived State.")
 
-        if isinstance(value, Real):
+        if isinstance(value, bool):
+            pass
+        elif isinstance(value, Real):
             value = float(value)
             self._validate_bounds(value)
         elif self._requires_numeric_value():
@@ -277,6 +279,51 @@ class State:
     def __float__(self) -> float:
         return self.numeric_value
 
+    def __int__(self) -> int:
+        return int(self.value)
+
+    def __index__(self) -> int:
+        return int(self.value)
+
+    def __bool__(self) -> bool:
+        return bool(self.value)
+
+    def __iter__(self):
+        return iter(self.value)
+
+    def __len__(self) -> int:
+        return len(self.value)
+
+    def __contains__(self, item: Any) -> bool:
+        return item in self.value
+
+    def __getitem__(self, key: Any) -> Any:
+        return self.value[key]
+
+    def __setitem__(self, key: Any, value: Any) -> None:
+        current = self.value
+        current[key] = value
+        self.value = current
+
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith("__"):
+            raise AttributeError(name)
+
+        try:
+            value = self.value
+        except Exception as exc:
+            raise AttributeError(name) from exc
+
+        return getattr(value, name)
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        return self.value(*args, **kwargs)
+
+    def __array__(self, dtype=None):
+        import numpy as np
+
+        return np.asarray(self.value, dtype=dtype)
+
     def __format__(self, format_spec: str) -> str:
         return format(self.numeric_value, format_spec)
 
@@ -341,6 +388,21 @@ class State:
 
     def __abs__(self) -> "State":
         return State._derived(lambda: abs(self.numeric_value))
+            
+    def _compare(self, other: Any, op: Callable[[float, float], bool]) -> bool:
+        return op(self.numeric_value, resolve_numeric(other))
+
+    def __lt__(self, other: Any) -> bool:
+        return self._compare(other, lambda a, b: a < b)
+
+    def __le__(self, other: Any) -> bool:
+        return self._compare(other, lambda a, b: a <= b)
+
+    def __gt__(self, other: Any) -> bool:
+        return self._compare(other, lambda a, b: a > b)
+
+    def __ge__(self, other: Any) -> bool:
+        return self._compare(other, lambda a, b: a >= b)
 
     def _unary(self, func: Callable[[float], float]) -> "State":
         return State._derived(lambda: func(self.numeric_value))

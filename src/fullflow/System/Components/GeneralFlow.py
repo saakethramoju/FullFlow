@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
-from fullflow.System import Component
+from fullflow.System import Component, resolve_numeric
 
 if TYPE_CHECKING:
     from fullflow.System import Network, State
@@ -266,11 +266,11 @@ class CavitatingVenturi(Component):
             )
 
         if above_critical_temperature or pressure_ratio >= PRcrit:
-            self.is_cavitating = False
+            self.is_cavitating.value = False
             dP = P1 - P2
             self.mass_flow.value = _pressure_drop_flow_rate(dP, rho, Cd_noncav, A)
         else:
-            self.is_cavitating = True
+            self.is_cavitating.value = True
 
             Pvap = self.vapor_pressure.value
             dP = P1 - Pvap
@@ -296,8 +296,8 @@ class SeriesCdA(Component):
     def evaluate_states(self):
         inverse_area_squared_sum = 0.0
 
-        for effective_area in self.effective_areas:
-            CdA = effective_area.value
+        for effective_area in self.effective_areas.value:
+            CdA = resolve_numeric(effective_area)
 
             if abs(CdA) < 1e-12:
                 self.effective_area.value = 0.0
@@ -324,8 +324,8 @@ class ParallelCdA(Component):
 
     def evaluate_states(self):
         self.effective_area.value = sum(
-            effective_area.value
-            for effective_area in self.effective_areas
+            resolve_numeric(effective_area)
+            for effective_area in self.effective_areas.value
         )
 
 

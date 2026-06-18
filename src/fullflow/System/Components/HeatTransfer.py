@@ -211,7 +211,7 @@ class TemperatureRecoveryFactor(Component):
                 f"{self.name}: prandtl_number must be greater than zero. Got {Pr}."
             )
 
-        if self.turbulent:
+        if self.turbulent.value:
             self.recovery_factor.value = Pr ** (1.0 / 3.0)
         else:
             self.recovery_factor.value = Pr ** 0.5
