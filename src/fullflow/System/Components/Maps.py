@@ -20,6 +20,7 @@ class Map1D(Component):
         x_value: State,
         x_map,
         y_maps: dict[str, object],
+        extrapolate: bool = False,
     ):
         self.setup()
 
@@ -47,11 +48,27 @@ class Map1D(Component):
             self.y_maps.value[output_name] = values[sort_indices]
             setattr(self, output_name, State())
 
+    @staticmethod
+    def _interp(x, x_map, values, extrapolate):
+        if not extrapolate:
+            return float(np.interp(x, x_map, values))
+
+        if x < x_map[0]:
+            slope = (values[1] - values[0]) / (x_map[1] - x_map[0])
+            return float(values[0] + slope * (x - x_map[0]))
+
+        if x > x_map[-1]:
+            slope = (values[-1] - values[-2]) / (x_map[-1] - x_map[-2])
+            return float(values[-1] + slope * (x - x_map[-1]))
+
+        return float(np.interp(x, x_map, values))
+
     def evaluate_states(self):
         x = self.x_value.value
+        extrapolate = self.extrapolate.value
 
         for output_name, values in self.y_maps.value.items():
-            getattr(self, output_name).value = float(np.interp(x, self.x_map.value, values))
+            getattr(self, output_name).value = self._interp(x, self.x_map.value, values, extrapolate)
 
     @property
     def ignored_export_attributes(self) -> set[str]:
@@ -77,6 +94,7 @@ class Map2D(Component):
         x_map,
         y_map,
         z_maps: dict[str, object],
+        extrapolate: bool = False,
     ):
         self.setup()
 
@@ -118,13 +136,32 @@ class Map2D(Component):
             self.z_maps.value[output_name] = values[np.ix_(y_sort_indices, x_sort_indices)]
             setattr(self, output_name, State())
 
+    @staticmethod
+    def _interp(x, x_map, values, extrapolate):
+        if not extrapolate:
+            return float(np.interp(x, x_map, values))
+
+        if x < x_map[0]:
+            slope = (values[1] - values[0]) / (x_map[1] - x_map[0])
+            return float(values[0] + slope * (x - x_map[0]))
+
+        if x > x_map[-1]:
+            slope = (values[-1] - values[-2]) / (x_map[-1] - x_map[-2])
+            return float(values[-1] + slope * (x - x_map[-1]))
+
+        return float(np.interp(x, x_map, values))
+
     def evaluate_states(self):
         x = self.x_value.value
         y = self.y_value.value
+        extrapolate = self.extrapolate.value
 
         for output_name, values in self.z_maps.value.items():
-            values_at_x = np.array([np.interp(x, self.x_map.value, row) for row in values])
-            getattr(self, output_name).value = float(np.interp(y, self.y_map.value, values_at_x))
+            values_at_x = np.array([
+                self._interp(x, self.x_map.value, row, extrapolate)
+                for row in values
+            ])
+            getattr(self, output_name).value = self._interp(y, self.y_map.value, values_at_x, extrapolate)
 
     @property
     def ignored_export_attributes(self) -> set[str]:
