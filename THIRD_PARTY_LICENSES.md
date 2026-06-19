@@ -16,17 +16,6 @@ https://github.com/saakethramoju/ThermoProp/blob/main/LICENSE
 
 ---
 
-## RocketCEA
-
-RocketCEA is released under the GNU General Public License version 3 (GPL-3.0).
-
-Project:
-https://rocketcea.readthedocs.io/
-
-License:
-https://github.com/sonofeft/RocketCEA/blob/master/LICENSE.txt
-
----
 
 ## NumPy
 
@@ -64,33 +53,19 @@ https://github.com/Textualize/rich/blob/master/LICENSE
 
 ---
 
-## Pandas
+## h5py
 
-Pandas is released under the BSD 3-Clause License.
-
-Copyright (c) 2008-2025, Pandas Development Team
+h5py is released under a BSD-style license.
 
 Project:
-https://pandas.pydata.org/
+https://www.h5py.org/
 
 License:
-https://github.com/pandas-dev/pandas/blob/main/LICENSE
+https://github.com/h5py/h5py/blob/master/licenses/license.txt
 
 ---
 
-## OpenPyXL
 
-OpenPyXL is released under the MIT License.
-
-Copyright (c) 2010-2025 openpyxl contributors
-
-Project:
-https://openpyxl.readthedocs.io/
-
-License:
-https://foss.heptapod.net/openpyxl/openpyxl/-/blob/branch/3.1/LICENSE.rst
-
----
 
 ## Indirect Dependencies
 
@@ -108,6 +83,6 @@ These projects are documented in ThermoProp's third-party license documentation.
 
 ## Disclaimer
 
-FullFlow is an independent project and is not affiliated with, endorsed by, or sponsored by ThermoProp, RocketCEA, CoolProp, PYroMat, RocketProps, NumPy, SciPy, Pandas, OpenPyXL, or Rich.
+FullFlow is an independent project and is not affiliated with, endorsed by, or sponsored by ThermoProp, CoolProp, PYroMat, RocketProps, NumPy, SciPy, h5py, or Rich.
 
 All trademarks, copyrights, and licenses remain the property of their respective owners.

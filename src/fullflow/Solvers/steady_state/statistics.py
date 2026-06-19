@@ -7,9 +7,7 @@ networks and components do not need to know anything about logging or exports.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
-import json
 import math
 import time
 
@@ -18,6 +16,8 @@ from rich.console import Console
 from rich import box
 from rich.table import Table
 from rich.text import Text
+
+from fullflow.HDF5 import HDF5Target, safe_group_name, write_tables
 
 
 def _plain(value: Any) -> Text:
@@ -603,61 +603,66 @@ class SolverStatistics:
         }
 
     @staticmethod
-    def _pivot_table(dataframe, index: str, columns: str, values: str):
-        if dataframe.empty:
-            return dataframe
-        try:
-            return dataframe.pivot_table(index=index, columns=columns, values=values, aggfunc="last").reset_index()
-        except Exception:
-            return dataframe.iloc[0:0]
+    def _wide_table(rows: list[dict[str, Any]], index: str, columns: str, values: str) -> list[dict[str, Any]]:
+        if not rows:
+            return []
 
-    def export(self, filename: str | None) -> None:
+        wide: dict[Any, dict[str, Any]] = {}
+        column_order: list[str] = []
+
+        for row in rows:
+            if index not in row or columns not in row:
+                continue
+
+            index_value = row[index]
+            column_name = str(row[columns])
+
+            if column_name not in column_order:
+                column_order.append(column_name)
+
+            if index_value not in wide:
+                wide[index_value] = {index: index_value}
+
+            wide[index_value][column_name] = row.get(values)
+
+        return [
+            {column: row.get(column) for column in [index] + column_order}
+            for row in wide.values()
+        ]
+
+    def export(self, filename: str | HDF5Target | None) -> None:
         if not self.enabled or filename is None:
             return
 
-        path = statistics_path(filename)
-        extension = path.suffix.lower().lstrip(".")
         tables = self._table_dict()
+        tables["residuals_wide"] = self._wide_table(
+            tables["residuals"],
+            "evaluation",
+            "residual",
+            "value",
+        )
+        tables["variables_wide"] = self._wide_table(
+            tables["variables"],
+            "evaluation",
+            "variable",
+            "value",
+        )
+        tables["network_numeric_wide"] = self._wide_table(
+            tables["network"],
+            "evaluation",
+            "attribute",
+            "numeric_value",
+        )
 
-        if extension == "json":
-            path.write_text(json.dumps(tables, indent=4, default=str))
-            return
-
-        import pandas as pd
-        dataframes = {name: pd.DataFrame(rows) for name, rows in tables.items()}
-
-        residuals_wide = self._pivot_table(dataframes["residuals"], "evaluation", "residual", "value")
-        variables_wide = self._pivot_table(dataframes["variables"], "evaluation", "variable", "value")
-        network_numeric_wide = self._pivot_table(dataframes["network"], "evaluation", "attribute", "numeric_value")
-
-        dataframes["residuals_wide"] = residuals_wide
-        dataframes["variables_wide"] = variables_wide
-        dataframes["network_numeric_wide"] = network_numeric_wide
-
-        if extension in {"xlsx", "xls"}:
-            with pd.ExcelWriter(path) as writer:
-                for name, dataframe in dataframes.items():
-                    dataframe.to_excel(writer, sheet_name=name[:31], index=False)
-            return
-
-        if extension == "csv":
-            base = path.with_suffix("")
-            for name, dataframe in dataframes.items():
-                dataframe.to_csv(f"{base}_{name}.csv", index=False)
-            return
-
-        raise ValueError("Unsupported file extension. Use .csv, .json, or .xlsx.")
+        write_tables(filename, tables, group_path="statistics/current")
 
 
-def statistics_path(filename: str) -> Path:
-    path = Path(filename)
-    return path.with_name(f"{path.stem}_statistics{path.suffix}")
+def statistics_path(filename: str) -> HDF5Target:
+    return HDF5Target(filename, "statistics/current")
 
 
-def model_option_statistics_path(filename: str, option_name: str) -> str:
-    path = Path(filename)
-    safe_option = option_name
-    for char in "\\/*[]:?":
-        safe_option = safe_option.replace(char, "_")
-    safe_option = safe_option.replace(" ", "_")
-    return str(path.with_name(f"{path.stem}_{safe_option}{path.suffix}"))
+def model_option_statistics_path(filename: str, model_name: str, option_name: str) -> HDF5Target:
+    return HDF5Target(
+        filename,
+        f"models/{safe_group_name(model_name)}/{safe_group_name(option_name)}/statistics",
+    )

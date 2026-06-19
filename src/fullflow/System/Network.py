@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .Composition import Composition
 from .State import is_state_like
+from fullflow.HDF5 import write_solution
 
 if TYPE_CHECKING:
     from fullflow.System import Balance, Component, State
@@ -340,7 +340,12 @@ class Network:
                 self._safe_value(attr_value),
             )
 
-    def save(self, filename: str | None = None, return_type: str = "dict"):
+    def save(
+        self,
+        filename: str | None = None,
+        return_type: str = "dict",
+        group_path: str = "solution/current",
+    ):
         return_type = return_type.lower()
         records: list[dict[str, Any]] = []
 
@@ -359,35 +364,19 @@ class Network:
                 flatten=tracked["flatten"],
             )
 
-        dataframe = None
-        if return_type == "dict":
-            result = records
-        elif return_type == "dataframe":
-            import pandas as pd
-            dataframe = pd.DataFrame(records)
-            result = dataframe
-        else:
-            raise ValueError("return_type must be 'dict' or 'dataframe'.")
+        if return_type not in {"dict", "records"}:
+            raise ValueError("return_type must be 'dict'.")
 
         if filename is not None:
-            path = Path(filename)
-            extension = path.suffix.lower().lstrip(".")
+            write_solution(
+                filename,
+                records,
+                network_name=self.name,
+                models=self.model_list,
+                group_path=group_path,
+            )
 
-            if extension == "json":
-                import json
-                path.write_text(json.dumps(records, indent=4))
-            elif extension in {"csv", "xlsx", "xls"}:
-                if dataframe is None:
-                    import pandas as pd
-                    dataframe = pd.DataFrame(records)
-                if extension == "csv":
-                    dataframe.to_csv(path, index=False)
-                else:
-                    dataframe.to_excel(path, index=False)
-            else:
-                raise ValueError("Unsupported file extension. Use .csv, .json, or .xlsx.")
-
-        return result
+        return records
 
     def __str__(self) -> str:
         lines = [

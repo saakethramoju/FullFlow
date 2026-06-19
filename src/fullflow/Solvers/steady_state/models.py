@@ -14,6 +14,7 @@ from typing import Any
 
 from .results import format_records, save_model_option_results
 from .statistics import model_option_statistics_path
+from fullflow.HDF5 import HDF5Target, safe_group_name, write_failures, write_solution
 
 
 @dataclass(slots=True)
@@ -204,14 +205,44 @@ class ModelOptionRunner:
         for option_name in selected_model.order:
             selected_model.replace(option_name)
             try:
+                statistics_target = (
+                    model_option_statistics_path(filename, selected_model.name, option_name)
+                    if statistics and filename is not None
+                    else None
+                )
                 solution = run_once(
-                    filename=filename,
+                    filename=None,
                     return_type=return_type,
-                    statistics_filename=filename if statistics else None,
+                    statistics_filename=statistics_target,
                 )
             except Exception as error:
                 failures.append(ModelFailure.from_error(self.network, error, selected_model))
                 continue
+
+            if filename is not None:
+                records = self.network.save(filename=None, return_type="dict")
+                option_group = (
+                    f"models/{safe_group_name(selected_model.name)}/"
+                    f"{safe_group_name(option_name)}/solution"
+                )
+                write_solution(
+                    HDF5Target(filename, option_group),
+                    records,
+                    network_name=self.network.name,
+                    models=self.network.model_list,
+                )
+                write_solution(
+                    filename,
+                    records,
+                    network_name=self.network.name,
+                    models=self.network.model_list,
+                )
+                if failures:
+                    write_failures(
+                        filename,
+                        failures,
+                        group_path=f"models/{safe_group_name(selected_model.name)}/failures",
+                    )
 
             self.printer.print_model_failures(failures)
             self.success_printer(verbose)
@@ -248,7 +279,7 @@ class ModelOptionRunner:
                     filename=None,
                     return_type="dict",
                     statistics_filename=(
-                        model_option_statistics_path(filename, option_name)
+                        model_option_statistics_path(filename, selected_model.name, option_name)
                         if statistics and filename is not None
                         else None
                     ),
@@ -272,7 +303,25 @@ class ModelOptionRunner:
         run_once(filename=None, return_type="dict", statistics_filename=None)
 
         if filename is not None:
-            save_model_option_results(raw_results, filename)
+            save_model_option_results(
+                raw_results,
+                filename,
+                model_name=selected_model.name,
+                network_name=self.network.name,
+            )
+            records = self.network.save(filename=None, return_type="dict")
+            write_solution(
+                filename,
+                records,
+                network_name=self.network.name,
+                models=self.network.model_list,
+            )
+            if failures:
+                write_failures(
+                    filename,
+                    failures,
+                    group_path=f"models/{safe_group_name(selected_model.name)}/failures",
+                )
 
         self.printer.print_model_failures(failures)
         self.success_printer(verbose)

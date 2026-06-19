@@ -76,7 +76,7 @@ New code may also use the lower-case import aliases `fullflow.core` and `fullflo
 * Conduction, convection, and radiation
 * Turbomachinery maps
 * Model switching and correlation comparison
-* Excel and DataFrame result export
+* HDF5 result and statistics export
 * Pure Python implementation
 
 ## Example Applications
@@ -293,11 +293,9 @@ FullFlow builds upon several scientific and aerospace libraries:
 
 * NumPy
 * SciPy
-* Pandas
-* OpenPyXL
 * ThermoProp
-* RocketCEA
 * Rich
+* h5py
 
 ## Project Status
 
@@ -361,7 +359,7 @@ FuelPump = PolytropicPump(...)
 OxPump = PolytropicPump(...)
 
 MainChamber = MainCombustionChamber(...)
-Nozzle = RocketCEAChokedNozzle(...)
+Nozzle = IsentropicNozzle(...)
 
 solution = SteadyState(PumpNetwork).solve()
 ```

@@ -45,10 +45,8 @@ dependencies = [
     "numpy>=2.4.6",
     "scipy>=1.17.1",
     "rich>=15.0.0",
-    "rocketcea>=1.2.3",
+    "h5py>=3.15.0",
     "thermoprop @ git+https://github.com/saakethramoju/ThermoProp.git@main",
-    "pandas>=3.0.3",
-    "openpyxl>=3.1.5",
 ]
 
 [project.urls]
@@ -60,7 +58,6 @@ PyPI = "https://pypi.org/project/fullflow/"
 
 [tool.fullflow.credits]
 thermophysical_properties = "Thermophysical property support provided through ThermoProp."
-rocket_performance = "Rocket performance utilities use RocketCEA."
 
 [project.scripts]
 fullflow = "fullflow:main"

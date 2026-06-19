@@ -274,8 +274,9 @@ CavNetwork.track("Mixture Ratio", Props.mixture_ratio)
 
 SteadyState(CavNetwork).solve(
     verbose=True,
-    jacobian_method="2-point",
+    jacobian_method="3-point",
     statistics=True,
     model=OxInletModel,
     evaluate_all_model_options=True,
+    filename="cav"
 )

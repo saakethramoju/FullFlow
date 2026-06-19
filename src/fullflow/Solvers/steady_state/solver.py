@@ -237,19 +237,15 @@ class SteadyState:
             models without modifying the network.
 
         filename : str, optional
-            Output file path. Supported extensions are:
-
-            - ``.csv``
-            - ``.json``
-            - ``.xlsx``
+            Output HDF5 file path. ``.h5`` is added automatically when no
+            extension is provided. ``.h5`` and ``.hdf5`` are the only supported
+            export extensions.
 
             If provided, results are written to disk in addition to being returned.
 
-        return_type : {"dict", "dataframe"}, default="dict"
-            Format of the returned results.
-
-            - ``"dict"`` returns a list of exported records.
-            - ``"dataframe"`` returns a pandas DataFrame.
+        return_type : {"dict"}, default="dict"
+            Format of the returned results. ``"dict"`` returns a list of
+            exported records.
 
         verbose : bool, default=False
             Print model-selection and evaluation progress.
@@ -269,9 +265,9 @@ class SteadyState:
 
         Returns
         -------
-        dict, pandas.DataFrame, or model result object
-            Exported network results. The exact return type depends on
-            ``return_type`` and whether model-option evaluation is requested.
+        dict or model result object
+            Exported network records. Model-option evaluation returns a dict
+            keyed by option name.
 
         Notes
         -----
@@ -354,17 +350,13 @@ class SteadyState:
             or component configurations.
 
         filename : str, optional
-            Output file path.
-
-            Supported extensions are:
-
-            - ``.csv``
-            - ``.json``
-            - ``.xlsx``
+            Output HDF5 file path. ``.h5`` is added automatically when no
+            extension is provided. ``.h5`` and ``.hdf5`` are the only supported
+            export extensions.
 
             If provided, results are written to disk in addition to being returned.
 
-        return_type : {"dict", "dataframe"}, default="dict"
+        return_type : {"dict"}, default="dict"
             Format of the returned results.
 
         verbose : bool, default=False
@@ -419,9 +411,9 @@ class SteadyState:
 
         Returns
         -------
-        dict, pandas.DataFrame, or model result object
-            Exported network results. The exact return type depends on
-            ``return_type`` and whether model-option evaluation is requested.
+        dict or model result object
+            Exported network records. Model-option evaluation returns a dict
+            keyed by option name.
 
         Notes
         -----
