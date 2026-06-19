@@ -207,7 +207,43 @@ class DischargeCoefficient(Component):
 
 
 class CavitatingVenturi(Component):
-    """Cavitating liquid venturi model."""
+    """
+    Direct-calculation cavitating liquid venturi.
+
+    The component uses pressure recovery factor to estimate the downstream
+    pressure where cavitation begins.
+
+    Recovery factor:
+
+        R = (P2 - Pt) / (P1 - Pt)
+
+    At incipient cavitation:
+
+        Pt = Pvap
+
+    Therefore:
+
+        P2_critical = Pvap + R * (P1 - Pvap)
+
+    If:
+
+        P2 <= P2_critical
+
+    the venturi is cavitating and the throat pressure is assumed to be vapor
+    pressure:
+
+        Pt = Pvap
+
+    Cavitating flow:
+
+        mdot = Cd_cav A sqrt(2 rho (P1 - Pvap))
+
+    Otherwise, the venturi is treated as a normal restriction:
+
+        mdot = sign(P1 - P2) Cd_noncav A sqrt(2 rho |P1 - P2|)
+
+    This is a direct calculator. It does not add residuals or iteration variables.
+    """
 
     def __init__(
         self,
@@ -218,11 +254,9 @@ class CavitatingVenturi(Component):
         density: State,
         throat_area: float,
         vapor_pressure: State,
-        critical_pressure_ratio: float = 0.8,
+        pressure_recovery_factor: float = 0.85,
         cavitating_discharge_coefficient: float = 0.94,
         noncavitating_discharge_coefficient: float = 0.6,
-        upstream_temperature: State | None = None,
-        critical_temperature: State | None = None,
         mass_flow: State | None = None,
         is_cavitating: bool = False,
     ):
@@ -233,53 +267,50 @@ class CavitatingVenturi(Component):
         P2 = self.downstream_pressure.value
         rho = self.density.value
         A = self.throat_area.value
-        PRcrit = self.critical_pressure_ratio.value
+        Pvap = self.vapor_pressure.value
+        R = self.pressure_recovery_factor.value
         Cd_cav = self.cavitating_discharge_coefficient.value
         Cd_noncav = self.noncavitating_discharge_coefficient.value
 
-        pressure_ratio = P2 / P1
+        dP = P1 - P2
 
-        above_critical_temperature = False
-        if (
-            self.upstream_temperature.is_assigned
-            and self.critical_temperature.is_assigned
-        ):
-            above_critical_temperature = (
-                self.upstream_temperature.value >= self.critical_temperature.value
-            )
+        if dP > 0.0:
+            sign = 1.0
+        elif dP < 0.0:
+            sign = -1.0
+        else:
+            sign = 0.0
 
-        if above_critical_temperature or pressure_ratio >= PRcrit:
-            self.is_cavitating.value = False
+        P2_critical = Pvap + R * (P1 - Pvap)
+        self.critical_downstream_pressure = P2_critical
 
-            dP = P1 - P2
+        if dP > 0.0 and P2 <= P2_critical:
+            self.is_cavitating.value = True
+            self.throat_pressure = Pvap
+
+            dP = P1 - Pvap
 
             if dP > 0.0:
-                sign = 1.0
-            elif dP < 0.0:
-                sign = -1.0
+                self.mass_flow.value = Cd_cav * A * math.sqrt(2.0 * rho * dP)
             else:
-                sign = 0.0
+                self.mass_flow.value = 0.0
 
-            value = 2.0 * rho * abs(dP)
-
-            if value >= 0.0:
-                self.mass_flow.value = sign * Cd_noncav * A * math.sqrt(value)
-            else:
-                self.mass_flow.value = math.nan
         else:
-            self.is_cavitating.value = True
+            self.is_cavitating.value = False
 
-            Pvap = self.vapor_pressure.value
-            dP = P1 - Pvap
-            value = 2.0 * rho * dP
-
-            if value >= 0.0:
-                self.mass_flow.value = Cd_cav * A * math.sqrt(value)
+            if dP > 0.0 and R < 1.0:
+                self.throat_pressure = P1 - dP / (1.0 - R)
             else:
-                self.mass_flow.value = math.nan
+                self.throat_pressure = P1
 
+            if dP != 0.0:
+                self.mass_flow.value = sign * Cd_noncav * A * math.sqrt(2.0 * rho * abs(dP))
+            else:
+                self.mass_flow.value = 0.0
 
-
+    @property
+    def ignored_export_attributes(self):
+        return {"critical_downstream_pressure"}
 
 
 

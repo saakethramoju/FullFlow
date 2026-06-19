@@ -55,44 +55,46 @@ class ModelOption:
         )
 
 
+
+
+
+
+
+
+
 class Model:
     def __init__(
         self,
         name: str,
         network,
-        *model_options: ModelOption,
-        components: list[ModelOption] | None = None,
+        *options: ModelOption,
         order: list[str] | None = None,
     ) -> None:
         self.name = name
         self.network = network
-        self._option_list = list(model_options)
-        if components is not None:
-            self._option_list.extend(components)
-
-        self.components = {option.name: option for option in self._option_list}
-        self.order = order or [option.name for option in self._option_list]
-        self._validate()
+        self.options = {option.name: option for option in options}
+        self.order = order or [option.name for option in options]
+        self._validate(options)
 
         self.active_option_name = None
         self.active_component = None
         self.network.add_model(self)
 
-    def _validate(self) -> None:
-        if not self._option_list:
+    def _validate(self, options: tuple[ModelOption, ...]) -> None:
+        if not options:
             raise ValueError(f"{self.name}: Model requires at least one option.")
 
-        if len(self.components) != len(self._option_list):
+        if len(self.options) != len(options):
             raise ValueError(
                 f"{self.name}: duplicate model option names found. "
                 "Option names must be unique."
             )
 
-        invalid_options = [name for name in self.order if name not in self.components]
+        invalid_options = [name for name in self.order if name not in self.options]
         if invalid_options:
             raise ValueError(
                 f"{self.name}: order contains invalid options {invalid_options}. "
-                f"Valid options are {list(self.components)}."
+                f"Valid options are {list(self.options)}."
             )
 
     def build(self, option_name: str | None = None):
@@ -102,14 +104,14 @@ class Model:
             )
 
         option_name = option_name or self.order[0]
-        if option_name not in self.components:
+        if option_name not in self.options:
             raise ValueError(
                 f"{self.name}: unknown model option {option_name!r}. "
-                f"Valid options are {list(self.components)}."
+                f"Valid options are {list(self.options)}."
             )
 
         self.active_option_name = option_name
-        self.active_component = self.components[option_name].build(self.name, self.network)
+        self.active_component = self.options[option_name].build(self.name, self.network)
         return self.active_component
 
     def clear(self) -> None:
@@ -121,6 +123,7 @@ class Model:
             if isinstance(self.active_component, list)
             else [self.active_component]
         )
+
         for component in active_components:
             self.network.remove_component(component)
 
@@ -147,11 +150,11 @@ class Model:
     def active_option(self):
         if self.active_option_name is None:
             return None
-        return self.components[self.active_option_name]
+        return self.options[self.active_option_name]
 
     @property
     def available_options(self) -> list[str]:
-        return list(self.components)
+        return list(self.options)
 
     @property
     def has_next(self) -> bool:
@@ -164,6 +167,6 @@ class Model:
 
     def __repr__(self) -> str:
         return (
-            f"Model(name={self.name!r}, options={list(self.components)}, "
+            f"Model(name={self.name!r}, options={list(self.options)}, "
             f"order={self.order}, active={self.active_option_name!r})"
         )

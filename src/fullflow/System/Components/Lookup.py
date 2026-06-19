@@ -438,6 +438,10 @@ class Lookup(Component, Generic[T]):
         "_signature",
         "_accepted_keywords",
         "_accepts_var_keyword",
+        "_update_keywords",
+        "_update_accepts_var_keyword",
+        "_property_setter_keywords",
+        "_set_method_keywords",
         "_output_states",
         "_input_fallback_states",
         "_last_input_key",
@@ -643,29 +647,27 @@ class Lookup(Component, Generic[T]):
         )
 
     def _priority_candidate_value(self, name: str) -> Any:
-        """
-        Resolve one candidate from a priority group.
+        """Resolve one candidate from a priority group.
 
-        A priority candidate can come from either:
-
-        1. an existing lookup keyword input, or
-        2. an already available output attribute, if the wrapped callable accepts
-           that name as an input.
-
-        This second case is what allows property lookups to initialize with an
-        easy state pair such as pressure-temperature and later switch to a solver
-        state pair such as pressure-enthalpy without the user manually adding an
-        ``enthalpy`` keyword input up front.
+        A priority candidate can come from either an existing lookup keyword input
+        or an already available output attribute. The latter is what lets a lookup
+        start from an easy state pair such as pressure-temperature and later
+        promote pressure-enthalpy without the user manually creating an enthalpy
+        State up front.
         """
         if name in self.kwargs:
             return self.get_input(name)
 
-        if self.accepts_input(name):
+        if self.accepts_input(name) or self._is_priority_preferred_input(name):
             return self.get_output(name)
 
         raise AttributeError(
             f"{self.name!r} has no available priority input or output named {name!r}."
         )
+
+    def _is_priority_preferred_input(self, name: str) -> bool:
+        """Return True when name is the solver-preferred priority input."""
+        return any(bool(group) and name == group[0] for group in self.priority)
 
     def _resolve_args_kwargs(self) -> tuple[list[Any], dict[str, Any]]:
         args = [self._value(arg) for arg in self.args]
@@ -681,15 +683,10 @@ class Lookup(Component, Generic[T]):
 
         priority_names: set[str] = set()
         selected_inputs: dict[str, Any] = {}
+        active_priority_inputs: set[str] = set()
         selected_report: dict[str, str] = {}
 
         for group_index, group in enumerate(self.priority):
-            # Every name in the group is mutually exclusive, so every name in
-            # the group must be removed from the normal kwargs pass-through.
-            # The previous implementation only added names as it tested them.
-            # If the first candidate succeeded, lower-priority names were never
-            # excluded, causing e.g. pressure + enthalpy + temperature to be
-            # passed to ThermoProp.
             group_names = tuple(group)
             priority_names.update(group_names)
 
@@ -705,9 +702,35 @@ class Lookup(Component, Generic[T]):
                 chosen_name = name
                 break
 
-            if chosen_name is not None:
-                selected_inputs[chosen_name] = chosen_value
-                selected_report[f"group_{group_index}"] = chosen_name
+            if chosen_name is None:
+                continue
+
+            selected_inputs[chosen_name] = chosen_value
+            active_priority_inputs.add(chosen_name)
+            selected_report[f"group_{group_index}"] = chosen_name
+
+            # If the selected priority variable is a post-construction input
+            # rather than a constructor keyword, the object may still need a
+            # lower-priority constructor state as a seed. This preserves the
+            # common pattern:
+            #
+            #     Lookup(..., temperature=300, priority=("enthalpy", "temperature"))
+            #
+            # The solver can drive enthalpy, while temperature remains only an
+            # initial construction seed and then becomes an output.
+            if not self._constructor_accepts_input(chosen_name):
+                for seed_name in group_names:
+                    if seed_name == chosen_name:
+                        continue
+                    if seed_name not in self.kwargs:
+                        continue
+                    if not self._constructor_accepts_input(seed_name):
+                        continue
+                    try:
+                        selected_inputs.setdefault(seed_name, self.get_input(seed_name))
+                    except Exception:
+                        pass
+                    break
 
         kwargs = {
             key: self.get_input(key)
@@ -719,7 +742,7 @@ class Lookup(Component, Generic[T]):
         inactive_priority_inputs = {
             name
             for name in priority_names
-            if name in self.kwargs and name not in selected_inputs
+            if name in self.kwargs and name not in active_priority_inputs
         }
 
         object.__setattr__(self, "_last_priority", selected_report)
@@ -727,31 +750,34 @@ class Lookup(Component, Generic[T]):
 
         return args, kwargs
 
+    @staticmethod
+    def _signature_keywords(callable_: Callable[..., Any]) -> tuple[inspect.Signature | None, set[str], bool]:
+        signature = None
+        accepted_keywords: set[str] = set()
+        accepts_var_keyword = False
+
+        try:
+            signature = inspect.signature(callable_)
+        except (TypeError, ValueError):
+            return None, accepted_keywords, accepts_var_keyword
+
+        for parameter in signature.parameters.values():
+            if parameter.kind == parameter.VAR_KEYWORD:
+                accepts_var_keyword = True
+            elif parameter.kind in {
+                parameter.POSITIONAL_OR_KEYWORD,
+                parameter.KEYWORD_ONLY,
+            }:
+                accepted_keywords.add(parameter.name)
+
+        return signature, accepted_keywords, accepts_var_keyword
+
     def _inspect_callable_signature(self) -> None:
         cache_key = id(self.callable)
         cached = _SIGNATURE_CACHE.get(cache_key)
 
         if cached is None:
-            accepted_keywords: set[str] = set()
-            accepts_var_keyword = False
-            signature = None
-
-            try:
-                signature = inspect.signature(self.callable)
-            except (TypeError, ValueError):
-                pass
-
-            if signature is not None:
-                for parameter in signature.parameters.values():
-                    if parameter.kind == parameter.VAR_KEYWORD:
-                        accepts_var_keyword = True
-                    elif parameter.kind in {
-                        parameter.POSITIONAL_OR_KEYWORD,
-                        parameter.KEYWORD_ONLY,
-                    }:
-                        accepted_keywords.add(parameter.name)
-
-            cached = (signature, accepted_keywords, accepts_var_keyword)
+            cached = self._signature_keywords(self.callable)
             _SIGNATURE_CACHE[cache_key] = cached
 
         signature, accepted_keywords, accepts_var_keyword = cached
@@ -759,11 +785,92 @@ class Lookup(Component, Generic[T]):
         object.__setattr__(self, "_accepted_keywords", accepted_keywords)
         object.__setattr__(self, "_accepts_var_keyword", accepts_var_keyword)
 
+        update_keywords: set[str] = set()
+        update_accepts_var_keyword = False
+        property_setter_keywords: set[str] = set()
+        set_method_keywords: set[str] = set()
+
+        target_type = self.callable if inspect.isclass(self.callable) else None
+
+        if target_type is not None:
+            update = getattr(target_type, "update", None)
+
+            if update is not None and callable(update):
+                _, update_keywords, update_accepts_var_keyword = self._signature_keywords(update)
+                update_keywords.discard("self")
+
+            for cls in reversed(target_type.__mro__):
+                for attr_name, attr_value in cls.__dict__.items():
+                    if isinstance(attr_value, property) and attr_value.fset is not None:
+                        property_setter_keywords.add(attr_name)
+
+                    if attr_name.startswith("set_") and callable(attr_value):
+                        set_method_keywords.add(attr_name[4:])
+
+        object.__setattr__(self, "_update_keywords", update_keywords)
+        object.__setattr__(self, "_update_accepts_var_keyword", update_accepts_var_keyword)
+        object.__setattr__(self, "_property_setter_keywords", property_setter_keywords)
+        object.__setattr__(self, "_set_method_keywords", set_method_keywords)
+
+    def _constructor_accepts_input(self, name: str) -> bool:
+        return self._accepts_var_keyword or name in self._accepted_keywords
+
+    def _class_accepts_post_input(self, name: str) -> bool:
+        return (
+            self._update_accepts_var_keyword
+            or name in self._update_keywords
+            or name in self._property_setter_keywords
+            or name in self._set_method_keywords
+        )
+
+    @staticmethod
+    def _object_has_writable_property(obj: Any, name: str) -> bool:
+        for cls in type(obj).__mro__:
+            attr = cls.__dict__.get(name)
+
+            if isinstance(attr, property):
+                return attr.fset is not None
+
+        return False
+
+    @staticmethod
+    def _object_has_post_input(obj: Any, name: str) -> bool:
+        set_method = getattr(obj, f"set_{name}", None)
+
+        if callable(set_method):
+            return True
+
+        if Lookup._object_has_writable_property(obj, name):
+            return True
+
+        if hasattr(obj, name):
+            return True
+
+        update = getattr(obj, "update", None)
+
+        if callable(update):
+            _, update_keywords, update_accepts_var_keyword = Lookup._signature_keywords(update)
+            update_keywords.discard("self")
+            return update_accepts_var_keyword or name in update_keywords
+
+        return False
+
     def accepts_input(self, name: str) -> bool:
         if name in self.kwargs:
             return True
 
-        return self._accepts_var_keyword or name in self._accepted_keywords
+        if self._constructor_accepts_input(name):
+            return True
+
+        if self._class_accepts_post_input(name):
+            return True
+
+        try:
+            obj = self.output.value
+        except Exception:
+            return False
+
+        return self._object_has_post_input(obj, name)
 
     def has_input(self, name: str) -> bool:
         return name in self.kwargs
@@ -818,8 +925,8 @@ class Lookup(Component, Generic[T]):
 
         return value
 
-    def set_input(self, name: str, value: Any) -> None:
-        if not self.accepts_input(name):
+    def set_input(self, name: str, value: Any, *, allow_unknown_post_input: bool = False) -> None:
+        if not self.accepts_input(name) and not allow_unknown_post_input and not self._is_priority_preferred_input(name):
             raise AttributeError(
                 f"{self.name!r} cannot accept {name!r} as an input for "
                 f"{getattr(self.callable, '__name__', repr(self.callable))}."
@@ -937,8 +1044,8 @@ class Lookup(Component, Generic[T]):
             if name not in group:
                 continue
 
-            if name == group[0] and self.accepts_input(name):
-                return self.input_state(name)
+            if name == group[0] and (self.accepts_input(name) or self._is_priority_preferred_input(name)):
+                return self.input_state(name, allow_priority=True)
 
             state = self._output_states.get(name)
 
@@ -963,7 +1070,7 @@ class Lookup(Component, Generic[T]):
 
         return self._attribute_for(name)
 
-    def input_state(self, name: str, default: Any = None) -> State:
+    def input_state(self, name: str, default: Any = None, *, allow_priority: bool = False) -> State:
         if self.has_input(name):
             current = self.kwargs[name]
 
@@ -979,7 +1086,7 @@ class Lookup(Component, Generic[T]):
             self.dirty = True
             return state
 
-        if not self.accepts_input(name):
+        if not self.accepts_input(name) and not (allow_priority and self._is_priority_preferred_input(name)):
             raise AttributeError(f"{self.name!r} cannot accept {name!r} as an input.")
 
         if default is None:
@@ -1030,6 +1137,9 @@ class Lookup(Component, Generic[T]):
         return bool(state is not None and state.is_assigned)
 
     def get_output(self, name: str) -> Any:
+        if (self.dirty or not self.output.is_assigned) and not self._is_evaluating:
+            self.evaluate_states()
+
         try:
             obj = self.output.value
             value = getattr(obj, name)
@@ -1398,28 +1508,42 @@ class Lookup(Component, Generic[T]):
             self.dirty = False
         finally:
             object.__setattr__(self, "_is_evaluating", False)
-    def _call_new(self, args: list[Any], kwargs: dict[str, Any]) -> Any:
-        if self.wrap_errors:
-            try:
-                return self.callable(*args, **kwargs)
-            except Exception as exc:
-                self._last_error = exc
-                callable_name = getattr(self.callable, "__name__", repr(self.callable))
-                raise RuntimeError(
-                    f"{self.name}: failed to evaluate {callable_name}."
-                ) from exc
+    def _split_kwargs(self, kwargs: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+        constructor_kwargs: dict[str, Any] = {}
+        post_kwargs: dict[str, Any] = {}
 
-        return self.callable(*args, **kwargs)
+        for name, value in kwargs.items():
+            if self._constructor_accepts_input(name):
+                constructor_kwargs[name] = value
+            else:
+                post_kwargs[name] = value
 
-    def _update_existing_output(self, args: list[Any], kwargs: dict[str, Any]) -> Any:
-        obj = self.output.value
+        return constructor_kwargs, post_kwargs
+
+    @staticmethod
+    def _update_accepts(update: Callable[..., Any], names: set[str]) -> bool:
+        _, update_keywords, update_accepts_var_keyword = Lookup._signature_keywords(update)
+        update_keywords.discard("self")
+
+        if update_accepts_var_keyword:
+            return True
+
+        return names <= update_keywords
+
+    @staticmethod
+    def _call_update(obj: Any, update_kwargs: dict[str, Any]) -> Any:
+        if not update_kwargs:
+            return obj
 
         update = getattr(obj, "update", None)
 
         if update is None or not callable(update):
             raise NotImplementedError
 
-        update_kwargs = dict(kwargs)
+        if not Lookup._update_accepts(update, set(update_kwargs)):
+            raise NotImplementedError
+
+        call_kwargs = dict(update_kwargs)
 
         update_type = type(obj)
         accepts_solve = _UPDATE_ACCEPTS_SOLVE_CACHE.get(update_type)
@@ -1430,17 +1554,79 @@ class Lookup(Component, Generic[T]):
                 accepts_solve = False
             _UPDATE_ACCEPTS_SOLVE_CACHE[update_type] = accepts_solve
 
-        if accepts_solve and "solve" not in update_kwargs:
-            update_kwargs["solve"] = False
+        if accepts_solve and "solve" not in call_kwargs:
+            call_kwargs["solve"] = False
 
-        update_result = update(**update_kwargs)
+        update_result = update(**call_kwargs)
 
         if update_result is not None:
             obj = update_result
 
+        return obj
+
+    def _apply_post_inputs(self, obj: Any, post_kwargs: dict[str, Any]) -> Any:
+        if not post_kwargs:
+            return obj
+
+        remaining = dict(post_kwargs)
+        update = getattr(obj, "update", None)
+
+        if callable(update):
+            _, update_keywords, update_accepts_var_keyword = self._signature_keywords(update)
+            update_keywords.discard("self")
+
+            if update_accepts_var_keyword:
+                update_kwargs = dict(remaining)
+            else:
+                update_kwargs = {
+                    name: value
+                    for name, value in remaining.items()
+                    if name in update_keywords
+                }
+
+            if update_kwargs:
+                obj = self._call_update(obj, update_kwargs)
+
+                for name in update_kwargs:
+                    remaining.pop(name, None)
+
+        for name, value in remaining.items():
+            set_method = getattr(obj, f"set_{name}", None)
+
+            if callable(set_method):
+                result = set_method(value)
+
+                if result is not None:
+                    obj = result
+
+                continue
+
+            if self._object_has_writable_property(obj, name) or hasattr(obj, name):
+                setattr(obj, name, value)
+                continue
+
+            raise AttributeError(
+                f"{self.name!r}: {type(obj).__name__!r} has no writable "
+                f"attribute, property setter, update keyword, or set_{name}(...) "
+                f"method for lookup input {name!r}."
+            )
+
+        return obj
+
+    @staticmethod
+    def _solve_if_available(obj: Any) -> Any:
         solve = getattr(obj, "solve", None)
 
         if callable(solve):
+            is_stale = getattr(obj, "is_stale", None)
+
+            if is_stale is not None:
+                try:
+                    if not bool(is_stale):
+                        return obj
+                except Exception:
+                    pass
+
             try:
                 solve_result = solve()
 
@@ -1449,6 +1635,37 @@ class Lookup(Component, Generic[T]):
 
             except TypeError:
                 pass
+
+        return obj
+
+    def _call_new(self, args: list[Any], kwargs: dict[str, Any]) -> Any:
+        constructor_kwargs, post_kwargs = self._split_kwargs(kwargs)
+
+        if self.wrap_errors:
+            try:
+                result = self.callable(*args, **constructor_kwargs)
+                result = self._apply_post_inputs(result, post_kwargs)
+                return self._solve_if_available(result)
+            except Exception as exc:
+                self._last_error = exc
+                callable_name = getattr(self.callable, "__name__", repr(self.callable))
+                raise RuntimeError(
+                    f"{self.name}: failed to evaluate {callable_name}."
+                ) from exc
+
+        result = self.callable(*args, **constructor_kwargs)
+        result = self._apply_post_inputs(result, post_kwargs)
+        return self._solve_if_available(result)
+
+    def _update_existing_output(self, args: list[Any], kwargs: dict[str, Any]) -> Any:
+        obj = self.output.value
+        constructor_kwargs, post_kwargs = self._split_kwargs(kwargs)
+
+        if constructor_kwargs:
+            obj = self._call_update(obj, constructor_kwargs)
+
+        obj = self._apply_post_inputs(obj, post_kwargs)
+        obj = self._solve_if_available(obj)
 
         return obj
 
@@ -1497,13 +1714,20 @@ class Lookup(Component, Generic[T]):
                 f"{self.name}.output_state({name!r}, guess)."
             )
 
-        self.set_output_guess(name, value)
+        if self.output.is_assigned and not self._object_has_post_input(self.output.value, name):
+            self.set_output_guess(name, value)
+            return
+
+        self.set_input(name, value, allow_unknown_post_input=True)
 
     def __dir__(self) -> list[str]:
         names = set(super().__dir__())
         names.update(self.kwargs.keys())
         names.update(self._output_states.keys())
         names.update(self._input_fallback_states.keys())
+        names.update(self._update_keywords)
+        names.update(self._property_setter_keywords)
+        names.update(self._set_method_keywords)
 
         try:
             names.update(dir(self.output.value))
@@ -1560,6 +1784,10 @@ class Lookup(Component, Generic[T]):
             "_signature",
             "_accepted_keywords",
             "_accepts_var_keyword",
+            "_update_keywords",
+            "_update_accepts_var_keyword",
+            "_property_setter_keywords",
+            "_set_method_keywords",
             "_output_states",
             "_input_fallback_states",
             "_last_input_key",
