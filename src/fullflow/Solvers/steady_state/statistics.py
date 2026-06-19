@@ -17,6 +17,12 @@ import numpy as np
 from rich.console import Console
 from rich import box
 from rich.table import Table
+from rich.text import Text
+
+
+def _plain(value: Any) -> Text:
+    """Return literal Rich text so user labels are never parsed as markup."""
+    return Text(str(value))
 
 
 class SolverStatistics:
@@ -574,9 +580,9 @@ class SolverStatistics:
 
         for row in rows:
             table.add_row(
-                str(row["residual"]),
-                f"{row['value']:.6e}",
-                f"{row['abs_value']:.6e}",
+                _plain(row["residual"]),
+                _plain(f"{row['value']:.6e}"),
+                _plain(f"{row['abs_value']:.6e}"),
             )
 
         self.console.print()

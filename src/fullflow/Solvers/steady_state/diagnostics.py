@@ -14,8 +14,19 @@ import numpy as np
 from rich import box
 from rich.console import Console
 from rich.table import Table
+from rich.text import Text
 
 from .models import ModelFailure
+
+
+def _plain(value: Any) -> Text:
+    """Return literal Rich text so user labels are never parsed as markup."""
+    return Text(str(value))
+
+
+def _styled(value: Any, style: str) -> Text:
+    """Return literal Rich text with style, without parsing markup tags."""
+    return Text(str(value), style=style)
 
 
 class SteadyStatePrinter:
@@ -34,7 +45,7 @@ class SteadyStatePrinter:
         """Print the exported network state table."""
         records = self.network.save(return_type="dict")
         table = Table(
-            title=f"{self.network.name} Solution",
+            title=_plain(f"{self.network.name} Solution"),
             box=box.SIMPLE_HEAVY,
             show_header=True,
             header_style="bold",
@@ -48,15 +59,17 @@ class SteadyStatePrinter:
             value = record["value"]
             value_text = f"{value:.6g}" if isinstance(value, float) else str(value)
             if value_text == "<uninitialized>":
-                value_text = "[dim]<uninitialized>[/dim]"
+                value_cell = _styled(value_text, "dim")
             elif value_text == "<unavailable>":
-                value_text = "[red]<unavailable>[/red]"
+                value_cell = _styled(value_text, "red")
+            else:
+                value_cell = _plain(value_text)
 
             table.add_row(
-                str(record["component_name"]),
-                str(record["component_type"]),
-                str(record["attribute"]),
-                value_text,
+                _plain(record["component_name"]),
+                _plain(record["component_type"]),
+                _plain(record["attribute"]),
+                value_cell,
             )
 
         self.console.print()
@@ -81,10 +94,10 @@ class SteadyStatePrinter:
 
         for failure in failures:
             table.add_row(
-                failure.model,
-                failure.option,
-                failure.error_type,
-                failure.error,
+                _plain(failure.model),
+                _plain(failure.option),
+                _plain(failure.error_type),
+                _plain(failure.error),
             )
 
         self.console.print()
@@ -107,12 +120,12 @@ class SteadyStatePrinter:
         )
         table.add_column("Quantity", style="bold")
         table.add_column("Value", justify="right")
-        table.add_row("Mode", "Static evaluation")
-        table.add_row("Nonlinear solve", "Not performed")
-        table.add_row("Evaluation time", f"{elapsed_time:.3f} s")
-        table.add_row("Components", str(len(cache.component_list)))
-        table.add_row("Iteration variables", str(len(cache.iteration_variables)))
-        table.add_row("Residuals", str(residual_count))
+        table.add_row(_plain("Mode"), _plain("Static evaluation"))
+        table.add_row(_plain("Nonlinear solve"), _plain("Not performed"))
+        table.add_row(_plain("Evaluation time"), _plain(f"{elapsed_time:.3f} s"))
+        table.add_row(_plain("Components"), _plain(len(cache.component_list)))
+        table.add_row(_plain("Iteration variables"), _plain(len(cache.iteration_variables)))
+        table.add_row(_plain("Residuals"), _plain(residual_count))
 
         self.console.print()
         self.console.print(table)
@@ -147,28 +160,28 @@ class SteadyStatePrinter:
         )
         summary.add_column("Quantity", style="bold")
         summary.add_column("Value", justify="right")
-        summary.add_row("Success", str(sol.success))
-        summary.add_row("Status", str(sol.status))
-        summary.add_row("Message", str(sol.message))
+        summary.add_row(_plain("Success"), _plain(sol.success))
+        summary.add_row(_plain("Status"), _plain(sol.status))
+        summary.add_row(_plain("Message"), _plain(sol.message))
         if overconstrained:
-            summary.add_row("Warning", "System is overconstrained", style="yellow")
-        summary.add_row("Solver method", method)
-        summary.add_row("Jacobian method", jac)
-        summary.add_row("Solve time", f"{elapsed_time:.3f} s")
-        summary.add_row("Function evaluations", str(sol.nfev))
+            summary.add_row(_plain("Warning"), _plain("System is overconstrained"), style="yellow")
+        summary.add_row(_plain("Solver method"), _plain(method))
+        summary.add_row(_plain("Jacobian method"), _plain(jac))
+        summary.add_row(_plain("Solve time"), _plain(f"{elapsed_time:.3f} s"))
+        summary.add_row(_plain("Function evaluations"), _plain(sol.nfev))
         if getattr(sol, "njev", None) is not None:
-            summary.add_row("Jacobian evaluations", str(sol.njev))
+            summary.add_row(_plain("Jacobian evaluations"), _plain(sol.njev))
         if hasattr(sol, "cost"):
-            summary.add_row("Cost", f"{sol.cost:.6e}")
+            summary.add_row(_plain("Cost"), _plain(f"{sol.cost:.6e}"))
         if hasattr(sol, "optimality"):
-            summary.add_row("Optimality", f"{sol.optimality:.3e}")
-        summary.add_row("Max |residual|", f"{max_residual:.3e}")
-        summary.add_row("RMS residual", f"{rms_residual:.3e}")
-        summary.add_row("Max normalized variable adjustment", f"{max_normalized_dx:.3e}")
-        summary.add_row("Residual tolerance", f"{rtol:.3e}")
-        summary.add_row("ftol", f"{ftol:.3e}")
-        summary.add_row("xtol", f"{xtol:.3e}")
-        summary.add_row("gtol", f"{gtol:.3e}")
+            summary.add_row(_plain("Optimality"), _plain(f"{sol.optimality:.3e}"))
+        summary.add_row(_plain("Max |residual|"), _plain(f"{max_residual:.3e}"))
+        summary.add_row(_plain("RMS residual"), _plain(f"{rms_residual:.3e}"))
+        summary.add_row(_plain("Max normalized variable adjustment"), _plain(f"{max_normalized_dx:.3e}"))
+        summary.add_row(_plain("Residual tolerance"), _plain(f"{rtol:.3e}"))
+        summary.add_row(_plain("ftol"), _plain(f"{ftol:.3e}"))
+        summary.add_row(_plain("xtol"), _plain(f"{xtol:.3e}"))
+        summary.add_row(_plain("gtol"), _plain(f"{gtol:.3e}"))
 
         variables = Table(
             title="Solution Variables",
@@ -186,11 +199,11 @@ class SteadyStatePrinter:
         for i, value in enumerate(sol.x):
             label = "\n".join(variable_labels[i]) if i < len(variable_labels) else "<unlabeled>"
             variables.add_row(
-                f"x[{i}]",
-                label,
-                f"{value:.6e}",
-                f"{dx[i]:+.6e}",
-                f"{normalized_dx[i]:.3e}",
+                _plain(f"x[{i}]"),
+                _plain(label),
+                _plain(f"{value:.6e}"),
+                _plain(f"{dx[i]:+.6e}"),
+                _plain(f"{normalized_dx[i]:.3e}"),
             )
 
         residuals = Table(
@@ -210,7 +223,7 @@ class SteadyStatePrinter:
 
         for i, value in enumerate(sol.fun):
             label = residual_labels[i] if i < len(residual_labels) else "<unlabeled>"
-            residuals.add_row(f"r[{i}]", label, f"{value:.6e}")
+            residuals.add_row(_plain(f"r[{i}]"), _plain(label), _plain(f"{value:.6e}"))
 
         self.console.print()
         self.console.print(summary)
