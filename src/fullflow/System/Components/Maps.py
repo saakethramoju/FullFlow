@@ -1,13 +1,32 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
+import h5py
 import numpy as np
 
 from fullflow.System import Component, State
 
 if TYPE_CHECKING:
     from fullflow.System import Network
+
+
+def _hdf5_filename(filename: str | Path) -> str:
+    path = Path(filename)
+
+    if path.suffix.lower() not in {".h5", ".hdf5"}:
+        path = path.with_suffix(".h5")
+
+    return str(path)
+
+
+def _dataset_names(group, excluded: set[str]) -> list[str]:
+    return [
+        name
+        for name, item in group.items()
+        if name not in excluded and isinstance(item, h5py.Dataset)
+    ]
 
 
 class Map1D(Component):
@@ -48,6 +67,46 @@ class Map1D(Component):
             self.y_maps.value[output_name] = values[sort_indices]
             setattr(self, output_name, State())
 
+    @classmethod
+    def from_hdf5(
+        cls,
+        name: str,
+        network: Network,
+        filename: str | Path,
+        group: str,
+        x_value: State,
+        x_dataset: str = "x",
+        outputs: list[str] | tuple[str, ...] | None = None,
+        extrapolate: bool = False,
+    ):
+        filename = _hdf5_filename(filename)
+
+        with h5py.File(filename, "r") as file:
+            map_group = file[group]
+            x_map = np.asarray(map_group[x_dataset][()], dtype=float)
+
+            if outputs is None:
+                outputs = _dataset_names(map_group, {x_dataset})
+
+            if not outputs:
+                raise ValueError(
+                    f"{name}: HDF5 group '{group}' does not contain any output datasets."
+                )
+
+            y_maps = {
+                output_name: np.asarray(map_group[output_name][()], dtype=float)
+                for output_name in outputs
+            }
+
+        return cls(
+            name,
+            network,
+            x_value=x_value,
+            x_map=x_map,
+            y_maps=y_maps,
+            extrapolate=extrapolate,
+        )
+
     @staticmethod
     def _interp(x, x_map, values, extrapolate):
         if not extrapolate:
@@ -73,13 +132,6 @@ class Map1D(Component):
     @property
     def ignored_export_attributes(self) -> set[str]:
         return super().ignored_export_attributes | {"x_map", "y_maps"}
-
-
-
-
-
-
-
 
 
 class Map2D(Component):
@@ -135,6 +187,51 @@ class Map2D(Component):
 
             self.z_maps.value[output_name] = values[np.ix_(y_sort_indices, x_sort_indices)]
             setattr(self, output_name, State())
+
+    @classmethod
+    def from_hdf5(
+        cls,
+        name: str,
+        network: Network,
+        filename: str | Path,
+        group: str,
+        x_value: State,
+        y_value: State,
+        x_dataset: str = "x",
+        y_dataset: str = "y",
+        outputs: list[str] | tuple[str, ...] | None = None,
+        extrapolate: bool = False,
+    ):
+        filename = _hdf5_filename(filename)
+
+        with h5py.File(filename, "r") as file:
+            map_group = file[group]
+            x_map = np.asarray(map_group[x_dataset][()], dtype=float)
+            y_map = np.asarray(map_group[y_dataset][()], dtype=float)
+
+            if outputs is None:
+                outputs = _dataset_names(map_group, {x_dataset, y_dataset})
+
+            if not outputs:
+                raise ValueError(
+                    f"{name}: HDF5 group '{group}' does not contain any output datasets."
+                )
+
+            z_maps = {
+                output_name: np.asarray(map_group[output_name][()], dtype=float)
+                for output_name in outputs
+            }
+
+        return cls(
+            name,
+            network,
+            x_value=x_value,
+            y_value=y_value,
+            x_map=x_map,
+            y_map=y_map,
+            z_maps=z_maps,
+            extrapolate=extrapolate,
+        )
 
     @staticmethod
     def _interp(x, x_map, values, extrapolate):
