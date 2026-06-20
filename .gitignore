@@ -15,3 +15,7 @@ build/
 
 .DS_Store
 test.py
+
+# HDF5 map/output files
+*.h5
+*.hdf5

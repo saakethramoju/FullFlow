@@ -172,7 +172,12 @@ class State:
     @property
     def value(self) -> Any:
         if self._expr is not None:
-            return self._expr()
+            try:
+                return self._expr()
+            except Exception:
+                if self._value is not None:
+                    return self._value
+                raise
 
         if self._value is None:
             raise ValueError(f"State {self._code} has no assigned value.")
@@ -199,6 +204,36 @@ class State:
         """Assign a value and return this State for fluent setup."""
         self.value = value
         return self
+
+    def derive_from(self, source: Any) -> "State":
+        """Make this State derive its value from another State-like object or callable.
+
+        This mutates the existing State object, so components that already
+        reference this State keep referencing the same object. If this State
+        already has a stored value, that value is kept as a startup fallback
+        until the derived expression can be evaluated.
+        """
+        if source is self:
+            raise ValueError("A State cannot derive from itself.")
+
+        if is_state_like(source):
+            self._expr = lambda: source.value
+        elif callable(source):
+            self._expr = source
+        else:
+            source = State(source)
+            self._expr = lambda: source.value
+
+        return self
+
+    def __ilshift__(self, source: Any) -> "State":
+        """In-place shorthand for ``derive_from``.
+
+        Example
+        -------
+        ``mixture_ratio <<= ox_mdot / fuel_mdot``
+        """
+        return self.derive_from(source)
 
     @property
     def numeric_value(self) -> float:

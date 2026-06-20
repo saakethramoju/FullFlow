@@ -36,12 +36,68 @@ def _read_json_attr(attrs, name: str, default=None):
     return value
 
 
+def _axis_values_and_spacing(axis):
+    if isinstance(axis, dict):
+        if "values" not in axis:
+            raise ValueError("Axis dictionaries must contain a 'values' entry.")
+
+        values = axis["values"]
+        spacing = axis.get("spacing", "linear")
+
+    elif hasattr(axis, "values") and hasattr(axis, "spacing"):
+        values = axis.values
+        spacing = axis.spacing
+
+    else:
+        values = axis
+        spacing = "linear"
+
+    spacing = _decode_string(spacing)
+
+    if spacing is None or spacing == "":
+        spacing = "linear"
+
+    spacing = str(spacing).lower()
+
+    if spacing not in {"linear", "values", "log"}:
+        raise ValueError(
+            f"Unsupported axis spacing '{spacing}'. "
+            "Supported spacing values are 'linear', 'values', and 'log'."
+        )
+
+    return np.asarray(values, dtype=float), spacing
+
+
+def _interpolation_axis_values(component_name: str, input_name: str, values, spacing: str):
+    if spacing == "log":
+        if np.any(values <= 0.0):
+            raise ValueError(f"{component_name}: log-spaced axis '{input_name}' requires all values to be positive.")
+
+        return np.log(values)
+
+    return values
+
+
+def _interpolation_point_value(component_name: str, input_name: str, value: float, spacing: str):
+    if spacing == "log":
+        if value <= 0.0:
+            raise ValueError(f"{component_name}: log-spaced input '{input_name}' must be positive.")
+
+        return np.log(value)
+
+    return value
+
+
 class Map(Component):
     """Generic N-dimensional map lookup.
 
     ``inputs`` defines the independent variables and their order. ``axes`` gives
     the tabulated grid values for each input. ``outputs`` maps output names to
     N-dimensional scalar arrays whose shapes follow the input order.
+
+    Axis values are stored in physical units. If an axis has ``spacing='log'``,
+    interpolation is performed in log(axis) space while inputs and stored axis
+    values remain in physical units.
     """
 
     _reserved_output_names = {
@@ -54,6 +110,8 @@ class Map(Component):
         "input_names",
         "axis_values",
         "axis_sort_indices",
+        "axis_spacing",
+        "axis_interpolation_values",
         "output_maps",
         "interpolators",
     }
@@ -110,9 +168,11 @@ class Map(Component):
 
         self.axis_values = {}
         self.axis_sort_indices = {}
+        self.axis_spacing = {}
+        self.axis_interpolation_values = {}
 
         for input_name in self.input_names:
-            values = np.asarray(self.axes.value[input_name], dtype=float)
+            values, spacing = _axis_values_and_spacing(self.axes.value[input_name])
 
             if values.ndim != 1:
                 raise ValueError(f"{self.name}: axis '{input_name}' must be one-dimensional.")
@@ -131,6 +191,13 @@ class Map(Component):
 
             self.axis_values[input_name] = values
             self.axis_sort_indices[input_name] = sort_indices
+            self.axis_spacing[input_name] = spacing
+            self.axis_interpolation_values[input_name] = _interpolation_axis_values(
+                self.name,
+                input_name,
+                values,
+                spacing,
+            )
 
         expected_shape = tuple(
             len(self.axis_values[input_name])
@@ -167,7 +234,7 @@ class Map(Component):
             self.output_maps[output_name] = values
             self.interpolators[output_name] = RegularGridInterpolator(
                 [
-                    self.axis_values[input_name]
+                    self.axis_interpolation_values[input_name]
                     for input_name in self.input_names
                 ],
                 values,
@@ -259,10 +326,14 @@ class Map(Component):
         if missing_axes:
             raise ValueError(f"{name}: HDF5 map is missing axes: {missing_axes}")
 
-        axes = {
-            axis_name: np.asarray(axes_group[axis_name][()], dtype=float)
-            for axis_name in axis_order
-        }
+        axes = {}
+
+        for axis_name in axis_order:
+            axis_dataset = axes_group[axis_name]
+            axes[axis_name] = {
+                "values": np.asarray(axis_dataset[()], dtype=float),
+                "spacing": _decode_string(axis_dataset.attrs.get("spacing", "linear")),
+            }
 
         ordered_inputs = {
             axis_name: inputs[axis_name]
@@ -297,7 +368,10 @@ class Map(Component):
             x_dataset = map_group["x"]
             x_name = x_dataset.attrs.get("name", "x")
             x_name = _decode_string(x_name)
-            axes[x_name] = np.asarray(x_dataset[()], dtype=float)
+            axes[x_name] = {
+                "values": np.asarray(x_dataset[()], dtype=float),
+                "spacing": _decode_string(x_dataset.attrs.get("spacing", "linear")),
+            }
             axis_order.append(x_name)
             legacy_axis_datasets.append("x")
 
@@ -305,7 +379,10 @@ class Map(Component):
             y_dataset = map_group["y"]
             y_name = y_dataset.attrs.get("name", "y")
             y_name = _decode_string(y_name)
-            axes[y_name] = np.asarray(y_dataset[()], dtype=float)
+            axes[y_name] = {
+                "values": np.asarray(y_dataset[()], dtype=float),
+                "spacing": _decode_string(y_dataset.attrs.get("spacing", "linear")),
+            }
             axis_order.append(y_name)
             legacy_axis_datasets.append("y")
 
@@ -346,28 +423,33 @@ class Map(Component):
         return axes, output_maps, ordered_inputs
 
     def _point(self):
-        point = np.array(
-            [
-                self.inputs.value[input_name].value
-                for input_name in self.input_names
-            ],
-            dtype=float,
-        )
+        point = []
 
-        if not self.extrapolate.value:
-            point = np.array(
-                [
+        for input_name in self.input_names:
+            value = float(self.inputs.value[input_name].value)
+
+            if not np.isfinite(value):
+                raise ValueError(f"{self.name}: input '{input_name}' must be finite.")
+
+            if not self.extrapolate.value:
+                value = float(
                     np.clip(
-                        point[index],
+                        value,
                         self.axis_values[input_name][0],
                         self.axis_values[input_name][-1],
                     )
-                    for index, input_name in enumerate(self.input_names)
-                ],
-                dtype=float,
+                )
+
+            point.append(
+                _interpolation_point_value(
+                    self.name,
+                    input_name,
+                    value,
+                    self.axis_spacing[input_name],
+                )
             )
 
-        return point
+        return np.asarray(point, dtype=float)
 
     def evaluate_states(self):
         point = self._point()
@@ -382,6 +464,8 @@ class Map(Component):
             "outputs",
             "axis_values",
             "axis_sort_indices",
+            "axis_spacing",
+            "axis_interpolation_values",
             "output_maps",
             "interpolators",
             "input_names",
