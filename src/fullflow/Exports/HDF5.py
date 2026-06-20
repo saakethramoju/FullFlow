@@ -49,6 +49,22 @@ def hdf5_path(filename: str | Path) -> Path:
     return path
 
 
+def hdf5_filename(filename: str | Path) -> str:
+    """Return an HDF5 filename string, adding ``.h5`` when omitted."""
+    return str(hdf5_path(filename))
+
+
+def dataset_names(group: h5py.Group, excluded: set[str] | None = None) -> list[str]:
+    """Return direct child dataset names, excluding any requested names."""
+    excluded = set() if excluded is None else set(excluded)
+
+    return [
+        name
+        for name, item in group.items()
+        if name not in excluded and isinstance(item, h5py.Dataset)
+    ]
+
+
 def hdf5_target(filename: str | Path | HDF5Target, group_path: str) -> HDF5Target:
     """Return an export target, preserving an existing target filename."""
     if isinstance(filename, HDF5Target):

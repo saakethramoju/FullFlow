@@ -1,6 +1,29 @@
-from fullflow.Exports.Maps import Axis, generate_map
+from fullflow.Exports.HDF5 import (
+    HDF5Target,
+    dataset_names,
+    hdf5_filename,
+    hdf5_path,
+    hdf5_target,
+    safe_group_name,
+    write_failures,
+    write_model_option_results,
+    write_solution,
+    write_tables,
+)
+from fullflow.Exports.Maps import Axis, MapOutputError, generate_map
 
 __all__ = [
     "Axis",
+    "MapOutputError",
     "generate_map",
+    "HDF5Target",
+    "dataset_names",
+    "hdf5_filename",
+    "hdf5_path",
+    "hdf5_target",
+    "safe_group_name",
+    "write_failures",
+    "write_model_option_results",
+    "write_solution",
+    "write_tables",
 ]

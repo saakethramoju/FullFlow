@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fullflow.HDF5 import write_model_option_results
+from fullflow.Exports.HDF5 import write_model_option_results
 
 
 def format_records(records: list[dict[str, Any]], return_type: str):

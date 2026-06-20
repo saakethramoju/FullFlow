@@ -14,7 +14,7 @@ from typing import Any
 
 from .results import format_records, save_model_option_results
 from .statistics import model_option_statistics_path
-from fullflow.HDF5 import HDF5Target, safe_group_name, write_failures, write_solution
+from fullflow.Exports.HDF5 import HDF5Target, safe_group_name, write_failures, write_solution
 
 
 @dataclass(slots=True)

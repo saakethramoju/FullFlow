@@ -8,30 +8,13 @@ import h5py
 import numpy as np
 from scipy.interpolate import RegularGridInterpolator
 
+from fullflow.Exports.HDF5 import dataset_names, hdf5_filename
 from fullflow.System import Component, State
 
 if TYPE_CHECKING:
     from fullflow.System import Network
 
 
-HDF5_EXTENSIONS = {".h5", ".hdf5"}
-
-
-def _hdf5_filename(filename: str | Path) -> str:
-    path = Path(filename)
-
-    if path.suffix.lower() not in HDF5_EXTENSIONS:
-        path = path.with_suffix(".h5")
-
-    return str(path)
-
-
-def _dataset_names(group, excluded: set[str]) -> list[str]:
-    return [
-        name
-        for name, item in group.items()
-        if name not in excluded and isinstance(item, h5py.Dataset)
-    ]
 
 
 def _decode_string(value):
@@ -216,7 +199,7 @@ class Map(Component):
         outputs: list[str] | tuple[str, ...] | None = None,
         extrapolate: bool = False,
     ):
-        filename = _hdf5_filename(filename)
+        filename = hdf5_filename(filename)
 
         with h5py.File(filename, "r") as file:
             map_group = file[group]
@@ -287,7 +270,7 @@ class Map(Component):
         }
 
         if outputs is None:
-            outputs = _dataset_names(output_group, set())
+            outputs = dataset_names(output_group, set())
 
         if not outputs:
             raise ValueError(f"{name}: HDF5 map does not contain any output datasets.")
@@ -345,7 +328,7 @@ class Map(Component):
         }
 
         if outputs is None:
-            outputs = _dataset_names(map_group, set(legacy_axis_datasets))
+            outputs = dataset_names(map_group, set(legacy_axis_datasets))
 
         if not outputs:
             raise ValueError(f"{name}: HDF5 group does not contain any output datasets.")
@@ -455,14 +438,14 @@ class Map1D(Component):
         outputs: list[str] | tuple[str, ...] | None = None,
         extrapolate: bool = False,
     ):
-        filename = _hdf5_filename(filename)
+        filename = hdf5_filename(filename)
 
         with h5py.File(filename, "r") as file:
             map_group = file[group]
             x_map = np.asarray(map_group[x_dataset][()], dtype=float)
 
             if outputs is None:
-                outputs = _dataset_names(map_group, {x_dataset})
+                outputs = dataset_names(map_group, {x_dataset})
 
             if not outputs:
                 raise ValueError(
@@ -578,7 +561,7 @@ class Map2D(Component):
         outputs: list[str] | tuple[str, ...] | None = None,
         extrapolate: bool = False,
     ):
-        filename = _hdf5_filename(filename)
+        filename = hdf5_filename(filename)
 
         with h5py.File(filename, "r") as file:
             map_group = file[group]
@@ -586,7 +569,7 @@ class Map2D(Component):
             y_map = np.asarray(map_group[y_dataset][()], dtype=float)
 
             if outputs is None:
-                outputs = _dataset_names(map_group, {x_dataset, y_dataset})
+                outputs = dataset_names(map_group, {x_dataset, y_dataset})
 
             if not outputs:
                 raise ValueError(

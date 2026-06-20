@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 from .Composition import Composition
 from .State import is_state_like
-from fullflow.HDF5 import write_solution
+from fullflow.Exports.HDF5 import write_solution
 
 if TYPE_CHECKING:
     from fullflow.System import Balance, Component, State

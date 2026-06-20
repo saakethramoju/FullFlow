@@ -17,7 +17,7 @@ from rich import box
 from rich.table import Table
 from rich.text import Text
 
-from fullflow.HDF5 import HDF5Target, safe_group_name, write_tables
+from fullflow.Exports.HDF5 import HDF5Target, safe_group_name, write_tables
 
 
 def _plain(value: Any) -> Text:

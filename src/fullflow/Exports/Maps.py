@@ -10,8 +10,9 @@ import json
 import h5py
 import numpy as np
 
+from fullflow.Exports.HDF5 import dataset_names, hdf5_filename
 
-HDF5_EXTENSIONS = {".h5", ".hdf5"}
+
 _STRING_DTYPE = h5py.string_dtype(encoding="utf-8")
 _RESERVED_GROUP_NAMES = {"axes", "outputs", "status"}
 
@@ -76,18 +77,6 @@ class Axis:
         )
 
 
-def _hdf5_filename(filename: str | Path) -> str:
-    path = Path(filename)
-
-    if path.suffix == "":
-        path = path.with_suffix(".h5")
-    elif path.suffix.lower() not in HDF5_EXTENSIONS:
-        raise ValueError("Map files must use .h5, .hdf5, or no extension.")
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-
-    return str(path)
-
 
 def _validate_hdf5_name(name: str, label: str) -> None:
     if not isinstance(name, str) or not name.strip():
@@ -143,13 +132,6 @@ def _json_default(value):
 
     return repr(value)
 
-
-def _dataset_names(group, excluded: set[str]) -> list[str]:
-    return [
-        name
-        for name, item in group.items()
-        if name not in excluded and isinstance(item, h5py.Dataset)
-    ]
 
 
 def _validate_scalar_outputs(
@@ -319,7 +301,7 @@ def _check_existing_group(
     if axis_order and axis_order != [axis.name for axis in axes]:
         raise ValueError("Existing map axis order does not match requested axis order.")
 
-    output_names = list(outputs) if outputs is not None else _dataset_names(outputs_group, set())
+    output_names = list(outputs) if outputs is not None else dataset_names(outputs_group, set())
 
     if not output_names:
         raise ValueError("Existing map group does not contain any output datasets.")
@@ -419,7 +401,7 @@ def generate_map(
     ``dict[str, scalar_number]``. Vector outputs are intentionally rejected;
     return individual scalar values instead, such as ``Y_H2O`` or ``X_CO2``.
     """
-    filename = _hdf5_filename(filename)
+    filename = hdf5_filename(filename)
     axes = list(axes)
     constants = {} if constants is None else dict(constants)
     metadata = {} if metadata is None else dict(metadata)
