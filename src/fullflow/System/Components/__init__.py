@@ -7,3 +7,5 @@ from .HeatTransfer import *
 from .ConvectionCoefficients import *
 from .Nodes import *
 from .Lookup import *
+from .Composition import *
+

@@ -5,7 +5,6 @@ import sys
 from numbers import Real
 from typing import TYPE_CHECKING, Any
 
-from .Composition import Composition
 from .Model import ModelOption
 from .State import State
 
@@ -81,12 +80,9 @@ class Component:
 
     def initialize_attribute(
         self,
-        value: State | Composition | float | int | str | bool | None = None,
+        value: State | float | int | str | bool | None = None,
         is_default_value: bool = False,
     ) -> Any:
-        if isinstance(value, Composition):
-            return Composition() if is_default_value else value
-
         if isinstance(value, State):
             return value
 

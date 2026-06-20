@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
-from .Composition import Composition
 from .State import is_state_like
 from fullflow.Exports.HDF5 import write_solution
 
@@ -108,15 +107,46 @@ class Network:
         return self.component_iteration_variables + self.balance_iteration_variables
 
     @staticmethod
-    def _state_label(owner: Any, state: State) -> str:
-        for attr_name, attr_value in owner.__dict__.items():
-            if attr_value is state:
-                return f"{owner.name}:{attr_name}"
+    def _state_paths(value: Any, target: Any, prefix: str) -> list[str]:
+        paths: list[str] = []
+        seen: set[int] = set()
 
-            if isinstance(attr_value, Composition):
-                for species, species_state in attr_value.fraction.items():
-                    if species_state is state:
-                        return f"{owner.name}:{attr_name}.{species}"
+        def collect(item: Any, path: str) -> None:
+            item_id = id(item)
+            if item_id in seen:
+                return
+            seen.add(item_id)
+
+            if item is target:
+                paths.append(path)
+                return
+
+            if is_state_like(item):
+                try:
+                    collect(item.value, path)
+                except Exception:
+                    pass
+                return
+
+            if isinstance(item, dict):
+                for key, child in item.items():
+                    collect(child, f"{path}.{key}")
+                return
+
+            if isinstance(item, (list, tuple)):
+                for index, child in enumerate(item):
+                    collect(child, f"{path}[{index}]")
+                return
+
+        collect(value, prefix)
+        return paths
+
+    @classmethod
+    def _state_label(cls, owner: Any, state: State) -> str:
+        for attr_name, attr_value in owner.__dict__.items():
+            paths = cls._state_paths(attr_value, state, f"{owner.name}:{attr_name}")
+            if paths:
+                return paths[0]
 
         return f"{owner.name}:<unknown>"
 
@@ -309,27 +339,6 @@ class Network:
     ) -> None:
         for attr_name, attr_value in owner.__dict__.items():
             if attr_name in ignored_attributes or attr_name.startswith("_"):
-                continue
-
-            if isinstance(attr_value, Composition):
-                if not attr_value.is_assigned:
-                    self._append_record(
-                        records,
-                        owner.name,
-                        owner.__class__.__name__,
-                        attr_name,
-                        "<uninitialized>",
-                    )
-                    continue
-
-                for species, state in attr_value.fraction.items():
-                    self._append_record(
-                        records,
-                        owner.name,
-                        owner.__class__.__name__,
-                        f"{attr_name}.{species}",
-                        self._safe_value(state),
-                    )
                 continue
 
             self._append_record(

@@ -19,7 +19,6 @@ from typing import Any
 
 import numpy as np
 
-from fullflow.System.Composition import Composition
 from fullflow.System.State import (
     is_assignable_state_like,
     is_state_like,
@@ -163,16 +162,47 @@ class RuntimeCache:
         raise ValueError("\n".join(lines))
 
     @staticmethod
-    def state_label(owner: Any, state: Any) -> str:
+    def _state_paths(value: Any, target: Any, prefix: str) -> list[str]:
+        paths: list[str] = []
+        seen: set[int] = set()
+
+        def collect(item: Any, path: str) -> None:
+            item_id = id(item)
+            if item_id in seen:
+                return
+            seen.add(item_id)
+
+            if item is target:
+                paths.append(path)
+                return
+
+            if is_state_like(item):
+                try:
+                    collect(item.value, path)
+                except Exception:
+                    pass
+                return
+
+            if isinstance(item, dict):
+                for key, child in item.items():
+                    collect(child, f"{path}.{key}")
+                return
+
+            if isinstance(item, (list, tuple)):
+                for index, child in enumerate(item):
+                    collect(child, f"{path}[{index}]")
+                return
+
+        collect(value, prefix)
+        return paths
+
+    @classmethod
+    def state_label(cls, owner: Any, state: Any) -> str:
         """Best-effort ``owner:attribute`` label for diagnostics."""
         for attr_name, attr_value in owner.__dict__.items():
-            if attr_value is state:
-                return f"{owner.name}:{attr_name}"
-
-            if isinstance(attr_value, Composition):
-                for species, species_state in attr_value.fraction.items():
-                    if species_state is state:
-                        return f"{owner.name}:{attr_name}.{species}"
+            paths = cls._state_paths(attr_value, state, f"{owner.name}:{attr_name}")
+            if paths:
+                return paths[0]
 
         return f"{owner.name}:<unknown>"
 
@@ -182,13 +212,9 @@ class RuntimeCache:
 
         for owner in self.component_list + self.balance_list:
             for attr_name, attr_value in owner.__dict__.items():
-                if attr_value is target:
-                    labels.append(f"{owner.name}.{attr_name}")
-
-                if isinstance(attr_value, Composition):
-                    for species, state in attr_value.fraction.items():
-                        if state is target:
-                            labels.append(f"{owner.name}.{attr_name}.{species}")
+                labels.extend(
+                    self._state_paths(attr_value, target, f"{owner.name}.{attr_name}")
+                )
 
         return labels or [str(target)]
 
@@ -263,7 +289,7 @@ class RuntimeCache:
 
         These references are used only for fixed-point convergence checks. The
         traversal includes common containers so components can store States in
-        lists, tuples, dictionaries, and ``Composition`` objects.
+        lists, tuples, and dictionaries.
         """
         refs: list[Any] = []
         seen: set[int] = set()
@@ -278,11 +304,10 @@ class RuntimeCache:
         def collect(value: Any) -> None:
             if is_state_like(value):
                 add_state(value)
-                return
-
-            if isinstance(value, Composition):
-                for state in value.fraction.values():
-                    add_state(state)
+                try:
+                    collect(value.value)
+                except Exception:
+                    pass
                 return
 
             if isinstance(value, dict):

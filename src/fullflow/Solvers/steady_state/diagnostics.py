@@ -29,6 +29,139 @@ def _styled(value: Any, style: str) -> Text:
     return Text(str(value), style=style)
 
 
+def _format_number(value: Any) -> str:
+    """Format scalar numeric values compactly for terminal tables."""
+    if isinstance(value, bool):
+        return str(value)
+
+    if isinstance(value, (int, np.integer)):
+        return str(int(value))
+
+    if isinstance(value, (float, np.floating)):
+        value = float(value)
+        if not np.isfinite(value):
+            return str(value)
+        return f"{value:.6g}"
+
+    return str(value)
+
+
+def _format_array(value: np.ndarray) -> str:
+    """Summarize arrays instead of printing every element."""
+    array = np.asarray(value)
+
+    if array.size == 0:
+        return f"array(shape={array.shape}, empty)"
+
+    if array.dtype.kind in {"b", "i", "u", "f", "c"}:
+        try:
+            return (
+                f"array(shape={array.shape}, "
+                f"min={_format_number(np.nanmin(array))}, "
+                f"max={_format_number(np.nanmax(array))})"
+            )
+        except Exception:
+            pass
+
+    return f"array(shape={array.shape}, dtype={array.dtype})"
+
+
+def _format_dict(value: dict[Any, Any], *, depth: int = 0, max_items: int = 6) -> str:
+    """Format dictionaries compactly for display."""
+    if not value:
+        return "{}"
+
+    pieces = []
+    items = list(value.items())
+
+    for key, item in items[:max_items]:
+        pieces.append(f"{key}={_format_value(item, depth=depth + 1)}")
+
+    if len(items) > max_items:
+        pieces.append("...")
+
+    return "{" + ", ".join(pieces) + "}"
+
+
+def _is_stream_tuple(value: Any) -> bool:
+    """Return True for a Composition-style ``(mass_flow, composition)`` tuple."""
+    return (
+        isinstance(value, tuple)
+        and len(value) == 2
+        and (isinstance(value[1], dict) or value[1] is None)
+    )
+
+
+def _format_streams(value: list[Any] | tuple[Any, ...], *, depth: int = 0) -> str:
+    """Format lists of ``(mass_flow, composition)`` stream tuples."""
+    lines = []
+
+    for index, stream in enumerate(value):
+        mass_flow, composition = stream
+
+        if composition is None:
+            composition_text = "None"
+        else:
+            composition_text = _format_dict(composition, depth=depth + 1)
+
+        lines.append(
+            f"[{index}] mdot={_format_value(mass_flow, depth=depth + 1)}, "
+            f"x={composition_text}"
+        )
+
+    return "\n".join(lines)
+
+
+def _format_sequence(
+    value: list[Any] | tuple[Any, ...],
+    *,
+    depth: int = 0,
+    max_items: int = 6,
+) -> str:
+    """Format lists and tuples compactly for display."""
+    if not value:
+        return "[]" if isinstance(value, list) else "()"
+
+    if all(_is_stream_tuple(item) for item in value):
+        return _format_streams(value, depth=depth)
+
+    items = list(value)
+    pieces = [
+        _format_value(item, depth=depth + 1)
+        for item in items[:max_items]
+    ]
+
+    if len(items) > max_items:
+        pieces.append("...")
+
+    open_bracket, close_bracket = ("[", "]") if isinstance(value, list) else ("(", ")")
+    return open_bracket + ", ".join(pieces) + close_bracket
+
+
+def _format_value(value: Any, *, depth: int = 0) -> str:
+    """Format values for verbose terminal output.
+
+    This is intentionally display-only. It should not be used for saving,
+    exporting, or numerical work.
+    """
+    if isinstance(value, str) and value in {"<uninitialized>", "<unavailable>"}:
+        return value
+
+    if isinstance(value, np.ndarray):
+        return _format_array(value)
+
+    if isinstance(value, dict):
+        return _format_dict(value, depth=depth)
+
+    if isinstance(value, (list, tuple)):
+        return _format_sequence(value, depth=depth)
+
+    if isinstance(value, (bool, int, float, np.integer, np.floating)):
+        return _format_number(value)
+
+    return str(value)
+
+
 class SteadyStatePrinter:
     """Build and print the verbose tables used by ``SteadyState``.
 
@@ -53,11 +186,11 @@ class SteadyStatePrinter:
         table.add_column("Component", style="#D84135", no_wrap=True)
         table.add_column("Type", style="#3B629E", no_wrap=True)
         table.add_column("Attribute", style="#fdf0d5", no_wrap=True)
-        table.add_column("Value", justify="right")
+        table.add_column("Value", overflow="fold", max_width=90)
 
         for record in records:
-            value = record["value"]
-            value_text = f"{value:.6g}" if isinstance(value, float) else str(value)
+            value_text = _format_value(record["value"])
+
             if value_text == "<uninitialized>":
                 value_cell = _styled(value_text, "dim")
             elif value_text == "<unavailable>":
