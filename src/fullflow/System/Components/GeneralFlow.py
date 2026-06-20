@@ -9,7 +9,6 @@ if TYPE_CHECKING:
     from fullflow.System import Network, State
 
 
-
 class FlowTube(Component):
 
     def __init__(
@@ -58,11 +57,11 @@ class FlowTube(Component):
 
             if self.height_change.is_assigned:
                 dh = self.height_change.value
-                gravity = rho1 * g * dh
+                gravity = rho1 * g * dh * A
 
             if self.friction_factor.is_assigned:
                 f = self.friction_factor.value
-                Kf = 8.0 * f * L / (rho1 * math.pi**2 * D**5)
+                Kf = f * L / (2.0 * rho1 * D * A**2)
                 friction = Kf * mdot * abs(mdot) * A
 
             if self.upstream_static_enthalpy.is_assigned:
@@ -84,7 +83,6 @@ class FlowTube(Component):
     def residuals(self) -> list[float]:
         return [self._residual]
     
-
 
 
 
@@ -123,6 +121,7 @@ class DarcyWeisbach(Component):
             A = self.cross_sectional_area.value
         else:
             A = (math.pi / 4.0) * D**2
+            self.cross_sectional_area.value = A
 
         if self.friction_factor.is_assigned:
             f = self.friction_factor.value
@@ -134,20 +133,27 @@ class DarcyWeisbach(Component):
         else:
             dh = 0.0
 
-        Kf = 8.0 * f * L / (rho * math.pi**2 * D**5)
+        if rho <= 0.0:
+            raise ValueError(f"{self.name}: density must be positive.")
+
+        if D <= 0.0:
+            raise ValueError(f"{self.name}: hydraulic_diameter must be positive.")
+
+        if A <= 0.0:
+            raise ValueError(f"{self.name}: cross_sectional_area must be positive.")
+
+        Kf = f * L / (2.0 * rho * D * A**2)
 
         pressure_drop = p1 - p2
 
         if abs(pressure_drop) < 1e-12:
             self.effective_area.value = 0.0
-        elif rho <= 0.0:
-            raise ValueError("density must be positive.")
         else:
             self.effective_area.value = abs(mdot) / math.sqrt(2.0 * rho * abs(pressure_drop))
 
-        pressure = p1 - p2
+        pressure = (p1 - p2) * A
         friction = Kf * mdot * abs(mdot) * A
-        gravity = rho * g * dh
+        gravity = rho * g * dh * A
 
         self._residual = pressure - friction - gravity
 
@@ -158,8 +164,6 @@ class DarcyWeisbach(Component):
     @property
     def residuals(self) -> list[float]:
         return [self._residual]
-
-
 
 
 

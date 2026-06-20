@@ -84,7 +84,7 @@ SourceFluid = Lookup(
 # FullFlow uses SI units internally.
 # -----------------------------------------------------------------------------
 
-pipe_diameter = 0.5 / 1550  # m
+pipe_diameter = 0.5 * 0.0254 # in -> m
 pipe_area = (np.pi / 4) * pipe_diameter**2
 
 

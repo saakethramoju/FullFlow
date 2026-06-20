@@ -46,7 +46,6 @@ dependencies = [
     "scipy>=1.17.1",
     "rich>=15.0.0",
     "h5py>=3.15.0",
-    "thermoprop @ git+https://github.com/saakethramoju/ThermoProp.git@main",
 ]
 
 [project.urls]
@@ -55,9 +54,6 @@ Repository = "https://github.com/saakethramoju/FullFlow"
 Issues = "https://github.com/saakethramoju/FullFlow/issues"
 Changelog = "https://github.com/saakethramoju/FullFlow/blob/main/CHANGELOG.md"
 PyPI = "https://pypi.org/project/fullflow/"
-
-[tool.fullflow.credits]
-thermophysical_properties = "Thermophysical property support provided through ThermoProp."
 
 [project.scripts]
 fullflow = "fullflow:main"

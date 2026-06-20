@@ -98,6 +98,10 @@ class Map(Component):
     Axis values are stored in physical units. If an axis has ``spacing='log'``,
     interpolation is performed in log(axis) space while inputs and stored axis
     values remain in physical units.
+
+    If ``extrapolate`` is False, all input values must remain inside their map
+    axis ranges. If an input goes outside the tabulated range, the map raises an
+    error instead of clipping silently.
     """
 
     _reserved_output_names = {
@@ -431,13 +435,13 @@ class Map(Component):
             if not np.isfinite(value):
                 raise ValueError(f"{self.name}: input '{input_name}' must be finite.")
 
-            if not self.extrapolate.value:
-                value = float(
-                    np.clip(
-                        value,
-                        self.axis_values[input_name][0],
-                        self.axis_values[input_name][-1],
-                    )
+            lower = self.axis_values[input_name][0]
+            upper = self.axis_values[input_name][-1]
+
+            if not self.extrapolate.value and (value < lower or value > upper):
+                raise ValueError(
+                    f"{self.name}: input '{input_name}'={value} is outside the map range "
+                    f"[{lower}, {upper}]. Set extrapolate=True to allow extrapolation."
                 )
 
             point.append(
@@ -470,239 +474,3 @@ class Map(Component):
             "interpolators",
             "input_names",
         }
-
-
-class Map1D(Component):
-    """Generic one-dimensional map lookup."""
-
-    def __init__(
-        self,
-        name: str,
-        network: Network,
-        x_value: State,
-        x_map,
-        y_maps: dict[str, object],
-        extrapolate: bool = False,
-    ):
-        self.setup()
-
-        self.x_map.value = np.asarray(self.x_map.value, dtype=float)
-        self.y_maps.value = {
-            output_name: np.asarray(values, dtype=float)
-            for output_name, values in self.y_maps.value.items()
-        }
-
-        if len(self.x_map.value) < 2:
-            raise ValueError(f"{self.name}: x_map requires at least two points.")
-
-        sort_indices = np.argsort(self.x_map.value)
-        self.x_map.value = self.x_map.value[sort_indices]
-
-        if np.any(np.diff(self.x_map.value) <= 0.0):
-            raise ValueError(f"{self.name}: x_map must be strictly increasing.")
-
-        for output_name, values in self.y_maps.value.items():
-            if len(values) != len(self.x_map.value):
-                raise ValueError(
-                    f"{self.name}: y_map '{output_name}' must have the same length as x_map."
-                )
-
-            self.y_maps.value[output_name] = values[sort_indices]
-            setattr(self, output_name, State())
-
-    @classmethod
-    def from_hdf5(
-        cls,
-        name: str,
-        network: Network,
-        filename: str | Path,
-        group: str,
-        x_value: State,
-        x_dataset: str = "x",
-        outputs: list[str] | tuple[str, ...] | None = None,
-        extrapolate: bool = False,
-    ):
-        filename = hdf5_filename(filename)
-
-        with h5py.File(filename, "r") as file:
-            map_group = file[group]
-            x_map = np.asarray(map_group[x_dataset][()], dtype=float)
-
-            if outputs is None:
-                outputs = dataset_names(map_group, {x_dataset})
-
-            if not outputs:
-                raise ValueError(
-                    f"{name}: HDF5 group '{group}' does not contain any output datasets."
-                )
-
-            y_maps = {
-                output_name: np.asarray(map_group[output_name][()], dtype=float)
-                for output_name in outputs
-            }
-
-        return cls(
-            name,
-            network,
-            x_value=x_value,
-            x_map=x_map,
-            y_maps=y_maps,
-            extrapolate=extrapolate,
-        )
-
-    @staticmethod
-    def _interp(x, x_map, values, extrapolate):
-        if not extrapolate:
-            return float(np.interp(x, x_map, values))
-
-        if x < x_map[0]:
-            slope = (values[1] - values[0]) / (x_map[1] - x_map[0])
-            return float(values[0] + slope * (x - x_map[0]))
-
-        if x > x_map[-1]:
-            slope = (values[-1] - values[-2]) / (x_map[-1] - x_map[-2])
-            return float(values[-1] + slope * (x - x_map[-1]))
-
-        return float(np.interp(x, x_map, values))
-
-    def evaluate_states(self):
-        x = self.x_value.value
-        extrapolate = self.extrapolate.value
-
-        for output_name, values in self.y_maps.value.items():
-            getattr(self, output_name).value = self._interp(x, self.x_map.value, values, extrapolate)
-
-    @property
-    def ignored_export_attributes(self) -> set[str]:
-        return super().ignored_export_attributes | {"x_map", "y_maps"}
-
-
-class Map2D(Component):
-    """Generic two-dimensional map lookup."""
-
-    def __init__(
-        self,
-        name: str,
-        network: Network,
-        x_value: State,
-        y_value: State,
-        x_map,
-        y_map,
-        z_maps: dict[str, object],
-        extrapolate: bool = False,
-    ):
-        self.setup()
-
-        self.x_map.value = np.asarray(self.x_map.value, dtype=float)
-        self.y_map.value = np.asarray(self.y_map.value, dtype=float)
-        self.z_maps.value = {
-            output_name: np.asarray(values, dtype=float)
-            for output_name, values in self.z_maps.value.items()
-        }
-
-        if len(self.x_map.value) < 2:
-            raise ValueError(f"{self.name}: x_map requires at least two points.")
-
-        if len(self.y_map.value) < 2:
-            raise ValueError(f"{self.name}: y_map requires at least two points.")
-
-        x_sort_indices = np.argsort(self.x_map.value)
-        y_sort_indices = np.argsort(self.y_map.value)
-
-        x_count = len(self.x_map.value)
-        y_count = len(self.y_map.value)
-
-        self.x_map.value = self.x_map.value[x_sort_indices]
-        self.y_map.value = self.y_map.value[y_sort_indices]
-
-        if np.any(np.diff(self.x_map.value) <= 0.0):
-            raise ValueError(f"{self.name}: x_map must be strictly increasing.")
-
-        if np.any(np.diff(self.y_map.value) <= 0.0):
-            raise ValueError(f"{self.name}: y_map must be strictly increasing.")
-
-        for output_name, values in self.z_maps.value.items():
-            if values.shape != (y_count, x_count):
-                raise ValueError(
-                    f"{self.name}: z_map '{output_name}' must have shape "
-                    f"({y_count}, {x_count}). Got {values.shape}."
-                )
-
-            self.z_maps.value[output_name] = values[np.ix_(y_sort_indices, x_sort_indices)]
-            setattr(self, output_name, State())
-
-    @classmethod
-    def from_hdf5(
-        cls,
-        name: str,
-        network: Network,
-        filename: str | Path,
-        group: str,
-        x_value: State,
-        y_value: State,
-        x_dataset: str = "x",
-        y_dataset: str = "y",
-        outputs: list[str] | tuple[str, ...] | None = None,
-        extrapolate: bool = False,
-    ):
-        filename = hdf5_filename(filename)
-
-        with h5py.File(filename, "r") as file:
-            map_group = file[group]
-            x_map = np.asarray(map_group[x_dataset][()], dtype=float)
-            y_map = np.asarray(map_group[y_dataset][()], dtype=float)
-
-            if outputs is None:
-                outputs = dataset_names(map_group, {x_dataset, y_dataset})
-
-            if not outputs:
-                raise ValueError(
-                    f"{name}: HDF5 group '{group}' does not contain any output datasets."
-                )
-
-            z_maps = {
-                output_name: np.asarray(map_group[output_name][()], dtype=float)
-                for output_name in outputs
-            }
-
-        return cls(
-            name,
-            network,
-            x_value=x_value,
-            y_value=y_value,
-            x_map=x_map,
-            y_map=y_map,
-            z_maps=z_maps,
-            extrapolate=extrapolate,
-        )
-
-    @staticmethod
-    def _interp(x, x_map, values, extrapolate):
-        if not extrapolate:
-            return float(np.interp(x, x_map, values))
-
-        if x < x_map[0]:
-            slope = (values[1] - values[0]) / (x_map[1] - x_map[0])
-            return float(values[0] + slope * (x - x_map[0]))
-
-        if x > x_map[-1]:
-            slope = (values[-1] - values[-2]) / (x_map[-1] - x_map[-2])
-            return float(values[-1] + slope * (x - x_map[-1]))
-
-        return float(np.interp(x, x_map, values))
-
-    def evaluate_states(self):
-        x = self.x_value.value
-        y = self.y_value.value
-        extrapolate = self.extrapolate.value
-
-        for output_name, values in self.z_maps.value.items():
-            values_at_x = np.array([
-                self._interp(x, self.x_map.value, row, extrapolate)
-                for row in values
-            ])
-            getattr(self, output_name).value = self._interp(y, self.y_map.value, values_at_x, extrapolate)
-
-    @property
-    def ignored_export_attributes(self) -> set[str]:
-        return super().ignored_export_attributes | {"x_map", "y_map", "z_maps"}

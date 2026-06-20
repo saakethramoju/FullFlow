@@ -75,16 +75,59 @@ class Volume(Component):
         internal_energy: State | None = None,
         mass_flow_in: State | float | None = None,
         mass_flow_out: State | float | None = None,
+        energy_variable: str = "enthalpy",
     ):
-        self._has_energy_balance = enthalpy is not None and total_enthalpy_in is not None
+        aliases = {
+            "h": "enthalpy",
+            "enthalpy": "enthalpy",
+            "t": "temperature",
+            "temp": "temperature",
+            "temperature": "temperature",
+        }
+
+        self._energy_variable = str(energy_variable).strip().lower()
+
+        if self._energy_variable not in aliases:
+            raise ValueError(
+                f"{name}: energy_variable must be one of {tuple(sorted(aliases))}."
+            )
+
+        self._energy_variable = aliases[self._energy_variable]
+
+        if self._energy_variable == "temperature":
+            self._has_energy_balance = total_enthalpy_in is not None and (total_enthalpy_out is not None or enthalpy is not None)
+        else:
+            self._has_energy_balance = total_enthalpy_in is not None and enthalpy is not None
+
+        if self._has_energy_balance and self._energy_variable == "temperature" and temperature is None:
+            raise ValueError(
+                f"{name}: temperature must be provided when energy_variable='temperature'."
+            )
+
         self.setup()
+
+        self.energy_variable.value = self._energy_variable
+
+    def _outlet_enthalpy(self) -> float:
+        if self.total_enthalpy_out.is_assigned:
+            return self.total_enthalpy_out.value
+
+        if self.enthalpy.is_assigned:
+            return self.enthalpy.value
+
+        raise ValueError(
+            f"{self.name}: energy balance requires total_enthalpy_out or enthalpy to be assigned."
+        )
 
     @property
     def iteration_variables(self) -> list[State]:
-        if self._has_energy_balance:
-            return [self.pressure, self.enthalpy]
+        if not self._has_energy_balance:
+            return [self.pressure]
 
-        return [self.pressure]
+        if self._energy_variable == "temperature":
+            return [self.pressure, self.temperature]
+
+        return [self.pressure, self.enthalpy]
 
     @property
     def residuals(self) -> list[float]:
@@ -94,7 +137,7 @@ class Volume(Component):
             return [mass_balance]
 
         qdot = self.heat_rate.value if self.heat_rate.is_assigned else 0.0
-        h_out = self.total_enthalpy_out.value if self.total_enthalpy_out.is_assigned else self.enthalpy.value
+        h_out = self._outlet_enthalpy()
         energy_balance = self.mass_flow_in.value * self.total_enthalpy_in.value - self.mass_flow_out.value * h_out + qdot
 
         return [mass_balance, energy_balance]
