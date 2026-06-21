@@ -110,7 +110,7 @@ SplitterNetwork = Network("Splitter Network")
 # mixture at a fixed temperature and pressure. The returned equilibrium state is
 # used as the separator inlet condition.
 #
-# The Lookup exposes values such as:
+# The Lookup exposes states such as:
 #
 #     ChamberEquilibrium.composition
 #     ChamberEquilibrium.pressure
@@ -135,8 +135,14 @@ ChamberEquilibrium = Lookup(
 # The species list is intentionally not hardcoded. ThermoProp decides which
 # equilibrium species are present, and this script uses that returned dictionary
 # to create the separator composition equations.
-ChamberEquilibrium.evaluate_states()
-chamber_composition = resolve_value(ChamberEquilibrium.composition)
+#
+# ChamberEquilibrium.composition is a lookup output. Its .value is the actual
+# dictionary of equilibrium mass fractions:
+#
+#     {"H2O": 0.52, "O2": 0.46, ...}
+#
+# The rest of this example uses that plain dictionary.
+chamber_composition = ChamberEquilibrium.composition.value
 
 
 # -----------------------------------------------------------------------------
