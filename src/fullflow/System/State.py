@@ -4,6 +4,7 @@ import math
 from functools import lru_cache
 from numbers import Real
 from typing import Any, Callable, Protocol, runtime_checkable
+from collections.abc import Iterable, Mapping
 
 
 __all__ = [
@@ -123,6 +124,110 @@ class State:
         state = cls()
         state._expr = expr
         return state
+    
+    @classmethod
+    def from_iterable(cls, value: Any) -> Any:
+        """
+        Recursively convert values inside an iterable/container into States.
+
+        This is useful when a dictionary, list, tuple, set, or other iterable
+        stores values that should become solver variables.
+
+        Existing scalar State-like values are preserved. State-like containers
+        are unwrapped first, then their contained values are converted.
+
+        Strings and bytes are treated as scalar values, not iterated
+        character-by-character.
+
+        Examples
+        --------
+        Convert a normal dictionary:
+
+            State.from_iterable({"H2": 0.2, "O2": 0.8})
+
+        gives:
+
+            {
+                "H2": State(0.2),
+                "O2": State(0.8),
+            }
+
+        Convert a LookupAttribute whose value is a dictionary:
+
+            State.from_iterable(ChamberEquilibrium.composition)
+
+        also gives a dictionary of States.
+
+        Notes
+        -----
+        This helper does not normalize fractions, enforce sum-to-one, or add
+        N - 1 composition closure. It only wraps contained scalar values in
+        State objects.
+        """
+
+        def is_container(item: Any) -> bool:
+            if isinstance(item, (str, bytes, bytearray)):
+                return False
+
+            if isinstance(item, Mapping):
+                return True
+
+            if isinstance(item, (list, tuple, set, frozenset)):
+                return True
+
+            return isinstance(item, Iterable)
+
+        if is_state_like(value):
+            try:
+                resolved = value.value
+            except Exception:
+                return value
+
+            if is_container(resolved):
+                return cls.from_iterable(resolved)
+
+            return value
+
+        if isinstance(value, Mapping):
+            return {
+                key: cls.from_iterable(item)
+                for key, item in value.items()
+            }
+
+        if isinstance(value, list):
+            return [
+                cls.from_iterable(item)
+                for item in value
+            ]
+
+        if isinstance(value, tuple):
+            return tuple(
+                cls.from_iterable(item)
+                for item in value
+            )
+
+        if isinstance(value, set):
+            return {
+                cls.from_iterable(item)
+                for item in value
+            }
+
+        if isinstance(value, frozenset):
+            return frozenset(
+                cls.from_iterable(item)
+                for item in value
+            )
+
+        if isinstance(value, (str, bytes, bytearray)):
+            return cls(value)
+
+        if isinstance(value, Iterable):
+            return [
+                cls.from_iterable(item)
+                for item in value
+            ]
+
+        return cls(value)
 
     @staticmethod
     def _normalize_bounds(
