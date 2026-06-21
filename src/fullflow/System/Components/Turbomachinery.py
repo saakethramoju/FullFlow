@@ -73,18 +73,19 @@ class GasTurbine(Component):
         self.mass_flow.value = mdot
         self.shaft_power.value = shaft_power
 
+        actual_total_enthalpy_change = shaft_power / mdot
+
         if self.upstream_total_enthalpy.is_assigned:
             ho_in = self.upstream_total_enthalpy.value
-
-            actual_total_enthalpy_change = shaft_power / mdot
-
-            if self.ideal_total_enthalpy_change.is_assigned:
-                ideal_total_enthalpy_change = self.ideal_total_enthalpy_change.value
-            else:
-                cp = g * R / (g - 1.0)
-                ideal_total_enthalpy_change = cp * To * (1.0 - (Pout / Po) ** ((g - 1.0) / g))
-
             self.discharge_total_enthalpy.value = ho_in - actual_total_enthalpy_change
+
+
+        if self.ideal_total_enthalpy_change.is_assigned:
+            ideal_total_enthalpy_change = self.ideal_total_enthalpy_change.value
+            self.efficiency.value = actual_total_enthalpy_change / ideal_total_enthalpy_change
+        else:
+            cp = g * R / (g - 1.0)
+            ideal_total_enthalpy_change = cp * To * (1.0 - (Pout / Po) ** ((g - 1.0) / g))
             self.efficiency.value = actual_total_enthalpy_change / ideal_total_enthalpy_change
 
 

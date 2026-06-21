@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING
 import json
@@ -102,6 +103,44 @@ class Map(Component):
     If ``extrapolate`` is False, all input values must remain inside their map
     axis ranges. If an input goes outside the tabulated range, the map raises an
     error instead of clipping silently.
+
+    Manual maps
+    -----------
+
+    For manually supplied maps, ``outputs`` maps created State names to NumPy
+    arrays:
+
+        outputs={
+            "flow_parameter": flow_parameter_map,
+            "torque": torque_map,
+        }
+
+    This creates:
+
+        Map.flow_parameter
+        Map.torque
+
+    HDF5 maps
+    ---------
+
+    ``Map.from_hdf5(..., outputs=None)`` loads every output dataset and uses the
+    dataset names as the created State names.
+
+    ``Map.from_hdf5(..., outputs=["torque"])`` loads selected datasets and uses
+    the dataset names as the created State names.
+
+    ``Map.from_hdf5(..., outputs={"torque": "Torque [N*m]"})`` loads a dataset
+    with a non-Python-friendly HDF5 name and creates a Python-friendly Map output
+    State name.
+
+    For both manual and HDF5 maps, the public rule is:
+
+        outputs={
+            "created_state_name": data_source,
+        }
+
+    where ``data_source`` is a NumPy array for manual maps and an HDF5 dataset
+    name for file maps.
     """
 
     _reserved_output_names = {
@@ -259,6 +298,78 @@ class Map(Component):
                 f"{self.name}: output name '{output_name}' conflicts with an existing Map attribute."
             )
 
+    @staticmethod
+    def _hdf5_output_name_map(component_name: str, outputs, available_outputs):
+        available_outputs = [
+            str(_decode_string(output_name))
+            for output_name in available_outputs
+        ]
+
+        if outputs is None:
+            return {
+                output_name: output_name
+                for output_name in available_outputs
+            }
+
+        if isinstance(outputs, Mapping):
+            dataset_to_output = {}
+            used_output_names = set()
+            used_dataset_names = set()
+
+            for output_name, dataset_name in outputs.items():
+                output_name = str(_decode_string(output_name))
+                dataset_name = str(_decode_string(dataset_name))
+
+                if output_name in used_output_names:
+                    raise ValueError(
+                        f"{component_name}: duplicate mapped output name "
+                        f"{output_name!r} is not allowed."
+                    )
+
+                if dataset_name in used_dataset_names:
+                    raise ValueError(
+                        f"{component_name}: multiple output names cannot point "
+                        f"to the same HDF5 dataset {dataset_name!r}."
+                    )
+
+                used_output_names.add(output_name)
+                used_dataset_names.add(dataset_name)
+                dataset_to_output[dataset_name] = output_name
+
+            return dataset_to_output
+
+        return {
+            str(_decode_string(output_name)): str(_decode_string(output_name))
+            for output_name in outputs
+        }
+
+    @staticmethod
+    def _validate_hdf5_output_name_map(component_name: str, output_name_map: dict[str, str]) -> None:
+        if not output_name_map:
+            raise ValueError(f"{component_name}: HDF5 map does not contain any output datasets.")
+
+        output_names = list(output_name_map.values())
+        duplicate_output_names = sorted(
+            {
+                output_name
+                for output_name in output_names
+                if output_names.count(output_name) > 1
+            }
+        )
+
+        if duplicate_output_names:
+            raise ValueError(
+                f"{component_name}: duplicate mapped output names are not allowed: "
+                f"{duplicate_output_names}"
+            )
+
+        for dataset_name, output_name in output_name_map.items():
+            if not dataset_name:
+                raise ValueError(f"{component_name}: HDF5 output dataset names must be non-empty.")
+
+            if not output_name:
+                raise ValueError(f"{component_name}: mapped output names must be non-empty.")
+
     @classmethod
     def from_hdf5(
         cls,
@@ -267,7 +378,7 @@ class Map(Component):
         filename: str | Path,
         group: str,
         inputs: dict[str, State],
-        outputs: list[str] | tuple[str, ...] | None = None,
+        outputs: list[str] | tuple[str, ...] | dict[str, str] | None = None,
         extrapolate: bool = False,
     ):
         filename = hdf5_filename(filename)
@@ -299,12 +410,13 @@ class Map(Component):
             extrapolate=extrapolate,
         )
 
-    @staticmethod
+    @classmethod
     def _read_v2_group(
+        cls,
         name: str,
         map_group: h5py.Group,
         inputs: dict[str, State],
-        outputs: list[str] | tuple[str, ...] | None,
+        outputs: list[str] | tuple[str, ...] | dict[str, str] | None,
     ):
         axes_group = map_group["axes"]
         output_group = map_group["outputs"] if "outputs" in map_group else map_group
@@ -344,25 +456,33 @@ class Map(Component):
             for axis_name in axis_order
         }
 
-        if outputs is None:
-            outputs = dataset_names(output_group, set())
+        available_outputs = dataset_names(output_group, set())
+        output_name_map = cls._hdf5_output_name_map(name, outputs, available_outputs)
+        cls._validate_hdf5_output_name_map(name, output_name_map)
 
-        if not outputs:
-            raise ValueError(f"{name}: HDF5 map does not contain any output datasets.")
+        missing_outputs = [
+            dataset_name
+            for dataset_name in output_name_map
+            if dataset_name not in output_group
+        ]
+
+        if missing_outputs:
+            raise ValueError(f"{name}: HDF5 map is missing output datasets: {missing_outputs}")
 
         output_maps = {
-            output_name: np.asarray(output_group[output_name][()], dtype=float)
-            for output_name in outputs
+            output_name: np.asarray(output_group[dataset_name][()], dtype=float)
+            for dataset_name, output_name in output_name_map.items()
         }
 
         return axes, output_maps, ordered_inputs
 
-    @staticmethod
+    @classmethod
     def _read_legacy_group(
+        cls,
         name: str,
         map_group: h5py.Group,
         inputs: dict[str, State],
-        outputs: list[str] | tuple[str, ...] | None,
+        outputs: list[str] | tuple[str, ...] | dict[str, str] | None,
     ):
         axes = {}
         axis_order = []
@@ -408,16 +528,23 @@ class Map(Component):
             for axis_name in axis_order
         }
 
-        if outputs is None:
-            outputs = dataset_names(map_group, set(legacy_axis_datasets))
+        available_outputs = dataset_names(map_group, set(legacy_axis_datasets))
+        output_name_map = cls._hdf5_output_name_map(name, outputs, available_outputs)
+        cls._validate_hdf5_output_name_map(name, output_name_map)
 
-        if not outputs:
-            raise ValueError(f"{name}: HDF5 group does not contain any output datasets.")
+        missing_outputs = [
+            dataset_name
+            for dataset_name in output_name_map
+            if dataset_name not in map_group
+        ]
+
+        if missing_outputs:
+            raise ValueError(f"{name}: HDF5 map is missing output datasets: {missing_outputs}")
 
         output_maps = {}
 
-        for output_name in outputs:
-            values = np.asarray(map_group[output_name][()], dtype=float)
+        for dataset_name, output_name in output_name_map.items():
+            values = np.asarray(map_group[dataset_name][()], dtype=float)
 
             if legacy_axis_datasets == ["x", "y"]:
                 values = values.T
