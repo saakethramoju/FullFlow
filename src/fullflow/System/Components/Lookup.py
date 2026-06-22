@@ -1468,7 +1468,7 @@ class Lookup(Component, Generic[T]):
                 pass
 
     def __getattr__(self, name: str) -> LookupAttribute:
-        if name.startswith("_"):
+        if name.startswith("_") or name == "as_state":
             raise AttributeError(name)
 
         attribute = self._attribute_cache.get(name)

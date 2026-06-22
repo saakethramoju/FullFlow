@@ -86,14 +86,9 @@ class Transient:
         return self._runtime_cache.ensure_current()
 
     def _pick_timestep(self, dt: float, t_final: float) -> float:
-        """Return the next timestep, snapping to known schedule breakpoints."""
+        """Return the next fixed timestep, shortened only at the final time."""
         current_time = float(self.network.time.value)
         target_time = min(current_time + dt, t_final)
-
-        next_breakpoint = self._cache().next_schedule_breakpoint_after(current_time)
-        if next_breakpoint is not None and next_breakpoint < target_time:
-            target_time = next_breakpoint
-
         return target_time - current_time
 
     @staticmethod

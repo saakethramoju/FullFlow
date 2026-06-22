@@ -85,10 +85,10 @@ class Component:
         if isinstance(value, State):
             return value
 
-        as_state = getattr(value, "as_state", None)
+        as_state = getattr(type(value), "as_state", None)
 
         if callable(as_state):
-            return as_state()
+            return as_state(value)
 
         return State(value)
 

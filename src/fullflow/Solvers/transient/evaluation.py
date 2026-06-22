@@ -22,7 +22,7 @@ class TransientStateEvaluator:
         self._cache_getter = cache_getter
 
     def run(self, max_passes: int = 5, tolerance: float = 1e-10) -> None:
-        """Evaluate schedules and components until non-unknown states settle."""
+        """Evaluate components until non-unknown states settle."""
         cache = self._cache_getter()
         iteration_snapshot = cache.snapshot_iteration_variables()
 

@@ -486,7 +486,7 @@ class State:
         self.value = current
 
     def __getattr__(self, name: str) -> Any:
-        if name.startswith("__"):
+        if name.startswith("_"):
             raise AttributeError(name)
 
         try:

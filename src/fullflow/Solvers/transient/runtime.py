@@ -116,30 +116,11 @@ class TransientRuntimeCache:
             self.refresh()
         return self
 
-    @staticmethod
-    def _is_schedule_component(component: Any) -> bool:
-        """Return True for Schedule components without invoking dynamic __getattr__."""
-        return bool(
-            getattr(type(component), "_is_fullflow_schedule", False)
-            or getattr(component, "__dict__", {}).get("_is_fullflow_schedule", False)
-        )
-
     def refresh(self) -> None:
         """Rebuild transient items, algebraic items, callables, and bounds."""
         self.component_list = tuple(self.network.component_list)
         self.balance_list = tuple(self.network.balance_list)
         self.model_list = tuple(self.network.model_list)
-
-        self.schedule_components = tuple(
-            component
-            for component in self.component_list
-            if self._is_schedule_component(component)
-        )
-        self.normal_components = tuple(
-            component
-            for component in self.component_list
-            if not self._is_schedule_component(component)
-        )
 
         self.transient_items = tuple(self._collect_transient_items())
         self.transient_variables = tuple(item.variable for item in self.transient_items)
@@ -166,24 +147,17 @@ class TransientRuntimeCache:
         self.iteration_ids = {id(state) for state in self.iteration_variables}
         self.iteration_labels = tuple(item.label for item in self.iteration_items)
 
-        self._validate_schedule_targets()
-
-        # Schedules run first so commanded values are available to normal
-        # components during every fixed-point pass and residual evaluation.
         self.pre_evaluation_callables = tuple(
             component.pre_evaluation for component in self.component_list
         )
         self.evaluate_state_callables = tuple(
-            component.evaluate_states for component in self.schedule_components
-        ) + tuple(
-            component.evaluate_states for component in self.normal_components
+            component.evaluate_states for component in self.component_list
         )
 
         self.algebraic_components = tuple(
             component
             for component in self.component_list
             if not self._component_is_dynamic(component)
-            and not self._is_schedule_component(component)
         )
 
         # These references are used only to decide whether repeated
@@ -191,7 +165,6 @@ class TransientRuntimeCache:
         # so the evaluator never treats SciPy's current guess as a derived state.
         self.state_refs = self._collect_state_refs()
         self.all_state_refs = self._collect_all_state_refs()
-        self.schedule_breakpoints = self._collect_schedule_breakpoints()
         self.version = self.network.version
 
     @property
@@ -349,7 +322,6 @@ class TransientRuntimeCache:
             component
             for component in self.component_list
             if not self._component_is_dynamic(component)
-            and not self._is_schedule_component(component)
         ]
         return self._iteration_items(owners, owner_kind="component")
 
@@ -438,58 +410,6 @@ class TransientRuntimeCache:
             lines.extend(f"  - {label}" for label in labels)
             lines.append("")
         raise ValueError("\n".join(lines).rstrip())
-
-    def _validate_schedule_targets(self) -> None:
-        """Reject schedules that try to prescribe a solver unknown.
-
-        A scheduled value is known from time, so it cannot also be solved as a
-        transient variable, used as an integrated transient state, or solved as
-        an algebraic/balance variable.
-        """
-        if not self.schedule_components:
-            return
-
-        unavailable_ids = {id(state) for state in self.iteration_variables}
-        unavailable_ids.update(id(state) for state in self.transient_states)
-        conflicts: list[str] = []
-
-        for schedule in self.schedule_components:
-            target = getattr(schedule, "target", None)
-            if is_state_like(target) and id(target) in unavailable_ids:
-                conflicts.append(self.state_label(schedule, target))
-
-        if conflicts:
-            lines = [
-                "Schedule target overlap detected.",
-                "",
-                "A scheduled State is prescribed by time and cannot also be a solver unknown.",
-                "Conflicting scheduled targets:",
-                *[f"  - {label}" for label in conflicts],
-            ]
-            raise ValueError("\n".join(lines))
-
-    def _collect_schedule_breakpoints(self) -> tuple[float, ...]:
-        """Collect known time breakpoints from schedule components."""
-        breakpoints: set[float] = set()
-
-        for schedule in self.schedule_components:
-            for breakpoint in getattr(schedule, "breakpoints", []):
-                breakpoints.add(float(breakpoint))
-
-        return tuple(sorted(breakpoints))
-
-    def next_schedule_breakpoint_after(
-        self,
-        time: float,
-        *,
-        tolerance: float = 1e-14,
-    ) -> float | None:
-        """Return the next known schedule discontinuity after ``time``."""
-        for breakpoint in self.schedule_breakpoints:
-            if breakpoint > time + tolerance:
-                return breakpoint
-
-        return None
 
     @staticmethod
     def _state_paths(value: Any, target: Any, prefix: str) -> list[str]:

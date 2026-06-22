@@ -76,7 +76,7 @@ class TransientStepSolve:
 
         SciPy proposes values for all new-time unknowns.  We write those values
         into the network, set the network clock to the target timestep time,
-        evaluate all schedules/components, then collect residuals in this order:
+        evaluate all components, then collect residuals in this order:
 
         1. implicit transient integration residuals,
         2. algebraic component residuals,
@@ -164,8 +164,8 @@ class TransientStepSolve:
             cache.validate_residual_count(r0)
 
             if len(x0) == 0:
-                # Static transient step: schedules and explicit components may
-                # still update outputs as time changes, but no nonlinear solve
+                # Static transient step: explicit components may still update
+                # outputs as time changes, but no nonlinear solve
                 # is needed.  If residuals exist, they must already satisfy the
                 # per-step tolerance because there are no unknowns available to
                 # change them.
