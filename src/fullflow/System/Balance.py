@@ -15,12 +15,12 @@ class Balance:
         name: str,
         network: Network,
         variable: State,
-        function: Callable[[], float] | State,
+        function: Callable[[], State | float] | State,
         bounds: tuple[float | None, float | None] | None = None,
         keep_feasible: bool = False,
     ) -> None:
         if not is_assignable_state_like(variable):
-            raise TypeError("variable must be an assignable, non-derived State-like object.")
+            raise TypeError("variable must be an assignable, non-derived State.")
 
         self.name = name
         self.network = network
@@ -34,7 +34,7 @@ class Balance:
         elif callable(function):
             self._residual = function
         else:
-            raise TypeError("function must be a State or a callable returning float.")
+            raise TypeError("function must be a State or a callable returning a State or float.")
 
         network.add_balance(self)
 
@@ -43,8 +43,8 @@ class Balance:
         return [self.variable]
 
     @property
-    def residuals(self) -> list[float]:
-        return [float(self._residual())]
+    def residuals(self) -> list[State | float]:
+        return [self._residual()]
 
     def __str__(self) -> str:
         try:

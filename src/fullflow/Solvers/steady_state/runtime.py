@@ -113,7 +113,7 @@ class RuntimeCache:
                 if not is_assignable_state_like(state):
                     raise TypeError(
                         f"{owner.name}: iteration variable must be an "
-                        "assignable, non-derived State-like object."
+                        "assignable, non-derived State."
                     )
                 items.append(
                     IterationItem(
@@ -285,7 +285,7 @@ class RuntimeCache:
             pre_evaluation()
 
     def _collect_state_refs(self) -> tuple[Any, ...]:
-        """Collect non-iteration State-like objects reachable from the network.
+        """Collect non-iteration State objects reachable from the network.
 
         These references are used only for fixed-point convergence checks. The
         traversal includes common containers so components can store States in
@@ -361,7 +361,7 @@ class RuntimeCache:
 
     @staticmethod
     def flatten_residuals(residual_source: Any) -> list[float]:
-        """Convert a component/balance residual return value into floats."""
+        """Convert State or numeric residual values into floats."""
         if residual_source is None:
             return []
         if not isinstance(residual_source, (list, tuple)):

@@ -38,7 +38,7 @@ class Solid(Component):
         return [self.temperature]
 
     @property
-    def residuals(self) -> list[float]:
+    def residuals(self) -> list[State | float]:
         return [self.heat_rate.value]
 
     def evaluate_states(self):
@@ -130,7 +130,7 @@ class Volume(Component):
         return [self.pressure, self.enthalpy]
 
     @property
-    def residuals(self) -> list[float]:
+    def residuals(self) -> list[State | float]:
         mass_balance = self.mass_flow_in.value - self.mass_flow_out.value
 
         if not self._has_energy_balance:

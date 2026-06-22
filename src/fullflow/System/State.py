@@ -9,7 +9,6 @@ from collections.abc import Iterable, Mapping
 
 __all__ = [
     "State",
-    "StateLike",
     "is_state_like",
     "resolve_value",
     "resolve_numeric",

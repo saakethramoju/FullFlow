@@ -254,7 +254,7 @@ class Composition(Component):
         ]
 
     @property
-    def residuals(self) -> list[float]:
+    def residuals(self) -> list[State | float]:
         return [
             self._composition_flow_rate(name)
             for name in self.names.value

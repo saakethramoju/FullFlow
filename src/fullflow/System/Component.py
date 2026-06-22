@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import inspect
 import sys
-from numbers import Real
 from typing import TYPE_CHECKING, Any
 
 from .Model import ModelOption
-from .State import State, StateLike
+from .State import State
 
 if TYPE_CHECKING:
     from fullflow.System import Network
@@ -160,7 +159,7 @@ class Component:
         pass
 
     @property
-    def residuals(self) -> list[float]:
+    def residuals(self) -> list[State | float]:
         return []
 
     @property
@@ -168,7 +167,7 @@ class Component:
         return []
 
     @property
-    def transient_derivatives(self) -> list[StateLike | Real]:
+    def transient_derivatives(self) -> list[State | float]:
         return []
 
     @property

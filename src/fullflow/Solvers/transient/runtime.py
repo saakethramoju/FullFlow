@@ -210,8 +210,8 @@ class TransientRuntimeCache:
     def _is_valid_derivative(value: Any) -> bool:
         """Return True for supported derivative objects.
 
-        A derivative may be a State-like object or a plain real number.  Booleans
-        are rejected even though ``bool`` subclasses ``int`` because they are
+        A derivative may be a State or a plain float.  Booleans are
+        rejected even though ``bool`` subclasses ``int`` because they are
         almost certainly a modeling error for dx/dt.
         """
         if is_state_like(value):
@@ -224,8 +224,8 @@ class TransientRuntimeCache:
         if self._is_valid_derivative(derivative):
             return
         raise TypeError(
-            f"{component.name}: transient_derivatives[{index}] must be a State-like "
-            f"object or a real number. Got {type(derivative).__name__}."
+            f"{component.name}: transient_derivatives[{index}] must be a State "
+            f"or a numeric value. Got {type(derivative).__name__}."
         )
 
     def _collect_transient_items(self) -> list[TransientItem]:
@@ -253,7 +253,7 @@ class TransientRuntimeCache:
                 if not is_assignable_state_like(state):
                     raise TypeError(
                         f"{component.name}: transient variable {index} must be an "
-                        "assignable, non-derived State-like object."
+                        "assignable, non-derived State."
                     )
 
                 self._validate_derivative(component, derivative, index)
@@ -298,7 +298,7 @@ class TransientRuntimeCache:
                 if not is_assignable_state_like(state):
                     raise TypeError(
                         f"{owner.name}: iteration variable must be an "
-                        "assignable, non-derived State-like object."
+                        "assignable, non-derived State."
                     )
                 items.append(
                     IterationItem(
@@ -545,6 +545,21 @@ class TransientRuntimeCache:
         return float(resolve_value(self._current_derivative(item)))
 
     @staticmethod
+    def flatten_residuals(residual_source: Any) -> list[float]:
+        """Convert component or Balance residuals into numeric floats.
+
+        Public component residuals may be returned as either ``State`` objects
+        or plain numeric values.  This helper resolves any State value at the
+        current solver guess, then converts the result to ``float`` for SciPy.
+        ``None`` means no residuals.
+        """
+        if residual_source is None:
+            return []
+        if not isinstance(residual_source, (list, tuple)):
+            residual_source = (residual_source,)
+        return [float(resolve_value(value)) for value in residual_source]
+
+    @staticmethod
     def _transient_scale(item: TransientItem) -> float:
         """Scale used to make integration residuals dimensionless-ish.
 
@@ -575,10 +590,10 @@ class TransientRuntimeCache:
             residuals.append((state - previous - dt * derivative) / scale)
 
         for component in self.algebraic_components:
-            residuals.extend(float(value) for value in component.residuals)
+            residuals.extend(self.flatten_residuals(component.residuals))
 
         for balance in self.balance_list:
-            residuals.extend(float(value) for value in balance.residuals)
+            residuals.extend(self.flatten_residuals(balance.residuals))
 
         return np.array(residuals, dtype=float)
 
@@ -601,7 +616,7 @@ class TransientRuntimeCache:
             )
 
     def _collect_state_refs(self) -> tuple[Any, ...]:
-        """Collect non-iteration State-like objects for fixed-point checks."""
+        """Collect non-iteration State objects for fixed-point checks."""
         refs: list[Any] = []
         seen: set[int] = set()
 

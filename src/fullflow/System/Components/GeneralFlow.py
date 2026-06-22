@@ -80,7 +80,7 @@ class FlowTube(Component):
         return [self.mass_flow]
 
     @property
-    def residuals(self) -> list[float]:
+    def residuals(self) -> list[State | float]:
         return [self._residual]
     
 
@@ -162,7 +162,7 @@ class DarcyWeisbach(Component):
         return [self.mass_flow]
 
     @property
-    def residuals(self) -> list[float]:
+    def residuals(self) -> list[State | float]:
         return [self._residual]
 
 

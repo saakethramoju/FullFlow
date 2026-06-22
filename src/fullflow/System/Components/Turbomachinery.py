@@ -25,7 +25,7 @@ class Rotor(Component):
         return [self.rotor_speed]
 
     @property
-    def residuals(self) -> list[float]:
+    def residuals(self) -> list[State | float]:
         return [self.net_torque.value]
 
     @property
@@ -152,7 +152,7 @@ class ConstantDensityPump(Component):
         return [self.mass_flow]
     
     @property
-    def residuals(self) -> list[float]:
+    def residuals(self) -> list[State | float]:
         return [self.po_out - self.discharge_pressure.value]
 
 
@@ -236,5 +236,5 @@ class PolytropicPump(Component):
         return [self.mass_flow]
     
     @property
-    def residuals(self) -> list[float]:
+    def residuals(self) -> list[State | float]:
         return [self._predicted_discharge_pressure - self.discharge_pressure.value]
