@@ -14,7 +14,7 @@ class Rotor(Component):
         self,
         name: str,
         network: Network,
-        rotor_speed: State,
+        rotor_speed: State, # rpm
         polar_moment_of_inertia: float | None = None,
         net_torque: State | None = None,
     ):
@@ -34,8 +34,7 @@ class Rotor(Component):
     
     @property
     def transient_derivatives(self) -> list[State | float]:
-        return [self.net_torque.value / self.polar_moment_of_inertia.value]
-
+        return [self.net_torque.value / self.polar_moment_of_inertia.value * 30.0 / math.pi]
 
 
 
