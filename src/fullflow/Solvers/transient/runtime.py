@@ -43,7 +43,7 @@ import numpy as np
 from fullflow.System.State import (
     is_assignable_state_like,
     is_state_like,
-    resolve_value,
+    resolve_numeric,
 )
 
 
@@ -182,6 +182,8 @@ class TransientRuntimeCache:
         # evaluate_states() passes have settled.  They exclude solver unknowns
         # so the evaluator never treats SciPy's current guess as a derived state.
         self.state_refs = self._collect_state_refs()
+        self.all_state_refs = self._collect_all_state_refs()
+        self.schedule_breakpoints = self._collect_schedule_breakpoints()
         self.version = self.network.version
 
     @property
@@ -462,6 +464,29 @@ class TransientRuntimeCache:
             ]
             raise ValueError("\n".join(lines))
 
+    def _collect_schedule_breakpoints(self) -> tuple[float, ...]:
+        """Collect known time breakpoints from schedule components."""
+        breakpoints: set[float] = set()
+
+        for schedule in self.schedule_components:
+            for breakpoint in getattr(schedule, "breakpoints", []):
+                breakpoints.add(float(breakpoint))
+
+        return tuple(sorted(breakpoints))
+
+    def next_schedule_breakpoint_after(
+        self,
+        time: float,
+        *,
+        tolerance: float = 1e-14,
+    ) -> float | None:
+        """Return the next known schedule discontinuity after ``time``."""
+        for breakpoint in self.schedule_breakpoints:
+            if breakpoint > time + tolerance:
+                return breakpoint
+
+        return None
+
     @staticmethod
     def _state_paths(value: Any, target: Any, prefix: str) -> list[str]:
         paths: list[str] = []
@@ -636,7 +661,7 @@ class TransientRuntimeCache:
         called.  That is what makes direct expression properties behave like
         derivative States: both are evaluated at the current new-time guess.
         """
-        return float(resolve_value(self._current_derivative(item)))
+        return resolve_numeric(self._current_derivative(item))
 
     @staticmethod
     def flatten_residuals(residual_source: Any) -> list[float]:
@@ -651,7 +676,7 @@ class TransientRuntimeCache:
             return []
         if not isinstance(residual_source, (list, tuple)):
             residual_source = (residual_source,)
-        return [float(resolve_value(value)) for value in residual_source]
+        return [resolve_numeric(value) for value in residual_source]
 
     @staticmethod
     def _transient_scale(item: TransientItem) -> float:
@@ -708,6 +733,71 @@ class TransientRuntimeCache:
                 "  - A dynamic component is missing transient_derivatives.\n"
                 "  - A Balance variable was added without enough equations."
             )
+
+    def _collect_all_state_refs(self) -> tuple[Any, ...]:
+        """Collect every State-like object reachable from the network.
+
+        Discrete-mode freezing uses this broader list instead of ``state_refs``
+        because a discrete mode may also be an iteration variable, schedule
+        target, or nested inside a container.
+        """
+        refs: list[Any] = []
+        seen: set[int] = set()
+
+        def add_state(state: Any) -> None:
+            state_id = id(state)
+            if state_id in seen:
+                return
+            seen.add(state_id)
+            refs.append(state)
+
+        def collect(value: Any) -> None:
+            if is_state_like(value):
+                add_state(value)
+                try:
+                    collect(value.value)
+                except Exception:
+                    pass
+                return
+
+            if isinstance(value, dict):
+                for key, item in value.items():
+                    collect(key)
+                    collect(item)
+                return
+
+            if isinstance(value, (list, tuple, set, frozenset)):
+                for item in value:
+                    collect(item)
+                return
+
+        collect(self.network.time)
+        for owner in self.component_list + self.balance_list + self.model_list:
+            for value in getattr(owner, "__dict__", {}).values():
+                collect(value)
+
+        return tuple(refs)
+
+    def freeze_discrete_states(self) -> None:
+        """Freeze all State-like objects for safe ``State.propose`` calls."""
+        for state in self.all_state_refs:
+            freeze = getattr(state, "freeze_discrete", None)
+            if callable(freeze):
+                freeze()
+
+    def commit_discrete_states(self) -> None:
+        """Commit all proposed discrete-mode changes after an accepted step."""
+        for state in self.all_state_refs:
+            commit = getattr(state, "commit_discrete", None)
+            if callable(commit):
+                commit()
+
+    def reject_discrete_states(self) -> None:
+        """Reject all proposed discrete-mode changes after a failed step."""
+        for state in self.all_state_refs:
+            reject = getattr(state, "reject_discrete", None)
+            if callable(reject):
+                reject()
 
     def _collect_state_refs(self) -> tuple[Any, ...]:
         """Collect non-iteration State objects for fixed-point checks."""

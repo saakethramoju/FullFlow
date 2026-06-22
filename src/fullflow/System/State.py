@@ -98,6 +98,8 @@ class State:
         "_expr",
         "_previous",
         "_second_previous",
+        "_discrete_frozen",
+        "_proposed_value",
         "_lower_bound",
         "_upper_bound",
         "_keep_feasible",
@@ -115,6 +117,8 @@ class State:
         self._expr: Callable[[], Any] | None = None
         self._previous: Any = None
         self._second_previous: Any = None
+        self._discrete_frozen = False
+        self._proposed_value: Any = None
         self._lower_bound, self._upper_bound = self._normalize_bounds(bounds)
         self._keep_feasible = bool(keep_feasible)
         self._code = hex(id(self))
@@ -379,6 +383,92 @@ class State:
         """Clear stored transient history."""
         self._previous = None
         self._second_previous = None
+
+    def propose(
+        self,
+        value: Any,
+        *,
+        turn_on: float | None = None,
+        turn_off: float | None = None,
+    ) -> bool:
+        """Safely propose a boolean/discrete mode value.
+
+        Components use this for discontinuous branches such as cavitation,
+        choking, limiters, or bang-bang valves.  In normal evaluation the
+        proposed value is assigned immediately.  During a transient nonlinear
+        solve, the transient solver freezes discrete States; proposals are then
+        remembered but the currently accepted value is returned so the residual
+        equations do not jump branches while SciPy is perturbing variables.
+
+        The simple form uses a boolean condition::
+
+            is_open = self.is_open.propose(pressure > opening_pressure)
+
+        The threshold form adds hysteresis::
+
+            is_open = self.is_open.propose(
+                pressure,
+                turn_on=opening_pressure,
+                turn_off=closing_pressure,
+            )
+
+        With hysteresis, a False state turns True only when ``value > turn_on``;
+        a True state turns False only when ``value < turn_off``.  Between those
+        thresholds, the current mode is kept.
+        """
+        if (turn_on is None) != (turn_off is None):
+            raise ValueError(
+                "turn_on and turn_off must either both be provided or both be omitted."
+            )
+
+        if turn_on is None:
+            proposed_value = bool(value)
+        else:
+            turn_on_value = float(turn_on)
+            turn_off_value = float(turn_off)
+
+            if turn_on_value < turn_off_value:
+                raise ValueError("turn_on must be greater than or equal to turn_off.")
+
+            signal = float(value)
+            current_value = bool(self.value)
+
+            if current_value:
+                proposed_value = signal > turn_off_value
+            else:
+                proposed_value = signal > turn_on_value
+
+        if self._discrete_frozen:
+            self._proposed_value = proposed_value
+            return bool(self.value)
+
+        self.value = proposed_value
+        self._proposed_value = proposed_value
+        return bool(self.value)
+
+    def freeze_discrete(self) -> None:
+        """Freeze this State for safe discrete-mode proposals.
+
+        The transient solver calls this before a timestep nonlinear solve.  It
+        has no effect on normal numeric assignment; it only changes the behavior
+        of :meth:`propose`.
+        """
+        self._discrete_frozen = True
+        self._proposed_value = None
+
+    def commit_discrete(self) -> None:
+        """Accept the last proposed discrete value and unfreeze this State."""
+        proposed_value = self._proposed_value
+        self._discrete_frozen = False
+        self._proposed_value = None
+
+        if proposed_value is not None:
+            self.value = proposed_value
+
+    def reject_discrete(self) -> None:
+        """Discard any proposed discrete value and unfreeze this State."""
+        self._discrete_frozen = False
+        self._proposed_value = None
 
     @property
     def numeric_value(self) -> float:

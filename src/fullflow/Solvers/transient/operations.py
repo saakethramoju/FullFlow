@@ -137,9 +137,10 @@ class TransientStepSolve:
     ) -> StepDiagnostics:
         """Solve and accept one timestep.
 
-        No retry is attempted.  If the bounded least-squares solve cannot drive
-        the residual below ``least_squares_settings.rtol``, a ``RuntimeError`` is
-        raised with the largest residuals listed.
+        Discrete mode States are frozen during the nonlinear solve so component
+        branches that use ``State.propose`` do not jump while SciPy perturbs the
+        continuous variables.  Proposed discrete changes are committed only after
+        the timestep residual has passed the acceptance check.
         """
         least_squares_settings.validate()
         state_settings.validate()
@@ -149,79 +150,106 @@ class TransientStepSolve:
 
         cache = self._cache_getter()
         x0 = np.array(cache.iteration_values, dtype=float)
+        accepted_snapshot = cache.snapshot_iteration_variables()
+        accepted_time = float(self.network.time.value)
 
-        # Evaluate the residual once before SciPy.  This catches invalid initial
-        # states and detects the degenerate case where there is nothing to solve.
-        self.network.time.value = t_new
-        r0 = self.residual(x0)
-        cache.validate_residual_count(r0)
+        cache.freeze_discrete_states()
 
-        if len(x0) == 0:
-            # Static transient step: schedules and explicit components may still
-            # update outputs as time changes, but no nonlinear solve is needed.
-            # If residuals exist, they must already satisfy the per-step
-            # tolerance because there are no unknowns available to change them.
+        try:
+            # Evaluate the residual once before SciPy.  This catches invalid
+            # initial states and detects the degenerate case where there is
+            # nothing to solve.
+            self.network.time.value = t_new
+            r0 = self.residual(x0)
+            cache.validate_residual_count(r0)
+
+            if len(x0) == 0:
+                # Static transient step: schedules and explicit components may
+                # still update outputs as time changes, but no nonlinear solve
+                # is needed.  If residuals exist, they must already satisfy the
+                # per-step tolerance because there are no unknowns available to
+                # change them.
+                self._check_residual_vector(
+                    residual=r0,
+                    success=True,
+                    message="No nonlinear variables; static transient evaluation.",
+                    settings=least_squares_settings,
+                    cache=cache,
+                    t_new=t_new,
+                    dt=dt,
+                )
+                cache.commit_discrete_states()
+                self.evaluator.run(
+                    max_passes=state_settings.max_passes,
+                    tolerance=state_settings.tolerance,
+                )
+                cache.store_previous_values()
+                return StepDiagnostics(
+                    time=t_new,
+                    dt=dt,
+                    x0=x0,
+                    sol=None,
+                    residual=r0,
+                    elapsed_time=0.0,
+                )
+
+            solver_kwargs = self._least_squares_kwargs(cache, x0, least_squares_settings)
+
+            start_time = time.perf_counter()
+            sol = least_squares(**solver_kwargs)
+            elapsed_time = time.perf_counter() - start_time
+
+            # Push the candidate solution into the network and recompute all
+            # derived states one final time at t_new.  The residual checked below
+            # is recomputed with discrete modes still frozen, so the accepted
+            # continuous state is consistent with the mode used for this step.
+            cache.assign_iteration_values(sol.x)
+            self.network.time.value = t_new
+            self.evaluator.run(
+                max_passes=state_settings.max_passes,
+                tolerance=state_settings.tolerance,
+            )
+            final_residual = cache.collect_residuals(dt)
+
             self._check_residual_vector(
-                residual=r0,
-                success=True,
-                message="No nonlinear variables; static transient evaluation.",
+                residual=final_residual,
+                success=bool(sol.success),
+                message=str(sol.message),
                 settings=least_squares_settings,
                 cache=cache,
                 t_new=t_new,
                 dt=dt,
             )
+
+            # Commit proposed branch/mode changes after the continuous timestep
+            # is accepted, then evaluate once more so exported algebraic outputs
+            # reflect the newly accepted discrete mode for the next timestep.
+            cache.commit_discrete_states()
+            self.evaluator.run(
+                max_passes=state_settings.max_passes,
+                tolerance=state_settings.tolerance,
+            )
+
+            # Only after a timestep passes the residual check do we advance
+            # transient history.  During the nonlinear solve,
+            # ``state.previous`` remained the last accepted value while SciPy
+            # changed ``state.value``.
             cache.store_previous_values()
+
             return StepDiagnostics(
                 time=t_new,
                 dt=dt,
                 x0=x0,
-                sol=None,
-                residual=r0,
-                elapsed_time=0.0,
+                sol=sol,
+                residual=final_residual,
+                elapsed_time=elapsed_time,
             )
 
-        solver_kwargs = self._least_squares_kwargs(cache, x0, least_squares_settings)
-
-        start_time = time.perf_counter()
-        sol = least_squares(**solver_kwargs)
-        elapsed_time = time.perf_counter() - start_time
-
-        # Push the candidate solution into the network and recompute all derived
-        # states one final time at t_new.  The residual checked below is not the
-        # cached SciPy ``sol.fun``; it is recomputed from the final network state.
-        # This avoids rejecting a step because SciPy stopped with a stale final
-        # residual vector.
-        cache.assign_iteration_values(sol.x)
-        self.network.time.value = t_new
-        self.evaluator.run(
-            max_passes=state_settings.max_passes,
-            tolerance=state_settings.tolerance,
-        )
-        final_residual = cache.collect_residuals(dt)
-
-        self._check_residual_vector(
-            residual=final_residual,
-            success=bool(sol.success),
-            message=str(sol.message),
-            settings=least_squares_settings,
-            cache=cache,
-            t_new=t_new,
-            dt=dt,
-        )
-
-        # Only after a timestep passes the residual check do we advance transient
-        # history.  During the nonlinear solve, ``state.previous`` remained the
-        # last accepted value while SciPy changed ``state.value``.
-        cache.store_previous_values()
-
-        return StepDiagnostics(
-            time=t_new,
-            dt=dt,
-            x0=x0,
-            sol=sol,
-            residual=final_residual,
-            elapsed_time=elapsed_time,
-        )
+        except Exception:
+            cache.reject_discrete_states()
+            cache.restore_iteration_variables(accepted_snapshot)
+            self.network.time.value = accepted_time
+            raise
 
     def _least_squares_kwargs(
         self,

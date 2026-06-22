@@ -3,11 +3,10 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
-from fullflow.System import Component, resolve_numeric
+from fullflow.System import Component
 
 if TYPE_CHECKING:
     from fullflow.System import Network, State
-
 
 
 class FlowTube(Component):
@@ -29,7 +28,6 @@ class FlowTube(Component):
         height_change: float | None = None,
         upstream_static_enthalpy: State | None = None,
         total_enthalpy: State | None = None,
-        mass_flow_dot: State | None = None,
     ):
         self.setup()
 
@@ -77,9 +75,7 @@ class FlowTube(Component):
                 inertia = max(mdot, 0.0) * (u2 - u1) - max(-mdot, 0.0) * (u1 - u2)
 
         self._residual = pressure - friction - inertia - gravity
-
-        if self.mass_flow_dot.is_assigned:
-            self.mass_flow_dot.value = self._residual / L
+        self._mass_flow_dot = self._residual / L
 
     @property
     def iteration_variables(self) -> list[State]:
@@ -94,9 +90,10 @@ class FlowTube(Component):
         return [self.mass_flow]
 
     @property
-    def transient_derivatives(self) -> list[State]:
-        return [self.mass_flow_dot]
-    
+    def transient_derivatives(self) -> list[State | float]:
+        return [self._mass_flow_dot]
+
+
 
 
 
@@ -116,7 +113,6 @@ class DarcyWeisbach(Component):
         gravitational_acceleration: State | float = 9.80665,
         height_change: State | float | None = None,
         effective_area: float | None = None,
-        mass_flow_dot: State | float | None = None,
     ):
         self.setup()
 
@@ -147,18 +143,6 @@ class DarcyWeisbach(Component):
         else:
             dh = 0.0
 
-        if rho <= 0.0:
-            raise ValueError(f"{self.name}: density must be positive.")
-
-        if D <= 0.0:
-            raise ValueError(f"{self.name}: hydraulic_diameter must be positive.")
-
-        if A <= 0.0:
-            raise ValueError(f"{self.name}: cross_sectional_area must be positive.")
-
-        if L <= 0.0:
-            raise ValueError(f"{self.name}: length must be positive.")
-
         Kf = f * L / (2.0 * rho * D * A**2)
 
         pressure_drop = p1 - p2
@@ -173,9 +157,7 @@ class DarcyWeisbach(Component):
         gravity = rho * g * dh * A
 
         self._residual = pressure - friction - gravity
-
-        if self.mass_flow_dot.is_assigned:
-            self.mass_flow_dot.value = self._residual / L
+        self._mass_flow_dot = self._residual / L
 
     @property
     def iteration_variables(self) -> list[State]:
@@ -190,8 +172,8 @@ class DarcyWeisbach(Component):
         return [self.mass_flow]
 
     @property
-    def transient_derivatives(self) -> list[State]:
-        return [self.mass_flow_dot]
+    def transient_derivatives(self) -> list[State | float]:
+        return [self._mass_flow_dot]
 
 
 
@@ -209,7 +191,6 @@ class DischargeCoefficient(Component):
         cross_sectional_area: float,
         length: float | None = None,
         mass_flow: State | None = None,
-        mass_flow_dot: State | None = None,
     ):
         self.setup()
 
@@ -222,26 +203,14 @@ class DischargeCoefficient(Component):
 
         dP = P1 - P2
 
-        if rho <= 0.0:
-            raise ValueError(f"{self.name}: density must be positive.")
-
-        if Cd <= 0.0:
-            raise ValueError(f"{self.name}: discharge_coefficient must be positive.")
-
-        if A <= 0.0:
-            raise ValueError(f"{self.name}: cross_sectional_area must be positive.")
-
         if self.length.is_assigned:
             L = self.length.value
             mdot = self.mass_flow.value
 
-            if L <= 0.0:
-                raise ValueError(f"{self.name}: length must be positive.")
-
             R = 1.0 / (2.0 * (Cd * A)**2)
             Z = L / A
 
-            self.mass_flow_dot.value = (dP - (R / rho) * mdot * abs(mdot)) / Z
+            self._mass_flow_dot = (dP - (R / rho) * mdot * abs(mdot)) / Z
 
         else:
             if dP > 0.0:
@@ -262,14 +231,12 @@ class DischargeCoefficient(Component):
     def transient_variables(self) -> list[State]:
         if self.length.is_assigned:
             return [self.mass_flow]
-
         return []
 
     @property
-    def transient_derivatives(self) -> list[State]:
+    def transient_derivatives(self) -> list[State | float]:
         if self.length.is_assigned:
-            return [self.mass_flow_dot]
-
+            return [self._mass_flow_dot]
         return []
 
 
@@ -354,8 +321,9 @@ class CavitatingVenturi(Component):
         P2_critical = Pvap + R * (P1 - Pvap)
         self.critical_downstream_pressure = P2_critical
 
-        if dP > 0.0 and P2 <= P2_critical:
-            self.is_cavitating.value = True
+        is_cavitating = self.is_cavitating.propose(dP > 0.0 and P2 <= P2_critical)
+
+        if is_cavitating:
             self.throat_pressure = Pvap
 
             dP = P1 - Pvap
@@ -366,8 +334,6 @@ class CavitatingVenturi(Component):
                 self.mass_flow.value = 0.0
 
         else:
-            self.is_cavitating.value = False
-
             if dP > 0.0 and R < 1.0:
                 self.throat_pressure = P1 - dP / (1.0 - R)
             else:
@@ -381,6 +347,8 @@ class CavitatingVenturi(Component):
     @property
     def ignored_export_attributes(self):
         return {"critical_downstream_pressure"}
+
+
 
 
 
@@ -399,7 +367,10 @@ class SeriesCdA(Component):
         inverse_area_squared_sum = 0.0
 
         for effective_area in self.effective_areas.value:
-            CdA = resolve_numeric(effective_area)
+            if hasattr(effective_area, "value"):
+                CdA = effective_area.value
+            else:
+                CdA = effective_area
 
             if abs(CdA) < 1e-12:
                 self.effective_area.value = 0.0
@@ -426,7 +397,7 @@ class ParallelCdA(Component):
 
     def evaluate_states(self):
         self.effective_area.value = sum(
-            resolve_numeric(effective_area)
+            effective_area.value if hasattr(effective_area, "value") else effective_area
             for effective_area in self.effective_areas.value
         )
 

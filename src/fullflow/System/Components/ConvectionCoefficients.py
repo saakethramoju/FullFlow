@@ -3,10 +3,10 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
-from fullflow.System import Component
+from fullflow.System import Component, State
 
 if TYPE_CHECKING:
-    from fullflow.System import Network, State
+    from fullflow.System import Network
 
 
 class Gnielinski(Component):
@@ -373,6 +373,7 @@ class NaturalConvection(Component):
         convection_coefficient: State | None = None,
     ):
         self.setup()
+        self._high_rayleigh = State(False)
 
     def evaluate_states(self):
         Tw = self.wall_temperature.value
@@ -389,7 +390,9 @@ class NaturalConvection(Component):
         Pr = Cp * mu / k
         Ra = Gr * Pr
 
-        if Ra < 1.0e9:
+        high_rayleigh = self._high_rayleigh.propose(Ra >= 1.0e9)
+
+        if not high_rayleigh:
             c = 0.59
             n = 0.25
         else:

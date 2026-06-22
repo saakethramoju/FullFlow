@@ -86,14 +86,15 @@ class Transient:
         return self._runtime_cache.ensure_current()
 
     def _pick_timestep(self, dt: float, t_final: float) -> float:
-        """Return the next fixed timestep without stepping past ``t_final``.
-
-        Schedule-breakpoint snapping will be added with the schedule phase.  For
-        now this simply trims the final step so the solution lands exactly on
-        ``t_final``.
-        """
+        """Return the next timestep, snapping to known schedule breakpoints."""
         current_time = float(self.network.time.value)
-        return min(dt, t_final - current_time)
+        target_time = min(current_time + dt, t_final)
+
+        next_breakpoint = self._cache().next_schedule_breakpoint_after(current_time)
+        if next_breakpoint is not None and next_breakpoint < target_time:
+            target_time = next_breakpoint
+
+        return target_time - current_time
 
     @staticmethod
     def _diagnostic_rows(diagnostics_list: list[StepDiagnostics]) -> list[dict[str, Any]]:

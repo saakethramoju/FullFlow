@@ -28,6 +28,7 @@ class Colebrook(Component):
         reynolds_number_threshold: State | float = 2300.0,
     ):
         self.setup()
+        self._is_turbulent = State(False)
 
     def evaluate_states(self):
         mdot = abs(self.mass_flow.value)
@@ -46,7 +47,9 @@ class Colebrook(Component):
 
         self.Deff = Deff
 
-        if Re_Dh <= self.reynolds_number_threshold.value:
+        is_turbulent = self._is_turbulent.propose(Re_Dh > self.reynolds_number_threshold.value)
+
+        if not is_turbulent:
             self.reynolds_number.value = Re_Dh
             f = 4*Po/Re_Dh
         else:
@@ -115,7 +118,6 @@ class Churchill(Component):
 
 
 
-
 class PetukhovFriction(Component):
     """Petukhov smooth-pipe turbulent Darcy friction factor correlation."""
     def __init__(
@@ -132,6 +134,7 @@ class PetukhovFriction(Component):
         reynolds_number_threshold: State | float = 2300.0,
     ):
         self.setup()
+        self._is_turbulent = State(False)
 
     def evaluate_states(self):
         mdot = abs(self.mass_flow.value)
@@ -145,7 +148,9 @@ class PetukhovFriction(Component):
 
         self.reynolds_number.value = Re
 
-        if Re <= self.reynolds_number_threshold.value:
+        is_turbulent = self._is_turbulent.propose(Re > self.reynolds_number_threshold.value)
+
+        if not is_turbulent:
             f = 4.0 * Po / Re
         else:
             f = (0.79 * math.log(Re) - 1.64) ** -2
