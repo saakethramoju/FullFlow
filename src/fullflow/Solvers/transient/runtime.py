@@ -116,6 +116,14 @@ class TransientRuntimeCache:
             self.refresh()
         return self
 
+    @staticmethod
+    def _is_schedule_component(component: Any) -> bool:
+        """Return True for Schedule components without invoking dynamic __getattr__."""
+        return bool(
+            getattr(type(component), "_is_fullflow_schedule", False)
+            or getattr(component, "__dict__", {}).get("_is_fullflow_schedule", False)
+        )
+
     def refresh(self) -> None:
         """Rebuild transient items, algebraic items, callables, and bounds."""
         self.component_list = tuple(self.network.component_list)
@@ -125,12 +133,12 @@ class TransientRuntimeCache:
         self.schedule_components = tuple(
             component
             for component in self.component_list
-            if bool(getattr(component, "_is_fullflow_schedule", False))
+            if self._is_schedule_component(component)
         )
         self.normal_components = tuple(
             component
             for component in self.component_list
-            if not bool(getattr(component, "_is_fullflow_schedule", False))
+            if not self._is_schedule_component(component)
         )
 
         self.transient_items = tuple(self._collect_transient_items())
@@ -175,7 +183,7 @@ class TransientRuntimeCache:
             component
             for component in self.component_list
             if not self._component_is_dynamic(component)
-            and not bool(getattr(component, "_is_fullflow_schedule", False))
+            and not self._is_schedule_component(component)
         )
 
         # These references are used only to decide whether repeated
@@ -274,23 +282,21 @@ class TransientRuntimeCache:
         for component in self.component_list:
             variables = self._component_transient_variables(component)
             states = self._component_transient_states(component)
-            derivatives = self._component_transient_derivatives(component)
 
-            if not variables and (states or derivatives):
+            if not variables and states:
                 raise ValueError(
-                    f"{component.name}: transient_states or transient_derivatives were "
-                    "provided, but transient_variables is empty."
+                    f"{component.name}: transient_states were provided, but "
+                    "transient_variables is empty."
                 )
 
-            if len(variables) != len(states) or len(variables) != len(derivatives):
+            if len(variables) != len(states):
                 raise ValueError(
-                    f"{component.name}: transient_variables, transient_states, and "
-                    "transient_derivatives must have the same length. Got "
-                    f"{len(variables)} variables, {len(states)} states, and "
-                    f"{len(derivatives)} derivatives."
+                    f"{component.name}: transient_variables and transient_states "
+                    "must have the same length. Got "
+                    f"{len(variables)} variables and {len(states)} states."
                 )
 
-            for index, (variable, state, derivative) in enumerate(zip(variables, states, derivatives)):
+            for index, (variable, state) in enumerate(zip(variables, states)):
                 if not is_assignable_state_like(variable):
                     raise TypeError(
                         f"{component.name}: transient variable {index} must be an "
@@ -314,8 +320,6 @@ class TransientRuntimeCache:
                         "clear_previous(). Use a State for transient_states."
                     )
 
-                self._validate_derivative(component, derivative, index)
-
                 variable_label = self.state_label(component, variable)
                 state_label = self.state_label(component, state)
 
@@ -326,7 +330,7 @@ class TransientRuntimeCache:
                         derivative_index=index,
                         variable_label=variable_label,
                         state_label=state_label,
-                        derivative_label=self._derivative_label(component, derivative, index),
+                        derivative_label=f"{component.name}:transient_derivatives[{index}]",
                         owner=component,
                     )
                 )
@@ -345,7 +349,7 @@ class TransientRuntimeCache:
             component
             for component in self.component_list
             if not self._component_is_dynamic(component)
-            and not bool(getattr(component, "_is_fullflow_schedule", False))
+            and not self._is_schedule_component(component)
         ]
         return self._iteration_items(owners, owner_kind="component")
 

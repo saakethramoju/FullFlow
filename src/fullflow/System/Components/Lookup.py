@@ -296,7 +296,7 @@ class LookupAttribute:
         return item in self.value
 
     def __getattr__(self, name: str) -> Any:
-        if name.startswith("__"):
+        if name.startswith("_"):
             raise AttributeError(name)
 
         try:
@@ -1468,7 +1468,7 @@ class Lookup(Component, Generic[T]):
                 pass
 
     def __getattr__(self, name: str) -> LookupAttribute:
-        if name.startswith("__"):
+        if name.startswith("_"):
             raise AttributeError(name)
 
         attribute = self._attribute_cache.get(name)
@@ -1539,7 +1539,7 @@ class Lookup(Component, Generic[T]):
 
     @property
     def ignored_export_attributes(self) -> set[str]:
-        return {
+        return super().ignored_export_attributes | {
             "callable",
             "args",
             "kwargs",
