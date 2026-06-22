@@ -54,8 +54,11 @@ def h5_find(filename: str | Path, text: str) -> list[str]:
     return [path for path in paths if text in path.lower()]
 
 
-def h5_print(filename: str | Path, contains: str | None = None) -> None:
-    """Print a compact overview of a FullFlow HDF5 file."""
+def h5_print(filename: str | Path, contains: str | None = None, datasets: bool = False) -> None:
+    """Print a compact overview of a FullFlow HDF5 file.
+
+    Set ``datasets=True`` when you want the full raw HDF5 dataset listing.
+    """
     filename = Path(filename)
 
     with h5py.File(filename, "r") as h5:
@@ -91,16 +94,20 @@ def h5_print(filename: str | Path, contains: str | None = None) -> None:
             columns = [_decode(item) for item in group.attrs.get("columns", [])]
             print(f"  {path}  rows={rows} columns={columns}")
 
-        print("\ndatasets:")
-        for path in h5_datasets(filename):
-            if contains and contains.lower() not in path.lower():
-                continue
-            dataset = h5[path]
-            print(f"  {path:70s} shape={dataset.shape!s:16s} dtype={dataset.dtype}")
+        if datasets:
+            print("\ndatasets:")
+            for path in h5_datasets(filename):
+                if contains and contains.lower() not in path.lower():
+                    continue
+                dataset = h5[path]
+                print(f"  {path:70s} shape={dataset.shape!s:16s} dtype={dataset.dtype}")
 
 
 def h5_solution_groups(filename: str | Path) -> list[str]:
-    """Return groups that look like FullFlow solution groups."""
+    """Return groups that look like FullFlow solution groups.
+
+    Supports the current v2 layout and the old ``/solution/final`` layout.
+    """
     groups = []
 
     with h5py.File(filename, "r") as h5:
@@ -111,6 +118,12 @@ def h5_solution_groups(filename: str | Path) -> list[str]:
             kind = str(_decode(group.attrs.get("fullflow_kind", "")))
             if kind.endswith("solution") or kind in {"steady_state_solution", "transient_solution"}:
                 groups.append(path)
+
+        for legacy_path in ["/solution/final", "/solution/current", "/solution"]:
+            if legacy_path in h5 and legacy_path not in groups:
+                group = h5[legacy_path]
+                if isinstance(group, h5py.Group) and ("records" in group or "final" in group):
+                    groups.append(legacy_path)
 
     return groups
 
@@ -132,7 +145,11 @@ def h5_transient_groups(filename: str | Path) -> list[str]:
 
 
 def h5_map_groups(filename: str | Path) -> list[str]:
-    """Return groups that look like FullFlow map groups."""
+    """Return groups that look like FullFlow map groups.
+
+    Supports current v2 maps under ``/maps/<name>`` and legacy map groups
+    containing ``x``/``y`` axis datasets directly under the map group.
+    """
     groups = []
 
     with h5py.File(filename, "r") as h5:
@@ -140,7 +157,9 @@ def h5_map_groups(filename: str | Path) -> list[str]:
             if path == "/":
                 continue
             group = h5[path]
-            if "axes" in group and "outputs" in group:
+            is_v2 = "axes" in group and "outputs" in group
+            is_legacy = "x" in group and any(isinstance(item, h5py.Dataset) for name, item in group.items() if name not in {"x", "y"})
+            if is_v2 or is_legacy:
                 groups.append(path)
 
     return groups
@@ -206,6 +225,12 @@ def h5_latest_solution(filename: str | Path, kind: str | None = None) -> str:
     if kind is not None:
         kind = kind.lower()
         groups = [path for path in groups if kind in path.lower() or kind in str(h5_attrs(filename, path).get("fullflow_kind", "")).lower()]
+
+    # Prefer numbered v2 solution groups over compatibility aliases such as
+    # /transient or /solution/final.
+    numbered = [path for path in groups if path.startswith("/solutions/")]
+    if numbered:
+        groups = numbered
 
     if not groups:
         raise KeyError(f"No solution groups found in {filename}.")
@@ -407,21 +432,31 @@ def h5_imshow(filename: str | Path, z: str, title: str | None = None, dark: bool
 def _resolve_transient_solution(filename: str | Path, solution: str) -> str:
     if solution == "auto":
         groups = h5_transient_groups(filename)
-        if len(groups) == 1:
-            return groups[0]
+        groups = [path for path in groups if path != "/transient"] or groups
+
         if len(groups) == 0:
             raise KeyError(f"No transient solutions found in {filename}.")
-        raise KeyError("Found multiple transient solutions. Pick one with solution=...:\n" + "\n".join(groups))
+
+        # User-friendly default: when the file contains multiple transient
+        # runs, plot the newest one. Users can still choose an older run with
+        # solution="/solutions/transient_0001".
+        return groups[-1]
 
     return _resolve_group_path(filename, solution)
 
 
 def _resolve_map_group(filename: str | Path, group: str) -> str:
     groups = h5_map_groups(filename)
-    if group.strip("/") in [item.strip("/") for item in groups]:
-        return "/" + group.strip("/")
-    if not group.startswith("maps/") and "/maps/" + group.strip("/") in groups:
-        return "/maps/" + group.strip("/")
+    requested = group.strip("/")
+
+    # Prefer canonical v2 maps over legacy compatibility views when the user
+    # passes a simple map name like "products".
+    if not requested.startswith("maps/") and "/maps/" + requested in groups:
+        return "/maps/" + requested
+
+    if requested in [item.strip("/") for item in groups]:
+        return "/" + requested
+
     return _resolve_name(groups, group, "map group")
 
 

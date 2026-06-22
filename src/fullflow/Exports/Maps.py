@@ -270,6 +270,52 @@ def _create_group(
     return map_group
 
 
+
+
+def _write_legacy_map_view(
+    file: h5py.File,
+    canonical_group: str,
+    requested_group: str,
+    axes: list[Axis],
+    output_names: list[str],
+) -> None:
+    """Write a small compatibility view for old map-reading examples.
+
+    Canonical maps live under ``/maps/<name>`` with ``axes`` and ``outputs``
+    subgroups. Older FullFlow examples expected ``/<name>/x``, ``/<name>/y``,
+    and output datasets directly under the map group. This function creates
+    hard links, not duplicate data, for one- and two-dimensional maps.
+    """
+    requested_group = str(requested_group).strip("/")
+
+    if not requested_group or requested_group == "maps" or requested_group.startswith("maps/"):
+        return
+
+    if len(axes) > 2:
+        return
+
+    if requested_group in file:
+        del file[requested_group]
+
+    legacy_group = file.create_group(requested_group)
+    map_group = file[canonical_group]
+
+    legacy_group.attrs["fullflow_kind"] = "legacy_map_view"
+    legacy_group.attrs["canonical_path"] = "/" + canonical_group.strip("/")
+
+    if len(axes) >= 1:
+        legacy_group["x"] = h5py.SoftLink("/" + map_group["axes"][axes[0].name].name.strip("/"))
+
+    if len(axes) >= 2:
+        legacy_group["y"] = h5py.SoftLink("/" + map_group["axes"][axes[1].name].name.strip("/"))
+
+    reserved = {"x", "y"}
+    for output_name in output_names:
+        if output_name in reserved:
+            continue
+        legacy_group[output_name] = h5py.SoftLink("/" + map_group["outputs"][output_name].name.strip("/"))
+
+
 def _check_existing_group(
     map_group: h5py.Group,
     axes: list[Axis],
@@ -438,6 +484,7 @@ def generate_map(
             if output_name in _RESERVED_GROUP_NAMES:
                 raise ValueError(f"Output name '{output_name}' is reserved.")
 
+    requested_group = str(group).strip("/") or "map"
     group = map_group_path(group)
 
     with h5py.File(filename, "a") as file:
@@ -530,6 +577,7 @@ def generate_map(
             if flush_every and counter % flush_every == 0:
                 file.flush()
 
+        _write_legacy_map_view(file, group, requested_group, axes, output_names)
         file.flush()
 
     return filename

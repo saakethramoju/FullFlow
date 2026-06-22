@@ -258,6 +258,29 @@ def _replace_group(parent: h5py.Group, name: str) -> h5py.Group:
     return parent.create_group(name)
 
 
+
+
+def _replace_link(h5: h5py.File, link_path: str, target) -> None:
+    """Replace ``link_path`` with a soft link to ``target``.
+
+    This keeps old user scripts working while the canonical data lives in the
+    v2 layout. For example, ``/transient`` can point to the newest
+    ``/solutions/transient_####`` group without confusing canonical group
+    discovery.
+    """
+    link_path = str(link_path).strip("/")
+    if not link_path:
+        return
+
+    parent_path, _, name = link_path.rpartition("/")
+    parent = h5.require_group(parent_path) if parent_path else h5
+
+    if name in parent:
+        del parent[name]
+
+    parent[name] = h5py.SoftLink("/" + target.name.strip("/"))
+
+
 def _write_json_attrs(group: h5py.Group, metadata: dict[str, Any] | None) -> None:
     if not metadata:
         return
@@ -412,6 +435,9 @@ def write_solution(
         if model_rows:
             _write_table(group, "model_configuration", model_rows)
 
+        if str(kind).startswith("steady_state"):
+            _replace_link(h5, "solution/final", group)
+
     return path
 
 
@@ -535,6 +561,9 @@ def write_transient_solution(
         model_rows = model_configuration(models)
         if model_rows:
             _write_table(final_group, "model_configuration", model_rows)
+
+        _replace_link(h5, "transient", solution_group)
+        _replace_link(h5, "solution/final", final_group)
 
     return path
 
