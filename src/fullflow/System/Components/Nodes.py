@@ -107,7 +107,6 @@ class Volume(Component):
         network: Network,
         pressure: State,
         volume: State | float | None = None,
-        mass: State | None = None,
         enthalpy: State | float | None = None,
         total_enthalpy_in: State | float | None = None,
         total_enthalpy_out: State | float | None = None,
@@ -118,6 +117,7 @@ class Volume(Component):
         mass_flow_in: State | float | None = None,
         mass_flow_out: State | float | None = None,
         energy_variable: str = "enthalpy",
+        mass: State | None = None,
     ):
         aliases = {
             "h": "enthalpy",

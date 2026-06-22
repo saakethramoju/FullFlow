@@ -132,7 +132,11 @@ class ConstantDensityPump(Component):
 
         shaft_power = T * omega
         hydraulic_power = rho * g * H * Q
-        eta = hydraulic_power / shaft_power
+
+        if abs(shaft_power) > 1e-12:
+            eta = hydraulic_power / shaft_power
+        else:
+            eta = 0.0
 
         self.po_out = po_in + rho * g * H
 
@@ -140,7 +144,7 @@ class ConstantDensityPump(Component):
         self.shaft_power.value = shaft_power
         self.volumetric_flow.value = Q
 
-        if self.upstream_total_enthalpy.is_assigned:
+        if self.upstream_total_enthalpy.is_assigned and abs(mdot) > 1e-12:
             ho_in = self.upstream_total_enthalpy.value
             dho = shaft_power / mdot
             ho_out = ho_in + dho
