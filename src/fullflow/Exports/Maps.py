@@ -10,7 +10,7 @@ import json
 import h5py
 import numpy as np
 
-from fullflow.Exports.HDF5 import dataset_names, hdf5_filename, map_group_path
+from fullflow.Exports.HDF5 import dataset_names, hdf5_filename, safe_group_name
 
 
 _STRING_DTYPE = h5py.string_dtype(encoding="utf-8")
@@ -215,12 +215,11 @@ def _create_group(
     compression: str | None,
     compression_opts,
 ) -> h5py.Group:
-    map_group = file.create_group(group)
+    map_group = file.create_group(safe_group_name(group))
 
-    file.attrs["fullflow_export_format"] = "fullflow-hdf5-v2"
-    file.attrs["fullflow_schema_version"] = 2
-    map_group.attrs["fullflow_kind"] = "map"
-    map_group.attrs["map_format"] = "fullflow-map-v2"
+    map_group.attrs["kind"] = "map"
+    map_group.attrs["name"] = group
+    map_group.attrs["map_format"] = "fullflow-map-v3"
     map_group.attrs["created_utc"] = _datetime.datetime.now(_datetime.UTC).isoformat()
     map_group.attrs["axis_order"] = json.dumps([axis.name for axis in axes])
     map_group.attrs["output_names"] = json.dumps(output_names)
@@ -268,52 +267,6 @@ def _create_group(
     )
 
     return map_group
-
-
-
-
-def _write_legacy_map_view(
-    file: h5py.File,
-    canonical_group: str,
-    requested_group: str,
-    axes: list[Axis],
-    output_names: list[str],
-) -> None:
-    """Write a small compatibility view for old map-reading examples.
-
-    Canonical maps live under ``/maps/<name>`` with ``axes`` and ``outputs``
-    subgroups. Older FullFlow examples expected ``/<name>/x``, ``/<name>/y``,
-    and output datasets directly under the map group. This function creates
-    hard links, not duplicate data, for one- and two-dimensional maps.
-    """
-    requested_group = str(requested_group).strip("/")
-
-    if not requested_group or requested_group == "maps" or requested_group.startswith("maps/"):
-        return
-
-    if len(axes) > 2:
-        return
-
-    if requested_group in file:
-        del file[requested_group]
-
-    legacy_group = file.create_group(requested_group)
-    map_group = file[canonical_group]
-
-    legacy_group.attrs["fullflow_kind"] = "legacy_map_view"
-    legacy_group.attrs["canonical_path"] = "/" + canonical_group.strip("/")
-
-    if len(axes) >= 1:
-        legacy_group["x"] = h5py.SoftLink("/" + map_group["axes"][axes[0].name].name.strip("/"))
-
-    if len(axes) >= 2:
-        legacy_group["y"] = h5py.SoftLink("/" + map_group["axes"][axes[1].name].name.strip("/"))
-
-    reserved = {"x", "y"}
-    for output_name in output_names:
-        if output_name in reserved:
-            continue
-        legacy_group[output_name] = h5py.SoftLink("/" + map_group["outputs"][output_name].name.strip("/"))
 
 
 def _check_existing_group(
@@ -484,21 +437,26 @@ def generate_map(
             if output_name in _RESERVED_GROUP_NAMES:
                 raise ValueError(f"Output name '{output_name}' is reserved.")
 
-    requested_group = str(group).strip("/") or "map"
-    group = map_group_path(group)
+    group = group.strip("/") or "map"
+    group_path = safe_group_name(group)
 
     with h5py.File(filename, "a") as file:
-        if group in file:
+        file.attrs["fullflow_format"] = "fullflow-simple-hdf5"
+        file.attrs["fullflow_schema_version"] = 3
+        if "created_utc" not in file.attrs:
+            file.attrs["created_utc"] = _datetime.datetime.now(_datetime.UTC).isoformat()
+        file.attrs["updated_utc"] = _datetime.datetime.now(_datetime.UTC).isoformat()
+        if group_path in file:
             if overwrite:
-                del file[group]
+                del file[group_path]
             elif not resume:
                 raise FileExistsError(
-                    f"HDF5 group '{group}' already exists in '{filename}'. "
+                    f"HDF5 group '{group_path}' already exists in '{filename}'. "
                     "Use resume=True or overwrite=True."
                 )
 
-        if group in file:
-            map_group = file[group]
+        if group_path in file:
+            map_group = file[group_path]
             output_names = _check_existing_group(map_group, axes, outputs)
 
         else:
@@ -577,7 +535,6 @@ def generate_map(
             if flush_every and counter % flush_every == 0:
                 file.flush()
 
-        _write_legacy_map_view(file, group, requested_group, axes, output_names)
         file.flush()
 
     return filename

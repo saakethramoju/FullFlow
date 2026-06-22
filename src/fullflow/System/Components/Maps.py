@@ -9,7 +9,7 @@ import h5py
 import numpy as np
 from scipy.interpolate import RegularGridInterpolator
 
-from fullflow.Exports.HDF5 import dataset_names, hdf5_filename, map_group_path
+from fullflow.Exports.HDF5 import dataset_names, hdf5_filename, safe_group_name
 from fullflow.System import Component, State
 
 if TYPE_CHECKING:
@@ -384,11 +384,16 @@ class Map(Component):
         filename = hdf5_filename(filename)
 
         with h5py.File(filename, "r") as file:
-            group = group.strip("/")
-            if group not in file and map_group_path(group) in file:
-                group = map_group_path(group)
-
-            map_group = file[group]
+            if group in file:
+                map_group = file[group]
+            elif safe_group_name(group) in file:
+                map_group = file[safe_group_name(group)]
+            else:
+                available = [name for name, item in file.items() if isinstance(item, h5py.Group)]
+                raise KeyError(
+                    f"{name}: could not find HDF5 map group {group!r}. "
+                    f"Available top-level groups: {available}"
+                )
 
             if "axes" in map_group and isinstance(map_group["axes"], h5py.Group):
                 axes, output_maps, inputs = cls._read_v2_group(

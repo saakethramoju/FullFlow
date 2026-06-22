@@ -1,49 +1,38 @@
-"""HDF5 export helpers for FullFlow.
+"""Simple HDF5 export helpers for FullFlow.
 
-The FullFlow HDF5 layout is intentionally simple and consistent across
-steady-state solutions, transient solutions, generated maps, solver diagnostics,
-and model-option sweeps.
+FullFlow HDF5 files are object containers.  Each top-level group is a named
+FullFlow object, usually a Network or a generated Map.  Network solution data
+lives under the network group, and map data lives directly under the map group.
 
-Recommended layout
-------------------
+Canonical layout
+----------------
 
-Root
-    attrs
-        fullflow_export_format = "fullflow-hdf5-v2"
-        fullflow_schema_version = 2
+Network object::
 
-/solutions
-    /steady_state_0001
-        attrs["fullflow_kind"] = "steady_state_solution"
-        /records
-        /model_configuration
+    /<network_name>
+        attrs: kind="network", name="original network name"
+        /steady_state
+            /components/<component>/<attribute>
+            /table/<column>
+            /diagnostics/<column>
+            /statistics/<table>/<column>
+        /transient
+            /time
+            /components/<component>/<attribute>
+            /tracks/<tracked_name>
+            /table/<column>
+            /diagnostics/<column>
+            /final/components/<component>/<attribute>
+            /final/table/<column>
 
-    /transient_0001
-        attrs["fullflow_kind"] = "transient_solution"
-        /history
-        /tracks
-        /steps
-        /final/records
-        /final/model_configuration
+Map object::
 
-    /model_options/<model>/<option>
-        attrs["fullflow_kind"] = "steady_state_solution"
-        /records
-
-/maps
     /<map_name>
-        attrs["fullflow_kind"] = "map"
-        /axes
-        /outputs
-        /status
-
-/diagnostics
-    Solver diagnostics and statistics.
-
-Each table group stores one dataset per column and includes ``columns`` and
-``row_count`` attributes. Numeric columns are stored as floating-point arrays;
-non-numeric columns are stored as UTF-8 strings. This makes the file easy to
-inspect with HDFView, h5py, MATLAB, or simple plotting utilities.
+        attrs: kind="map", name="original map name", axis_order=[...]
+        /axes/<axis_name>
+        /outputs/<output_name>
+        /status/success
+        /status/message
 """
 
 from __future__ import annotations
@@ -62,9 +51,9 @@ import numpy as np
 
 
 HDF5_EXTENSIONS = {".h5", ".hdf5"}
-HDF5_FORMAT = "fullflow-hdf5-v2"
-HDF5_SCHEMA_VERSION = 2
 _STRING_DTYPE = h5py.string_dtype(encoding="utf-8")
+_FORMAT = "fullflow-simple-hdf5"
+_SCHEMA_VERSION = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,7 +90,6 @@ def hdf5_filename(filename: str | Path) -> str:
 def dataset_names(group: h5py.Group, excluded: set[str] | None = None) -> list[str]:
     """Return direct child dataset names, excluding any requested names."""
     excluded = set() if excluded is None else set(excluded)
-
     return [
         name
         for name, item in group.items()
@@ -124,49 +112,21 @@ def safe_group_name(name: Any) -> str:
     return text or "unnamed"
 
 
-def solution_group_name(kind: str, name: str | None = None) -> str:
-    """Return a user-readable solution group name prefix."""
-    if name is not None and str(name).strip():
-        return safe_group_name(name)
-
-    kind = str(kind).lower().strip()
-
-    if "transient" in kind:
-        return "transient"
-
-    if "steady" in kind:
-        return "steady_state"
-
-    return safe_group_name(kind or "solution")
+def object_path(name: Any) -> str:
+    """Return the top-level group path for a named FullFlow object."""
+    return "/" + safe_group_name(name)
 
 
-def map_group_path(group: str) -> str:
-    """Return the canonical map group path for a user-supplied map name."""
-    group = str(group).strip("/") or "map"
-
-    if group == "maps" or group.startswith("maps/"):
-        return group
-
-    return f"maps/{safe_group_name(group)}"
+def _now() -> str:
+    return _datetime.datetime.now(_datetime.UTC).isoformat()
 
 
-def _set_file_attrs(h5: h5py.File, *, network_name: str | None = None) -> None:
-    h5.attrs["fullflow_export_format"] = HDF5_FORMAT
-    h5.attrs["fullflow_schema_version"] = HDF5_SCHEMA_VERSION
-
+def _initialize_file(h5: h5py.File) -> None:
+    h5.attrs["fullflow_format"] = _FORMAT
+    h5.attrs["fullflow_schema_version"] = _SCHEMA_VERSION
     if "created_utc" not in h5.attrs:
-        h5.attrs["created_utc"] = _datetime.datetime.now(_datetime.UTC).isoformat()
-
-    h5.attrs["updated_utc"] = _datetime.datetime.now(_datetime.UTC).isoformat()
-
-    if network_name is not None:
-        h5.attrs["network_name"] = network_name
-
-
-def _target_path_and_group(target: str | Path | HDF5Target, default_group: str) -> tuple[Path, str]:
-    if isinstance(target, HDF5Target):
-        return hdf5_path(target.filename), target.group_path.strip("/") or default_group
-    return hdf5_path(target), default_group.strip("/")
+        h5.attrs["created_utc"] = _now()
+    h5.attrs["updated_utc"] = _now()
 
 
 def _plain(value: Any) -> Any:
@@ -216,18 +176,10 @@ def _is_numeric_column(values: list[Any]) -> bool:
         return False
 
     for value in values:
-        if value is None:
+        if value is None or isinstance(value, (bool, np.bool_)):
             continue
-
-        if isinstance(value, bool):
-            continue
-
-        if isinstance(value, np.bool_):
-            continue
-
         if isinstance(value, Real):
             continue
-
         try:
             float(value)
         except Exception:
@@ -258,47 +210,52 @@ def _replace_group(parent: h5py.Group, name: str) -> h5py.Group:
     return parent.create_group(name)
 
 
+def _require_object_group(h5: h5py.File, name: str, kind: str) -> h5py.Group:
+    group = h5.require_group(safe_group_name(name))
+    group.attrs["kind"] = kind
+    group.attrs["name"] = str(name)
+    group.attrs["updated_utc"] = _now()
+    if "created_utc" not in group.attrs:
+        group.attrs["created_utc"] = group.attrs["updated_utc"]
+    return group
 
 
-def _replace_link(h5: h5py.File, link_path: str, target) -> None:
-    """Replace ``link_path`` with a soft link to ``target``.
+def _delete_children(group: h5py.Group, names: list[str]) -> None:
+    for name in names:
+        if name in group:
+            del group[name]
 
-    This keeps old user scripts working while the canonical data lives in the
-    v2 layout. For example, ``/transient`` can point to the newest
-    ``/solutions/transient_####`` group without confusing canonical group
-    discovery.
-    """
-    link_path = str(link_path).strip("/")
-    if not link_path:
-        return
 
-    parent_path, _, name = link_path.rpartition("/")
-    parent = h5.require_group(parent_path) if parent_path else h5
-
+def _write_dataset(parent: h5py.Group, name: str, value: Any, attrs: dict[str, Any] | None = None) -> h5py.Dataset:
+    name = safe_group_name(name)
     if name in parent:
         del parent[name]
 
-    parent[name] = h5py.SoftLink("/" + target.name.strip("/"))
+    value = _plain(value)
+    attrs = {} if attrs is None else dict(attrs)
 
-
-def _write_json_attrs(group: h5py.Group, metadata: dict[str, Any] | None) -> None:
-    if not metadata:
-        return
-
-    for key, value in metadata.items():
-        key = str(key)
-
-        if isinstance(value, (str, int, float, bool, np.number, np.bool_)):
-            group.attrs[key] = _plain(value)
+    if isinstance(value, (str, dict, list)) and not isinstance(value, (list, tuple)):
+        dataset = parent.create_dataset(name, data=_as_text(value), dtype=_STRING_DTYPE)
+    elif value is None:
+        dataset = parent.create_dataset(name, data="", dtype=_STRING_DTYPE)
+    else:
+        array = np.asarray(value)
+        if array.dtype.kind in {"U", "S", "O"}:
+            data = np.array([_as_text(item) for item in array.ravel()], dtype=object).reshape(array.shape)
+            dataset = parent.create_dataset(name, data=data, dtype=_STRING_DTYPE)
         else:
-            group.attrs[key] = json.dumps(_plain(value), ensure_ascii=False, default=str)
+            dataset = parent.create_dataset(name, data=array)
+
+    for key, item in attrs.items():
+        dataset.attrs[key] = _as_text(item) if isinstance(item, (dict, list, tuple)) else item
+
+    return dataset
 
 
-def _write_table(parent: h5py.Group, name: str, rows: list[dict[str, Any]], *, metadata: dict[str, Any] | None = None) -> h5py.Group:
+def _write_table(parent: h5py.Group, name: str, rows: list[dict[str, Any]]) -> h5py.Group:
     group = _replace_group(parent, name)
-    group.attrs["fullflow_kind"] = "table"
+    group.attrs["kind"] = "table"
     group.attrs["row_count"] = len(rows)
-    _write_json_attrs(group, metadata)
 
     if not rows:
         group.attrs["columns"] = []
@@ -309,16 +266,13 @@ def _write_table(parent: h5py.Group, name: str, rows: list[dict[str, Any]], *, m
 
     for column in columns:
         values = [row.get(column) for row in rows]
-        dataset_name = safe_group_name(column)
 
         if _is_numeric_column(values):
             data = np.array([_as_float(value) for value in values], dtype=float)
-            dataset = group.create_dataset(dataset_name, data=data)
-            dataset.attrs["column"] = column
+            group.create_dataset(safe_group_name(column), data=data)
         else:
             data = np.array([_as_text(value) for value in values], dtype=object)
-            dataset = group.create_dataset(dataset_name, data=data, dtype=_STRING_DTYPE)
-            dataset.attrs["column"] = column
+            group.create_dataset(safe_group_name(column), data=data, dtype=_STRING_DTYPE)
 
     return group
 
@@ -360,31 +314,150 @@ def model_configuration(models: list[Any] | None) -> list[dict[str, Any]]:
     return rows
 
 
-def _next_group_name(parent: h5py.Group, prefix: str) -> str:
-    prefix = safe_group_name(prefix)
-    index = 1
-
-    while True:
-        name = f"{prefix}_{index:04d}"
-        if name not in parent:
-            return name
-        index += 1
+def _records_without_tracks(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [row for row in records if row.get("component_type") != "TrackedState"]
 
 
-def _resolve_auto_group(h5: h5py.File, collection: str, prefix: str, name: str | None = None) -> str:
-    parent = h5.require_group(collection.strip("/"))
+def _write_component_values(parent: h5py.Group, records: list[dict[str, Any]]) -> h5py.Group:
+    components_group = _replace_group(parent, "components")
+    components_group.attrs["kind"] = "components"
 
-    if name is not None and str(name).strip():
-        base_name = safe_group_name(name)
-        if base_name not in parent:
-            return f"{collection.strip('/')}/{base_name}"
+    for row in _records_without_tracks(solution_records(records)):
+        component_name = row.get("component_name", "<unknown>")
+        component_type = row.get("component_type", "<unknown>")
+        attribute = row.get("attribute", "value")
+        value = row.get("value")
+        numeric_value = row.get("numeric_value")
 
-        index = 2
-        while f"{base_name}_{index:04d}" in parent:
-            index += 1
-        return f"{collection.strip('/')}/{base_name}_{index:04d}"
+        component_group = components_group.require_group(safe_group_name(component_name))
+        component_group.attrs["name"] = str(component_name)
+        component_group.attrs["type"] = str(component_type)
 
-    return f"{collection.strip('/')}/{_next_group_name(parent, prefix)}"
+        if numeric_value is not None and math.isfinite(_as_float(numeric_value)):
+            dataset_value = float(numeric_value)
+        else:
+            dataset_value = value
+
+        _write_dataset(
+            component_group,
+            str(attribute),
+            dataset_value,
+            attrs={
+                "attribute": str(attribute),
+                "component_name": str(component_name),
+                "component_type": str(component_type),
+            },
+        )
+
+    return components_group
+
+
+def _ordered_times(rows: list[dict[str, Any]]) -> np.ndarray:
+    times: list[float] = []
+    seen: set[float] = set()
+    for row in rows:
+        if "time" not in row:
+            continue
+        time_value = float(row["time"])
+        if time_value in seen:
+            continue
+        seen.add(time_value)
+        times.append(time_value)
+    return np.asarray(times, dtype=float)
+
+
+def _write_component_history(parent: h5py.Group, rows: list[dict[str, Any]], time_values: np.ndarray) -> h5py.Group:
+    components_group = _replace_group(parent, "components")
+    components_group.attrs["kind"] = "component_histories"
+
+    time_index = {float(value): i for i, value in enumerate(time_values)}
+    grouped: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
+
+    for row in _records_without_tracks(solution_records(rows)):
+        key = (
+            str(row.get("component_name", "<unknown>")),
+            str(row.get("component_type", "<unknown>")),
+            str(row.get("attribute", "value")),
+        )
+        grouped.setdefault(key, []).append(row)
+
+    for (component_name, component_type, attribute), items in grouped.items():
+        numeric_values = [_as_float(row.get("numeric_value")) for row in items]
+        numeric = any(math.isfinite(value) for value in numeric_values)
+
+        component_group = components_group.require_group(safe_group_name(component_name))
+        component_group.attrs["name"] = component_name
+        component_group.attrs["type"] = component_type
+
+        if numeric:
+            data = np.full(len(time_values), np.nan, dtype=float)
+            for row in items:
+                i = time_index.get(float(row["time"]))
+                if i is not None:
+                    data[i] = _as_float(row.get("numeric_value"))
+        else:
+            data = np.full(len(time_values), "", dtype=object)
+            for row in items:
+                i = time_index.get(float(row["time"]))
+                if i is not None:
+                    data[i] = _as_text(row.get("value"))
+
+        _write_dataset(
+            component_group,
+            attribute,
+            data,
+            attrs={
+                "attribute": attribute,
+                "component_name": component_name,
+                "component_type": component_type,
+            },
+        )
+
+    return components_group
+
+
+def _write_tracks(parent: h5py.Group, rows: list[dict[str, Any]], time_values: np.ndarray) -> h5py.Group:
+    tracks_group = _replace_group(parent, "tracks")
+    tracks_group.attrs["kind"] = "tracked_histories"
+
+    time_index = {float(value): i for i, value in enumerate(time_values)}
+    grouped: dict[str, list[dict[str, Any]]] = {}
+
+    for row in solution_records(rows):
+        track_name = str(row.get("attribute", "track"))
+        grouped.setdefault(track_name, []).append(row)
+
+    for track_name, items in grouped.items():
+        numeric_values = [_as_float(row.get("numeric_value")) for row in items]
+        numeric = any(math.isfinite(value) for value in numeric_values)
+
+        if numeric:
+            data = np.full(len(time_values), np.nan, dtype=float)
+            for row in items:
+                i = time_index.get(float(row["time"]))
+                if i is not None:
+                    data[i] = _as_float(row.get("numeric_value"))
+        else:
+            data = np.full(len(time_values), "", dtype=object)
+            for row in items:
+                i = time_index.get(float(row["time"]))
+                if i is not None:
+                    data[i] = _as_text(row.get("value"))
+
+        _write_dataset(tracks_group, track_name, data, attrs={"name": track_name})
+
+    return tracks_group
+
+
+def _section_from_group_path(group_path: str) -> str:
+    text = str(group_path).strip("/").lower()
+    if "transient" in text and "final" in text:
+        return "transient/final"
+    if text.endswith("final"):
+        return "transient/final"
+    if "model" in text:
+        return text
+    return "steady_state"
 
 
 def write_solution(
@@ -393,50 +466,93 @@ def write_solution(
     *,
     network_name: str | None = None,
     models: list[Any] | None = None,
-    group_path: str = "auto",
-    kind: str = "steady_state",
-    name: str | None = None,
-    overwrite: bool = False,
-    metadata: dict[str, Any] | None = None,
+    group_path: str = "solution/current",
 ) -> Path:
-    """Write one exported network solution table to HDF5.
+    """Write one exported network solution to HDF5.
 
-    When ``group_path='auto'``, a new numbered group is created under
-    ``/solutions``.  This avoids overwriting old steady-state and transient
-    cases when the same file is reused.
+    The default writes current steady-state data to::
+
+        /<network_name>/steady_state
+
+    Passing ``group_path`` containing ``"final"`` writes the records to::
+
+        /<network_name>/transient/final
     """
-    path, requested_group = _target_path_and_group(target, group_path)
+    if isinstance(target, HDF5Target):
+        path = hdf5_path(target.filename)
+        section = target.group_path.strip("/") or _section_from_group_path(group_path)
+    else:
+        path = hdf5_path(target)
+        section = _section_from_group_path(group_path)
+
+    if network_name is None:
+        network_name = "network"
+
+    rows = solution_records(records)
 
     with h5py.File(path, "a") as h5:
-        _set_file_attrs(h5, network_name=network_name)
+        _initialize_file(h5)
+        network_group = _require_object_group(h5, network_name, "network")
 
-        if requested_group == "auto":
-            requested_group = _resolve_auto_group(
-                h5,
-                "solutions",
-                solution_group_name(kind, None),
-                name=name,
-            )
+        section_group = network_group.require_group(section)
+        section_group.attrs["kind"] = section.rsplit("/", 1)[-1]
+        section_group.attrs["updated_utc"] = _now()
 
-        if overwrite and requested_group in h5:
-            del h5[requested_group]
-
-        group = h5.require_group(requested_group)
-        group.attrs["fullflow_kind"] = f"{kind}_solution" if not str(kind).endswith("solution") else kind
-        group.attrs["kind"] = kind
-        group.attrs["created_utc"] = _datetime.datetime.now(_datetime.UTC).isoformat()
-        if network_name is not None:
-            group.attrs["network_name"] = network_name
-        _write_json_attrs(group, metadata)
-
-        _write_table(group, "records", solution_records(records))
+        _delete_children(section_group, ["components", "table", "model_configuration"])
+        _write_component_values(section_group, rows)
+        _write_table(section_group, "table", rows)
 
         model_rows = model_configuration(models)
         if model_rows:
-            _write_table(group, "model_configuration", model_rows)
+            _write_table(section_group, "model_configuration", model_rows)
 
-        if str(kind).startswith("steady_state"):
-            _replace_link(h5, "solution/final", group)
+    return path
+
+
+def write_transient_solution(
+    filename: str | Path,
+    *,
+    network_name: str,
+    history_records: list[dict[str, Any]],
+    track_records: list[dict[str, Any]],
+    step_rows: list[dict[str, Any]],
+    final_records: list[dict[str, Any]],
+    models: list[Any] | None = None,
+) -> Path:
+    """Write current transient data for a network.
+
+    This overwrites only ``/<network_name>/transient`` and keeps other top-level
+    objects, maps, and other networks in the same file untouched.
+    """
+    path = hdf5_path(filename)
+    history_rows = solution_records(history_records)
+    track_rows = solution_records(track_records)
+    final_rows = solution_records(final_records)
+    time_values = _ordered_times(history_rows)
+
+    with h5py.File(path, "a") as h5:
+        _initialize_file(h5)
+        network_group = _require_object_group(h5, network_name, "network")
+        if "transient" in network_group:
+            del network_group["transient"]
+        transient_group = network_group.create_group("transient")
+        transient_group.attrs["kind"] = "transient"
+        transient_group.attrs["updated_utc"] = _now()
+
+        _write_dataset(transient_group, "time", time_values, attrs={"name": "time"})
+        _write_component_history(transient_group, history_rows, time_values)
+        _write_tracks(transient_group, track_rows, time_values)
+        _write_table(transient_group, "table", history_rows)
+        _write_table(transient_group, "diagnostics", step_rows)
+
+        final_group = transient_group.create_group("final")
+        final_group.attrs["kind"] = "final"
+        _write_component_values(final_group, final_rows)
+        _write_table(final_group, "table", final_rows)
+
+        model_rows = model_configuration(models)
+        if model_rows:
+            _write_table(final_group, "model_configuration", model_rows)
 
     return path
 
@@ -445,125 +561,28 @@ def write_tables(
     target: str | Path | HDF5Target,
     tables: dict[str, list[dict[str, Any]]],
     *,
-    group_path: str = "diagnostics/current",
-    kind: str = "tables",
-    metadata: dict[str, Any] | None = None,
+    group_path: str = "statistics/current",
 ) -> Path:
-    """Write a dictionary of row tables to HDF5."""
-    path, group_path = _target_path_and_group(target, group_path)
+    """Write a dictionary of row tables to HDF5.
+
+    When ``target`` is an :class:`HDF5Target`, its group path is used exactly.
+    Otherwise ``group_path`` is used exactly at the file root. Solver code passes
+    explicit object-scoped targets for user-facing exports.
+    """
+    if isinstance(target, HDF5Target):
+        path = hdf5_path(target.filename)
+        group_path = target.group_path.strip("/")
+    else:
+        path = hdf5_path(target)
+        group_path = group_path.strip("/")
 
     with h5py.File(path, "a") as h5:
-        _set_file_attrs(h5)
+        _initialize_file(h5)
         parent = h5.require_group(group_path)
-        parent.attrs["fullflow_kind"] = kind
-        _write_json_attrs(parent, metadata)
+        parent.attrs["updated_utc"] = _now()
 
         for name, rows in tables.items():
             _write_table(parent, name, rows)
-
-    return path
-
-
-def _write_track_datasets(solution_group: h5py.Group, history_rows: list[dict[str, Any]]) -> None:
-    tracks_group = _replace_group(solution_group, "tracks")
-    tracks_group.attrs["fullflow_kind"] = "transient_tracks"
-
-    time_values: dict[float, None] = {}
-    track_rows: dict[str, list[dict[str, Any]]] = {}
-
-    for row in solution_records(history_rows):
-        if "time" not in row or "attribute" not in row:
-            continue
-
-        time = _as_float(row.get("time"))
-        if not math.isfinite(time):
-            continue
-
-        attribute = _as_text(row.get("attribute"))
-        if not attribute:
-            continue
-
-        time_values[time] = None
-        track_rows.setdefault(attribute, []).append(row)
-
-    time = np.array(sorted(time_values), dtype=float)
-    time_dataset = tracks_group.create_dataset("time", data=time)
-    time_dataset.attrs["long_name"] = "Time"
-    time_dataset.attrs["axis"] = "/" + time_dataset.name
-
-    used_names: set[str] = {"time"}
-
-    for attribute, rows in track_rows.items():
-        values_by_time = {
-            _as_float(row.get("time")): _as_float(row.get("numeric_value"))
-            for row in rows
-        }
-
-        values = np.array([values_by_time.get(item, math.nan) for item in time], dtype=float)
-        dataset_name = safe_group_name(attribute)
-        original_name = dataset_name
-        suffix = 2
-
-        while dataset_name in used_names:
-            dataset_name = f"{original_name}_{suffix}"
-            suffix += 1
-
-        used_names.add(dataset_name)
-        dataset = tracks_group.create_dataset(dataset_name, data=values)
-        dataset.attrs["long_name"] = attribute
-        dataset.attrs["label"] = attribute
-        dataset.attrs["axis"] = "/" + time_dataset.name
-
-
-def write_transient_solution(
-    filename: str | Path,
-    history_rows: list[dict[str, Any]],
-    step_rows: list[dict[str, Any]],
-    final_records: list[dict[str, Any]],
-    *,
-    network_name: str | None = None,
-    models: list[Any] | None = None,
-    group_path: str = "auto",
-    name: str | None = None,
-    overwrite: bool = False,
-    metadata: dict[str, Any] | None = None,
-) -> Path:
-    """Write one complete transient solution to a new solution group."""
-    path = hdf5_path(filename)
-
-    with h5py.File(path, "a") as h5:
-        _set_file_attrs(h5, network_name=network_name)
-
-        if group_path == "auto":
-            group_path = _resolve_auto_group(h5, "solutions", "transient", name=name)
-        else:
-            group_path = group_path.strip("/")
-
-        if overwrite and group_path in h5:
-            del h5[group_path]
-
-        solution_group = h5.require_group(group_path)
-        solution_group.attrs["fullflow_kind"] = "transient_solution"
-        solution_group.attrs["kind"] = "transient"
-        solution_group.attrs["created_utc"] = _datetime.datetime.now(_datetime.UTC).isoformat()
-        if network_name is not None:
-            solution_group.attrs["network_name"] = network_name
-        _write_json_attrs(solution_group, metadata)
-
-        _write_table(solution_group, "history", solution_records(history_rows))
-        _write_table(solution_group, "steps", step_rows)
-        _write_track_datasets(solution_group, history_rows)
-
-        final_group = _replace_group(solution_group, "final")
-        final_group.attrs["fullflow_kind"] = "final_state"
-        _write_table(final_group, "records", solution_records(final_records))
-
-        model_rows = model_configuration(models)
-        if model_rows:
-            _write_table(final_group, "model_configuration", model_rows)
-
-        _replace_link(h5, "transient", solution_group)
-        _replace_link(h5, "solution/final", final_group)
 
     return path
 
@@ -577,17 +596,20 @@ def write_model_option_results(
 ) -> Path:
     """Write every successful model-option solution into one HDF5 file."""
     path = hdf5_path(filename)
-    safe_model = safe_group_name(model_name)
+    network_name = network_name or "network"
 
-    for option_name, records in results.items():
-        option_group = f"solutions/model_options/{safe_model}/{safe_group_name(option_name)}"
-        write_solution(
-            HDF5Target(path, option_group),
-            records,
-            network_name=network_name,
-            kind="steady_state_model_option",
-            group_path=option_group,
-        )
+    with h5py.File(path, "a") as h5:
+        _initialize_file(h5)
+        network_group = _require_object_group(h5, network_name, "network")
+        model_group = network_group.require_group("model_options").require_group(safe_group_name(model_name))
+        model_group.attrs["name"] = model_name
+
+        for option_name, records in results.items():
+            option_group = _replace_group(model_group, option_name)
+            option_group.attrs["name"] = str(option_name)
+            rows = solution_records(records)
+            _write_component_values(option_group, rows)
+            _write_table(option_group, "table", rows)
 
     return path
 
@@ -596,8 +618,9 @@ def write_failures(
     filename: str | Path,
     failures: list[Any],
     *,
-    group_path: str = "diagnostics/failures",
+    group_path: str = "failures",
 ) -> Path:
+    path = hdf5_path(filename)
     rows = [
         {
             "model": getattr(failure, "model", ""),
@@ -607,4 +630,5 @@ def write_failures(
         }
         for failure in failures
     ]
-    return write_tables(filename, {"records": rows}, group_path=group_path, kind="failures")
+    write_tables(path, {"table": rows}, group_path=group_path)
+    return path

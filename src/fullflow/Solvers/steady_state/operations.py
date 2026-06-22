@@ -25,7 +25,8 @@ import numpy as np
 from scipy.optimize import Bounds, least_squares
 
 from .settings import LeastSquaresSettings, StateEvaluationSettings
-from .statistics import SolverStatistics
+from .statistics import SolverStatistics, statistics_path
+from fullflow.Exports.HDF5 import HDF5Target, safe_group_name, write_tables
 
 
 @dataclass(slots=True)
@@ -84,10 +85,22 @@ class StaticEvaluation:
         )
         elapsed_time = time.perf_counter() - start_time
 
-        return (
-            self.network.save(filename=filename, return_type=return_type),
-            StaticDiagnostics(elapsed_time=elapsed_time),
-        )
+        records = self.network.save(filename=filename, return_type=return_type)
+
+        if filename is not None:
+            write_tables(
+                HDF5Target(filename, f"{safe_group_name(self.network.name)}/steady_state"),
+                {
+                    "diagnostics": [
+                        {
+                            "solver_type": "static_evaluation",
+                            "solve_time_s": elapsed_time,
+                        }
+                    ]
+                },
+            )
+
+        return records, StaticDiagnostics(elapsed_time=elapsed_time)
 
 
 class NonlinearSolve:
@@ -198,6 +211,31 @@ class NonlinearSolve:
             max_passes=state_settings.max_passes,
             tolerance=state_settings.tolerance,
         )
+        records = self.network.save(filename=filename, return_type=return_type)
+
+        if filename is not None:
+            write_tables(
+                HDF5Target(filename, f"{safe_group_name(self.network.name)}/steady_state"),
+                {
+                    "diagnostics": [
+                        {
+                            "solver_type": "steady_state",
+                            "success": bool(getattr(sol, "success", False)),
+                            "status": getattr(sol, "status", None),
+                            "message": str(getattr(sol, "message", "")),
+                            "function_evaluations": getattr(sol, "nfev", None),
+                            "jacobian_evaluations": getattr(sol, "njev", None),
+                            "cost": getattr(sol, "cost", None),
+                            "optimality": getattr(sol, "optimality", None),
+                            "max_abs_residual": float(np.max(np.abs(cache.collect_residuals()))) if len(cache.collect_residuals()) else 0.0,
+                            "residual_count": len(cache.collect_residuals()),
+                            "variable_count": len(sol.x),
+                            "solve_time_s": elapsed_time,
+                        }
+                    ]
+                },
+            )
+
         statistics.export(statistics_filename)
 
         diagnostics = SolveDiagnostics(
@@ -207,7 +245,7 @@ class NonlinearSolve:
             overconstrained=len(r0) > len(x0),
             elapsed_time=elapsed_time,
         )
-        return self.network.save(filename=filename, return_type=return_type), diagnostics
+        return records, diagnostics
 
     def _least_squares_kwargs(
         self,

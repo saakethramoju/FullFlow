@@ -259,7 +259,7 @@ turbopump_map_filename = "turbopump"
 # -----------------------------------------------------------------------------
 # Turbine map generation
 # -----------------------------------------------------------------------------
-# Run this section once to generate /turbine inside turbopump.h5.
+# Run this section once to generate the top-level /turbine map in turbopump.h5.
 # After the map has been generated, this section can be commented out.
 #
 # Inputs:
@@ -384,7 +384,7 @@ Preburner.pressure = OxRichPreburnerPressure
 # -----------------------------------------------------------------------------
 # LOX pump map generation
 # -----------------------------------------------------------------------------
-# Run this section once to generate /lox_pump inside turbopump.h5.
+# Run this section once to generate the top-level /lox_pump map in turbopump.h5.
 # After the map has been generated, this section can be commented out.
 #
 # Inputs:

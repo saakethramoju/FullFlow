@@ -654,15 +654,22 @@ class SolverStatistics:
             "numeric_value",
         )
 
-        write_tables(filename, tables, group_path="diagnostics/steady_state/current", kind="steady_state_statistics")
+        write_tables(filename, tables, group_path="statistics/current")
 
 
-def statistics_path(filename: str) -> HDF5Target:
-    return HDF5Target(filename, "diagnostics/steady_state/current")
+def statistics_path(filename: str, network_name: str | None = None, table_group: str = "statistics") -> HDF5Target:
+    if network_name is None:
+        return HDF5Target(filename, "statistics")
+    return HDF5Target(filename, f"{safe_group_name(network_name)}/steady_state/{safe_group_name(table_group)}")
 
 
-def model_option_statistics_path(filename: str, model_name: str, option_name: str) -> HDF5Target:
+def model_option_statistics_path(filename: str, model_name: str, option_name: str, network_name: str | None = None) -> HDF5Target:
+    if network_name is None:
+        return HDF5Target(
+            filename,
+            f"model_options/{safe_group_name(model_name)}/{safe_group_name(option_name)}/statistics",
+        )
     return HDF5Target(
         filename,
-        f"diagnostics/model_options/{safe_group_name(model_name)}/{safe_group_name(option_name)}/statistics",
+        f"{safe_group_name(network_name)}/model_options/{safe_group_name(model_name)}/{safe_group_name(option_name)}/statistics",
     )

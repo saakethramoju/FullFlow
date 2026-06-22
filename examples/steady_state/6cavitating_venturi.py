@@ -114,7 +114,7 @@ filename = "RP1_LOX"
 # Generated layout:
 #
 #     RP1_LOX.h5
-#       /products
+#       /products                         top-level map object
 #       /products/axes/chamber_pressure
 #       /products/axes/mixture_ratio
 #       /products/outputs/chamber_temperature
@@ -474,7 +474,7 @@ Nozzle = IsentropicNozzle(
 # -----------------------------------------------------------------------------
 # Tracked outputs
 # -----------------------------------------------------------------------------
-# Tracks are displayed by the solver and can also be exported when a filename is
+# Tracks are displayed by the solver and exported as friendly aliases when a filename is
 # supplied to solve(...). Pressures are converted to psia for readability.
 CavNetwork.track("Fuel Injector Manifold Pressure [psia]", fuel_manifold_pressure / 6894.76)
 CavNetwork.track("Ox Injector Manifold Pressure [psia]", ox_manifold_pressure / 6894.76)

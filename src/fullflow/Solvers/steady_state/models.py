@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .results import format_records, save_model_option_results
-from .statistics import model_option_statistics_path
+from .statistics import model_option_statistics_path, statistics_path
 from fullflow.Exports.HDF5 import HDF5Target, safe_group_name, write_failures, write_solution
 
 
@@ -184,7 +184,7 @@ class ModelOptionRunner:
         solution = run_once(
             filename=filename,
             return_type=return_type,
-            statistics_filename=filename if statistics else None,
+            statistics_filename=(statistics_path(filename, self.network.name) if statistics and filename is not None else None),
         )
         self.success_printer(verbose)
         return solution
@@ -206,7 +206,7 @@ class ModelOptionRunner:
             selected_model.replace(option_name)
             try:
                 statistics_target = (
-                    model_option_statistics_path(filename, selected_model.name, option_name)
+                    model_option_statistics_path(filename, selected_model.name, option_name, self.network.name)
                     if statistics and filename is not None
                     else None
                 )
@@ -222,8 +222,8 @@ class ModelOptionRunner:
             if filename is not None:
                 records = self.network.save(filename=None, return_type="dict")
                 option_group = (
-                    f"solutions/model_options/{safe_group_name(selected_model.name)}/"
-                    f"{safe_group_name(option_name)}"
+                    f"models/{safe_group_name(selected_model.name)}/"
+                    f"{safe_group_name(option_name)}/solution"
                 )
                 write_solution(
                     HDF5Target(filename, option_group),
@@ -241,7 +241,7 @@ class ModelOptionRunner:
                     write_failures(
                         filename,
                         failures,
-                        group_path=f"diagnostics/model_options/{safe_group_name(selected_model.name)}/failures",
+                        group_path=f"{safe_group_name(self.network.name)}/model_options/{safe_group_name(selected_model.name)}/failures",
                     )
 
             self.printer.print_model_failures(failures)
@@ -320,7 +320,7 @@ class ModelOptionRunner:
                 write_failures(
                     filename,
                     failures,
-                    group_path=f"diagnostics/model_options/{safe_group_name(selected_model.name)}/failures",
+                    group_path=f"{safe_group_name(self.network.name)}/model_options/{safe_group_name(selected_model.name)}/failures",
                 )
 
         self.printer.print_model_failures(failures)
