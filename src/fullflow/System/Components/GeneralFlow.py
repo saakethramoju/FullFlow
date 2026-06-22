@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     from fullflow.System import Network, State
 
 
+
 class FlowTube(Component):
 
     def __init__(
@@ -28,6 +29,7 @@ class FlowTube(Component):
         height_change: float | None = None,
         upstream_static_enthalpy: State | None = None,
         total_enthalpy: State | None = None,
+        mass_flow_dot: State | None = None,
     ):
         self.setup()
 
@@ -40,6 +42,7 @@ class FlowTube(Component):
 
         L = self.length.value
         D = self.hydraulic_diameter.value
+
         if self.cross_sectional_area.is_assigned:
             A = self.cross_sectional_area.value
         else:
@@ -52,7 +55,7 @@ class FlowTube(Component):
         gravity = 0.0
 
         if self.upstream_density.is_assigned:
-            rho1 = self.upstream_density.value 
+            rho1 = self.upstream_density.value
             u1 = mdot / (rho1 * A)
 
             if self.height_change.is_assigned:
@@ -75,6 +78,9 @@ class FlowTube(Component):
 
         self._residual = pressure - friction - inertia - gravity
 
+        if self.mass_flow_dot.is_assigned:
+            self.mass_flow_dot.value = self._residual / L
+
     @property
     def iteration_variables(self) -> list[State]:
         return [self.mass_flow]
@@ -82,8 +88,15 @@ class FlowTube(Component):
     @property
     def residuals(self) -> list[State | float]:
         return [self._residual]
-    
 
+    @property
+    def transient_variables(self) -> list[State]:
+        return [self.mass_flow]
+
+    @property
+    def transient_derivatives(self) -> list[State]:
+        return [self.mass_flow_dot]
+    
 
 
 
@@ -102,7 +115,8 @@ class DarcyWeisbach(Component):
         friction_factor: State | float | None = None,
         gravitational_acceleration: State | float = 9.80665,
         height_change: State | float | None = None,
-        effective_area: float | None = None
+        effective_area: float | None = None,
+        mass_flow_dot: State | float | None = None,
     ):
         self.setup()
 
@@ -142,6 +156,9 @@ class DarcyWeisbach(Component):
         if A <= 0.0:
             raise ValueError(f"{self.name}: cross_sectional_area must be positive.")
 
+        if L <= 0.0:
+            raise ValueError(f"{self.name}: length must be positive.")
+
         Kf = f * L / (2.0 * rho * D * A**2)
 
         pressure_drop = p1 - p2
@@ -157,6 +174,9 @@ class DarcyWeisbach(Component):
 
         self._residual = pressure - friction - gravity
 
+        if self.mass_flow_dot.is_assigned:
+            self.mass_flow_dot.value = self._residual / L
+
     @property
     def iteration_variables(self) -> list[State]:
         return [self.mass_flow]
@@ -164,6 +184,14 @@ class DarcyWeisbach(Component):
     @property
     def residuals(self) -> list[State | float]:
         return [self._residual]
+
+    @property
+    def transient_variables(self) -> list[State]:
+        return [self.mass_flow]
+
+    @property
+    def transient_derivatives(self) -> list[State]:
+        return [self.mass_flow_dot]
 
 
 
@@ -179,7 +207,9 @@ class DischargeCoefficient(Component):
         density: State,
         discharge_coefficient: float,
         cross_sectional_area: float,
+        length: float | None = None,
         mass_flow: State | None = None,
+        mass_flow_dot: State | None = None,
     ):
         self.setup()
 
@@ -192,19 +222,55 @@ class DischargeCoefficient(Component):
 
         dP = P1 - P2
 
-        if dP > 0.0:
-            sign = 1.0
-        elif dP < 0.0:
-            sign = -1.0
-        else:
-            sign = 0.0
+        if rho <= 0.0:
+            raise ValueError(f"{self.name}: density must be positive.")
 
-        value = 2.0 * rho * abs(dP)
+        if Cd <= 0.0:
+            raise ValueError(f"{self.name}: discharge_coefficient must be positive.")
 
-        if value >= 0.0:
-            self.mass_flow.value = sign * Cd * A * math.sqrt(value)
+        if A <= 0.0:
+            raise ValueError(f"{self.name}: cross_sectional_area must be positive.")
+
+        if self.length.is_assigned:
+            L = self.length.value
+            mdot = self.mass_flow.value
+
+            if L <= 0.0:
+                raise ValueError(f"{self.name}: length must be positive.")
+
+            R = 1.0 / (2.0 * (Cd * A)**2)
+            Z = L / A
+
+            self.mass_flow_dot.value = (dP - (R / rho) * mdot * abs(mdot)) / Z
+
         else:
-            self.mass_flow.value = math.nan
+            if dP > 0.0:
+                sign = 1.0
+            elif dP < 0.0:
+                sign = -1.0
+            else:
+                sign = 0.0
+
+            value = 2.0 * rho * abs(dP)
+
+            if value >= 0.0:
+                self.mass_flow.value = sign * Cd * A * math.sqrt(value)
+            else:
+                self.mass_flow.value = math.nan
+
+    @property
+    def transient_variables(self) -> list[State]:
+        if self.length.is_assigned:
+            return [self.mass_flow]
+
+        return []
+
+    @property
+    def transient_derivatives(self) -> list[State]:
+        if self.length.is_assigned:
+            return [self.mass_flow_dot]
+
+        return []
 
 
 
