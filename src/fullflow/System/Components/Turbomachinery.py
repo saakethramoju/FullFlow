@@ -15,7 +15,7 @@ class Rotor(Component):
         name: str,
         network: Network,
         rotor_speed: State,
-        polar_moment_of_inertia: float,
+        polar_moment_of_inertia: float | None = None,
         net_torque: State | None = None,
     ):
         self.setup()
@@ -29,11 +29,11 @@ class Rotor(Component):
         return [self.net_torque.value]
 
     @property
-    def transient_variables(self):
+    def transient_variables(self) -> list[State]:
         return [self.rotor_speed]
     
     @property
-    def transient_derivatives(self):
+    def transient_derivatives(self) -> list[State | float]:
         return [self.net_torque.value / self.polar_moment_of_inertia.value]
 
 

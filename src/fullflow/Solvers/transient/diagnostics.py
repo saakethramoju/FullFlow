@@ -125,9 +125,11 @@ class TransientPrinter:
             header_style="bold",
         )
         variables.add_column("Index", justify="right", style="dim")
-        variables.add_column("Variable", style="#fdf0d5")
-        variables.add_column("Value", justify="right", style="#D84135")
-        variables.add_column("Previous", justify="right", style="#3B629E")
+        variables.add_column("Solver Variable", style="#fdf0d5")
+        variables.add_column("Integrated State", style="#fdf0d5")
+        variables.add_column("Variable Value", justify="right", style="#D84135")
+        variables.add_column("State Value", justify="right", style="#D84135")
+        variables.add_column("State Previous", justify="right", style="#3B629E")
 
         cache = self._cache_getter()
         for i, item in enumerate(cache.transient_items):
@@ -137,7 +139,9 @@ class TransientPrinter:
                 previous = "<unavailable>"
             variables.add_row(
                 _plain(f"x[{i}]"),
-                _plain(item.label),
+                _plain(item.variable_label),
+                _plain(item.state_label),
+                _plain(f"{float(item.variable.value):.6e}"),
                 _plain(f"{float(item.state.value):.6e}"),
                 _plain(previous if isinstance(previous, str) else f"{float(previous):.6e}"),
             )

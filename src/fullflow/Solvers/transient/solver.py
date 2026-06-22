@@ -3,17 +3,20 @@
 The solver implemented here is a fixed-step, implicit backward-Euler network
 solver.  Components expose derivatives; the solver builds residuals.
 
-For every component pair
+For every dynamic component triple
 
-    transient_variables[i]   -> x
-    transient_derivatives[i] -> xdot
+    transient_variables[i]   -> nonlinear solver unknown
+    transient_states[i]      -> integrated/conserved quantity
+    transient_derivatives[i] -> d(transient_states[i]) / dt
 
 one timestep solves
 
-    x_new - x_previous - dt * xdot_new = 0
+    state_new - state_previous - dt * statedot_new = 0
 
-where ``xdot_new`` is evaluated after all current SciPy guesses have been written
-into the network and all components have run at ``network.time = t_new``.
+where ``statedot_new`` is evaluated after all current SciPy guesses have been
+written into the network and all components have run at
+``network.time = t_new``.  By default ``transient_states`` is the same list as
+``transient_variables``.
 """
 
 from __future__ import annotations

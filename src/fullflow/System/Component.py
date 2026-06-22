@@ -167,6 +167,22 @@ class Component:
         return []
 
     @property
+    def transient_states(self) -> list[State]:
+        """Conserved quantities advanced by the transient integrator.
+
+        For most dynamic components, the solver variable and the integrated
+        quantity are the same State.  For example, a rotor solves for and
+        integrates rotor speed.  In that common case, components only need to
+        override ``transient_variables`` and ``transient_derivatives``.
+
+        Some components should solve with one set of variables but integrate a
+        different conserved quantity.  A fluid volume is the main example: it
+        may solve for pressure and enthalpy while integrating mass and total
+        internal energy.  Those components override this property.
+        """
+        return self.transient_variables
+
+    @property
     def transient_derivatives(self) -> list[State | float]:
         return []
 
