@@ -157,7 +157,7 @@ class Transient:
             ``/solution/final``.
 
         return_type : {"dict"}, default="dict"
-            Return format.  ``"dict"`` returns a list of time-stamped history
+            Return format.  ``"dict"`` returns a list of time-stamped tracked
             records.
 
         verbose : bool, default=False
@@ -196,8 +196,8 @@ class Transient:
         Returns
         -------
         list[dict]
-            Time-stamped network export records for every accepted timestep,
-            including the initial state.
+            Time-stamped tracked records for every accepted timestep, including
+            the evaluated initial state.
         """
         transient_settings = TransientSettings(dt=dt, t_final=t_final)
         transient_settings.validate()

@@ -350,6 +350,20 @@ class Network:
                 self._safe_value(attr_value),
             )
 
+    def tracked_records(self) -> list[dict[str, Any]]:
+        """Return only user-tracked records for transient history export."""
+        records: list[dict[str, Any]] = []
+
+        for tracked in self.tracked_state_list:
+            self._append_tracked_records(
+                records,
+                tracked["name"],
+                self._tracked_value(tracked),
+                flatten=tracked["flatten"],
+            )
+
+        return records
+
     def save(
         self,
         filename: str | None = None,
@@ -366,13 +380,7 @@ class Network:
         for balance in self.balance_list:
             self._export_owner(balance, records, {"name", "network"})
 
-        for tracked in self.tracked_state_list:
-            self._append_tracked_records(
-                records,
-                tracked["name"],
-                self._tracked_value(tracked),
-                flatten=tracked["flatten"],
-            )
+        records.extend(self.tracked_records())
 
         if return_type not in {"dict", "records"}:
             raise ValueError("return_type must be 'dict'.")

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fullflow.Exports.HDF5 import write_solution, write_tables
+from fullflow.Exports.HDF5 import solution_records, write_solution, write_tables
 
 
 def format_records(records: list[dict[str, Any]], return_type: str):
@@ -18,21 +18,20 @@ def format_records(records: list[dict[str, Any]], return_type: str):
 
 
 class TransientHistory:
-    """Collect one exported network snapshot per accepted timestep.
+    """Collect user-tracked values at each accepted timestep.
 
-    For now, history uses the existing ``Network.save`` record format and adds a
-    ``time`` column to each row.  That gives simple, general HDF5 output without
-    creating a separate transient tracking API yet.  Users can still keep output
-    compact by using ``network.track(...)`` and ignoring component attributes in
-    later plotting scripts.
+    Transient history intentionally stores only values registered with
+    ``network.track(...)``.  The final full-network state is still written under
+    ``/solution/final`` and printed by verbose output, so users get compact time
+    histories without losing the final diagnostic table.
     """
 
     def __init__(self) -> None:
         self.records: list[dict[str, Any]] = []
 
     def append(self, network, time_value: float) -> None:
-        """Append the current network state at ``time_value``."""
-        for record in network.save(return_type="dict"):
+        """Append the current tracked values at ``time_value``."""
+        for record in network.tracked_records():
             row = {"time": float(time_value)}
             row.update(record)
             self.records.append(row)
@@ -43,8 +42,8 @@ class TransientHistory:
         HDF5 layout
         -----------
         ``/transient/history``
-            Time-stamped network records for every accepted timestep, including
-            the initial condition.
+            Time-stamped tracked records for every accepted timestep, including
+            the evaluated initial condition.
 
         ``/transient/steps``
             One row per accepted timestep containing ``time``, ``dt``, residual
@@ -61,7 +60,7 @@ class TransientHistory:
         write_tables(
             filename,
             {
-                "history": self.records,
+                "history": solution_records(self.records),
                 "steps": step_rows,
             },
             group_path="transient",
