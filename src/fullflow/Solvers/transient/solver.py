@@ -125,6 +125,8 @@ class Transient:
         dt: float,
         t_final: float,
         filename: str | None = None,
+        solution_name: str | None = None,
+        group_path: str = "auto",
         return_type: str = "dict",
         verbose: bool = False,
         statistics: bool = False,
@@ -150,11 +152,18 @@ class Transient:
             ``network.time``.
 
         filename : str, optional
-            Output HDF5 filename.  When provided, transient data is written to
-            disk.  The file contains the accepted timestep history under
-            ``/transient/history``, per-step solver data under
-            ``/transient/steps``, and the final network state under
-            ``/solution/final``.
+            Output HDF5 filename.  When provided, one transient solution is
+            written under ``/solutions/transient_####`` by default.  The file
+            can contain many steady-state solutions, transient solutions, and
+            maps at the same time.
+
+        solution_name : str, optional
+            User-friendly name for the transient solution group.  When omitted,
+            FullFlow uses numbered groups such as ``transient_0001``.
+
+        group_path : str, default="auto"
+            Explicit HDF5 group path for the transient solution.  Use ``"auto"``
+            for the standard numbered ``/solutions`` layout.
 
         return_type : {"dict"}, default="dict"
             Return format.  ``"dict"`` returns a list of time-stamped tracked
@@ -260,7 +269,13 @@ class Transient:
 
         elapsed_time = time.perf_counter() - solve_start_time
         step_rows = self._diagnostic_rows(self.step_diagnostics)
-        self.history.save(filename, self.network, step_rows)
+        self.history.save(
+            filename,
+            self.network,
+            step_rows,
+            group_path=group_path,
+            solution_name=solution_name,
+        )
 
         if verbose:
             self.printer.print_summary(

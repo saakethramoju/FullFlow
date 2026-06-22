@@ -10,7 +10,7 @@ import json
 import h5py
 import numpy as np
 
-from fullflow.Exports.HDF5 import dataset_names, hdf5_filename
+from fullflow.Exports.HDF5 import dataset_names, hdf5_filename, map_group_path
 
 
 _STRING_DTYPE = h5py.string_dtype(encoding="utf-8")
@@ -217,6 +217,9 @@ def _create_group(
 ) -> h5py.Group:
     map_group = file.create_group(group)
 
+    file.attrs["fullflow_export_format"] = "fullflow-hdf5-v2"
+    file.attrs["fullflow_schema_version"] = 2
+    map_group.attrs["fullflow_kind"] = "map"
     map_group.attrs["map_format"] = "fullflow-map-v2"
     map_group.attrs["created_utc"] = _datetime.datetime.now(_datetime.UTC).isoformat()
     map_group.attrs["axis_order"] = json.dumps([axis.name for axis in axes])
@@ -435,7 +438,7 @@ def generate_map(
             if output_name in _RESERVED_GROUP_NAMES:
                 raise ValueError(f"Output name '{output_name}' is reserved.")
 
-    group = group.strip("/") or "map"
+    group = map_group_path(group)
 
     with h5py.File(filename, "a") as file:
         if group in file:

@@ -222,8 +222,8 @@ class ModelOptionRunner:
             if filename is not None:
                 records = self.network.save(filename=None, return_type="dict")
                 option_group = (
-                    f"models/{safe_group_name(selected_model.name)}/"
-                    f"{safe_group_name(option_name)}/solution"
+                    f"solutions/model_options/{safe_group_name(selected_model.name)}/"
+                    f"{safe_group_name(option_name)}"
                 )
                 write_solution(
                     HDF5Target(filename, option_group),
@@ -241,7 +241,7 @@ class ModelOptionRunner:
                     write_failures(
                         filename,
                         failures,
-                        group_path=f"models/{safe_group_name(selected_model.name)}/failures",
+                        group_path=f"diagnostics/model_options/{safe_group_name(selected_model.name)}/failures",
                     )
 
             self.printer.print_model_failures(failures)
@@ -320,7 +320,7 @@ class ModelOptionRunner:
                 write_failures(
                     filename,
                     failures,
-                    group_path=f"models/{safe_group_name(selected_model.name)}/failures",
+                    group_path=f"diagnostics/model_options/{safe_group_name(selected_model.name)}/failures",
                 )
 
         self.printer.print_model_failures(failures)

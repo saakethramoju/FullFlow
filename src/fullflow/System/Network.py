@@ -368,7 +368,9 @@ class Network:
         self,
         filename: str | None = None,
         return_type: str = "dict",
-        group_path: str = "solution/current",
+        group_path: str = "auto",
+        solution_kind: str = "steady_state",
+        solution_name: str | None = None,
     ):
         return_type = return_type.lower()
         records: list[dict[str, Any]] = []
@@ -392,6 +394,8 @@ class Network:
                 network_name=self.name,
                 models=self.model_list,
                 group_path=group_path,
+                kind=solution_kind,
+                name=solution_name,
             )
 
         return records

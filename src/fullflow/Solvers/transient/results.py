@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fullflow.Exports.HDF5 import solution_records, write_solution, write_tables
+from fullflow.Exports.HDF5 import write_transient_solution
 
 
 def format_records(records: list[dict[str, Any]], return_type: str):
@@ -22,8 +22,7 @@ class TransientHistory:
 
     Transient history intentionally stores only values registered with
     ``network.track(...)``.  The final full-network state is still written under
-    ``/solution/final`` and printed by verbose output, so users get compact time
-    histories without losing the final diagnostic table.
+    the transient solution's ``/final`` subgroup.
     """
 
     def __init__(self) -> None:
@@ -36,39 +35,44 @@ class TransientHistory:
             row.update(record)
             self.records.append(row)
 
-    def save(self, filename: str | None, network, step_rows: list[dict[str, Any]]) -> None:
+    def save(
+        self,
+        filename: str | None,
+        network,
+        step_rows: list[dict[str, Any]],
+        *,
+        group_path: str = "auto",
+        solution_name: str | None = None,
+    ) -> None:
         """Write transient history, step diagnostics, and final state to HDF5.
 
-        HDF5 layout
-        -----------
-        ``/transient/history``
-            Time-stamped tracked records for every accepted timestep, including
-            the evaluated initial condition.
+        New layout
+        ----------
+        ``/solutions/transient_####/history``
+            Time-stamped tracked records in long-table form.
 
-        ``/transient/steps``
-            One row per accepted timestep containing ``time``, ``dt``, residual
-            norms, solve time, and SciPy iteration counts.
+        ``/solutions/transient_####/tracks``
+            One numeric dataset per tracked variable, plus a shared ``time``
+            dataset. This is the convenient plotting view.
 
-        ``/solution/final``
-            Final network state in the same table format used by steady-state
-            saves.  This makes it easy to inspect the final state without
-            filtering the full transient history.
+        ``/solutions/transient_####/steps``
+            One row per accepted timestep containing residual norms, solve
+            timing, and SciPy iteration counts.
+
+        ``/solutions/transient_####/final/records``
+            Final full-network state in the same table format as steady-state
+            saves.
         """
         if filename is None:
             return
 
-        write_tables(
+        write_transient_solution(
             filename,
-            {
-                "history": solution_records(self.records),
-                "steps": step_rows,
-            },
-            group_path="transient",
-        )
-        write_solution(
-            filename,
-            network.save(return_type="dict"),
+            self.records,
+            step_rows,
+            network.save(filename=None, return_type="dict"),
             network_name=network.name,
             models=network.model_list,
-            group_path="solution/final",
+            group_path=group_path,
+            name=solution_name,
         )
