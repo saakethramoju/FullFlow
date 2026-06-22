@@ -1,11 +1,22 @@
 """Solver entry points exported by :mod:`fullflow.Solvers`.
 
-The steady-state implementation is split across the ``steady_state`` package,
-but users should import only this public API:
+Users should import only this public API:
 
-    from fullflow.Solvers import SteadyState
+    from fullflow import SteadyState, Transient
+
+Open-loop schedule helpers are exported with the transient solver so simple
+transient examples can prescribe values from time.
 """
 
 from .steady_state import SteadyState
+from .transient import Constant, Function, Ramp, Schedule, Step, Transient
 
-__all__ = ["SteadyState"]
+__all__ = [
+    "SteadyState",
+    "Transient",
+    "Schedule",
+    "Constant",
+    "Step",
+    "Ramp",
+    "Function",
+]

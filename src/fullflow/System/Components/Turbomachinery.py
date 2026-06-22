@@ -28,6 +28,13 @@ class Rotor(Component):
     def residuals(self) -> list[float]:
         return [self.net_torque.value]
 
+    @property
+    def transient_variables(self):
+        return [self.rotor_speed]
+    
+    @property
+    def transient_derivatives(self):
+        return [self.net_torque.value / self.polar_moment_of_inertia.value]
 
 
 

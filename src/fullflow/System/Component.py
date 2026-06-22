@@ -6,7 +6,7 @@ from numbers import Real
 from typing import TYPE_CHECKING, Any
 
 from .Model import ModelOption
-from .State import State
+from .State import State, StateLike
 
 if TYPE_CHECKING:
     from fullflow.System import Network
@@ -168,7 +168,7 @@ class Component:
         return []
 
     @property
-    def transient_derivatives(self) -> list[Any]:
+    def transient_derivatives(self) -> list[StateLike | Real]:
         return []
 
     @property
