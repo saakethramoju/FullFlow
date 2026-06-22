@@ -21,15 +21,21 @@ class TransientStateEvaluator:
     def __init__(self, cache_getter: Callable[[], TransientRuntimeCache]) -> None:
         self._cache_getter = cache_getter
 
-    def run(self, max_passes: int = 5, tolerance: float = 1e-10) -> None:
+    def run(
+        self,
+        max_passes: int = 5,
+        tolerance: float = 1e-10,
+        cache: TransientRuntimeCache | None = None,
+    ) -> None:
         """Evaluate components until non-unknown states settle."""
-        cache = self._cache_getter()
+        cache = cache or self._cache_getter()
         iteration_snapshot = cache.snapshot_iteration_variables()
+        evaluate_state_callables = cache.evaluate_state_callables
 
         for _ in range(max_passes):
             old_values = cache.collect_state_values()
 
-            for evaluate_states in cache.evaluate_state_callables:
+            for evaluate_states in evaluate_state_callables:
                 cache.restore_iteration_variables(iteration_snapshot)
                 evaluate_states()
                 cache.restore_iteration_variables(iteration_snapshot)

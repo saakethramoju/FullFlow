@@ -117,10 +117,18 @@ class TransientRuntimeCache:
         return self
 
     def refresh(self) -> None:
-        """Rebuild transient items, algebraic items, callables, and bounds."""
+        """Rebuild transient items, algebraic items, callables, and bounds.
+
+        Phase 6 keeps the expensive network walk here.  Residual calls should
+        only assign SciPy's vector, evaluate cached component callables, and
+        collect cached equation blocks.  Nothing schedule-related lives in this
+        cache.
+        """
         self.component_list = tuple(self.network.component_list)
         self.balance_list = tuple(self.network.balance_list)
         self.model_list = tuple(self.network.model_list)
+
+        self._cache_component_transient_lists()
 
         self.transient_items = tuple(self._collect_transient_items())
         self.transient_variables = tuple(item.variable for item in self.transient_items)
@@ -128,6 +136,11 @@ class TransientRuntimeCache:
         self.transient_ids = {id(state) for state in self.transient_variables}
         self.transient_state_ids = {id(state) for state in self.transient_states}
 
+        self.algebraic_components = tuple(
+            component
+            for component in self.component_list
+            if id(component) not in self.dynamic_component_ids
+        )
         self.algebraic_component_items = tuple(
             self._collect_algebraic_component_items()
         )
@@ -146,6 +159,7 @@ class TransientRuntimeCache:
         self.iteration_variables = tuple(item.state for item in self.iteration_items)
         self.iteration_ids = {id(state) for state in self.iteration_variables}
         self.iteration_labels = tuple(item.label for item in self.iteration_items)
+        self.iteration_count = len(self.iteration_variables)
 
         self.pre_evaluation_callables = tuple(
             component.pre_evaluation for component in self.component_list
@@ -154,18 +168,31 @@ class TransientRuntimeCache:
             component.evaluate_states for component in self.component_list
         )
 
-        self.algebraic_components = tuple(
-            component
-            for component in self.component_list
-            if not self._component_is_dynamic(component)
-        )
+        self.algebraic_residual_owners = self.algebraic_components
+        self.balance_residual_owners = self.balance_list
 
         # These references are used only to decide whether repeated
         # evaluate_states() passes have settled.  They exclude solver unknowns
         # so the evaluator never treats SciPy's current guess as a derived state.
         self.state_refs = self._collect_state_refs()
-        self.all_state_refs = self._collect_all_state_refs()
         self.version = self.network.version
+
+    def _cache_component_transient_lists(self) -> None:
+        """Cache transient variable/state lists once per network version."""
+        self._transient_variable_lists: dict[int, list[Any]] = {}
+        self._transient_state_lists: dict[int, list[Any]] = {}
+        self.dynamic_component_ids: set[int] = set()
+
+        for component in self.component_list:
+            variables = self._as_list(component.transient_variables)
+            states = self._as_list(component.transient_states)
+
+            component_id = id(component)
+            self._transient_variable_lists[component_id] = variables
+            self._transient_state_lists[component_id] = states
+
+            if variables:
+                self.dynamic_component_ids.add(component_id)
 
     @property
     def transient_iteration_items(self) -> tuple[IterationItem, ...]:
@@ -198,16 +225,19 @@ class TransientRuntimeCache:
         )
 
     def _component_transient_variables(self, component: Any) -> list[Any]:
-        return self._as_list(component.transient_variables)
+        return self._transient_variable_lists[id(component)]
 
     def _component_transient_states(self, component: Any) -> list[Any]:
-        return self._as_list(component.transient_states)
+        return self._transient_state_lists[id(component)]
 
     def _component_transient_derivatives(self, component: Any) -> list[Any]:
+        # Derivative values can depend on the current SciPy trial point, so only
+        # variable/state membership is cached.  Derivatives are re-read after
+        # evaluate_states() on every residual call.
         return self._as_list(component.transient_derivatives)
 
     def _component_is_dynamic(self, component: Any) -> bool:
-        return len(self._component_transient_variables(component)) > 0
+        return id(component) in self.dynamic_component_ids
 
     @staticmethod
     def _is_valid_derivative(value: Any) -> bool:
@@ -318,12 +348,7 @@ class TransientRuntimeCache:
         ``transient_variables``, ``transient_states``, and
         ``transient_derivatives`` instead.
         """
-        owners = [
-            component
-            for component in self.component_list
-            if not self._component_is_dynamic(component)
-        ]
-        return self._iteration_items(owners, owner_kind="component")
+        return self._iteration_items(self.algebraic_components, owner_kind="component")
 
     def _iteration_items(
         self,
@@ -493,7 +518,7 @@ class TransientRuntimeCache:
 
         labels.extend(f"{item.state_label}.integration" for item in self.transient_items)
 
-        for owner in self.algebraic_components:
+        for owner in self.algebraic_residual_owners:
             residuals = owner.residuals
             if isinstance(residuals, (list, tuple)):
                 labels.extend(
@@ -502,7 +527,7 @@ class TransientRuntimeCache:
             else:
                 labels.append(f"{owner.name}.residual")
 
-        for balance in self.balance_list:
+        for balance in self.balance_residual_owners:
             residuals = balance.residuals
             if isinstance(residuals, (list, tuple)):
                 labels.extend(
@@ -517,6 +542,14 @@ class TransientRuntimeCache:
     def iteration_values(self) -> list[float]:
         """Current numeric values of all new-time unknowns in solver order."""
         return [state.numeric_value for state in self.iteration_variables]
+
+    def iteration_value_array(self) -> np.ndarray:
+        """Current numeric unknown vector for SciPy."""
+        return np.fromiter(
+            (state.numeric_value for state in self.iteration_variables),
+            dtype=float,
+            count=self.iteration_count,
+        )
 
     @property
     def lower_bounds(self) -> list[float]:
@@ -533,13 +566,42 @@ class TransientRuntimeCache:
         """SciPy keep-feasible flags aligned with ``iteration_values``."""
         return [state.keep_feasible for state in self.iteration_variables]
 
+    def lower_bound_array(self) -> np.ndarray:
+        """Lower State bounds as a NumPy array aligned with the unknown vector."""
+        return np.fromiter(
+            (state.lower_bound for state in self.iteration_variables),
+            dtype=float,
+            count=self.iteration_count,
+        )
+
+    def upper_bound_array(self) -> np.ndarray:
+        """Upper State bounds as a NumPy array aligned with the unknown vector."""
+        return np.fromiter(
+            (state.upper_bound for state in self.iteration_variables),
+            dtype=float,
+            count=self.iteration_count,
+        )
+
+    def keep_feasible_array(self) -> np.ndarray:
+        """SciPy keep-feasible flags aligned with the unknown vector."""
+        return np.fromiter(
+            (state.keep_feasible for state in self.iteration_variables),
+            dtype=bool,
+            count=self.iteration_count,
+        )
+
     def assign_iteration_values(self, values: Iterable[float]) -> None:
         """Write a SciPy vector back into transient/algebraic/balance States."""
-        values = list(values)
-        if len(values) != len(self.iteration_variables):
+        try:
+            value_count = len(values)  # type: ignore[arg-type]
+        except TypeError:
+            values = tuple(values)
+            value_count = len(values)
+
+        if value_count != self.iteration_count:
             raise ValueError(
-                f"Length mismatch: got {len(values)} iteration values "
-                f"but expected {len(self.iteration_variables)}."
+                f"Length mismatch: got {value_count} iteration values "
+                f"but expected {self.iteration_count}."
             )
 
         for value, state in zip(values, self.iteration_variables):
@@ -632,10 +694,10 @@ class TransientRuntimeCache:
             scale = self._transient_scale(item)
             residuals.append((state - previous - dt * derivative) / scale)
 
-        for component in self.algebraic_components:
+        for component in self.algebraic_residual_owners:
             residuals.extend(self.flatten_residuals(component.residuals))
 
-        for balance in self.balance_list:
+        for balance in self.balance_residual_owners:
             residuals.extend(self.flatten_residuals(balance.residuals))
 
         return np.array(residuals, dtype=float)

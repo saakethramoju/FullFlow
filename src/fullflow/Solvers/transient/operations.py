@@ -67,6 +67,7 @@ class TransientStepSolve:
         self._active_time: float = 0.0
         self._active_dt: float = 0.0
         self._active_state_settings = StateEvaluationSettings(max_passes=5)
+        self._active_cache: Any | None = None
         self._last_debug_x: np.ndarray | None = None
         self._last_debug_residual: np.ndarray | None = None
         self._last_debug_error: Exception | None = None
@@ -82,7 +83,7 @@ class TransientStepSolve:
         2. algebraic component residuals,
         3. balance residuals.
         """
-        cache = self._cache_getter()
+        cache = self._active_cache or self._cache_getter()
         self._last_debug_x = np.array(x, dtype=float)
         self._last_debug_residual = None
         self._last_debug_error = None
@@ -94,6 +95,7 @@ class TransientStepSolve:
             self.evaluator.run(
                 max_passes=self._active_state_settings.max_passes,
                 tolerance=self._active_state_settings.tolerance,
+                cache=cache,
             )
             residual = cache.collect_residuals(self._active_dt)
             self._last_debug_residual = residual
@@ -120,12 +122,17 @@ class TransientStepSolve:
         cache = self._cache_getter()
         cache.run_pre_evaluation()
         cache = self._cache_getter()
+        self._active_cache = cache
 
-        self.evaluator.run(
-            max_passes=state_settings.max_passes,
-            tolerance=state_settings.tolerance,
-        )
-        cache.store_previous_values()
+        try:
+            self.evaluator.run(
+                max_passes=state_settings.max_passes,
+                tolerance=state_settings.tolerance,
+                cache=cache,
+            )
+            cache.store_previous_values()
+        finally:
+            self._active_cache = None
 
     def run_once(
         self,
@@ -149,7 +156,8 @@ class TransientStepSolve:
         self._active_state_settings = state_settings
 
         cache = self._cache_getter()
-        x0 = np.array(cache.iteration_values, dtype=float)
+        self._active_cache = cache
+        x0 = cache.iteration_value_array()
         accepted_snapshot = cache.snapshot_iteration_variables()
         accepted_time = float(self.network.time.value)
 
@@ -182,6 +190,7 @@ class TransientStepSolve:
                 self.evaluator.run(
                     max_passes=state_settings.max_passes,
                     tolerance=state_settings.tolerance,
+                    cache=cache,
                 )
                 cache.store_previous_values()
                 return StepDiagnostics(
@@ -208,6 +217,7 @@ class TransientStepSolve:
             self.evaluator.run(
                 max_passes=state_settings.max_passes,
                 tolerance=state_settings.tolerance,
+                cache=cache,
             )
             final_residual = cache.collect_residuals(dt)
 
@@ -228,6 +238,7 @@ class TransientStepSolve:
             self.evaluator.run(
                 max_passes=state_settings.max_passes,
                 tolerance=state_settings.tolerance,
+                cache=cache,
             )
 
             # Only after a timestep passes the residual check do we advance
@@ -250,6 +261,8 @@ class TransientStepSolve:
             cache.restore_iteration_variables(accepted_snapshot)
             self.network.time.value = accepted_time
             raise
+        finally:
+            self._active_cache = None
 
     def _least_squares_kwargs(
         self,
@@ -278,9 +291,9 @@ class TransientStepSolve:
         # is no transient-specific bound system: the new-time unknowns simply use
         # their State.lower_bound / State.upper_bound / State.keep_feasible data.
         kwargs["bounds"] = Bounds(
-            cache.lower_bounds,
-            cache.upper_bounds,
-            cache.keep_feasible,
+            cache.lower_bound_array(),
+            cache.upper_bound_array(),
+            cache.keep_feasible_array(),
         )
         return kwargs
 
