@@ -97,6 +97,8 @@ class State:
     __slots__ = (
         "_value",
         "_expr",
+        "_previous",
+        "_second_previous",
         "_lower_bound",
         "_upper_bound",
         "_keep_feasible",
@@ -112,6 +114,8 @@ class State:
     ) -> None:
         self._value: Any = None
         self._expr: Callable[[], Any] | None = None
+        self._previous: Any = None
+        self._second_previous: Any = None
         self._lower_bound, self._upper_bound = self._normalize_bounds(bounds)
         self._keep_feasible = bool(keep_feasible)
         self._code = hex(id(self))
@@ -339,6 +343,43 @@ class State:
         ``mixture_ratio <<= ox_mdot / fuel_mdot``
         """
         return self.derive_from(source)
+
+    @property
+    def previous(self) -> Any:
+        """Value from the most recently accepted transient step."""
+        if self._previous is None:
+            raise ValueError(
+                f"State {self._code} has no previous. "
+                "Transient history has not been initialized."
+            )
+
+        return self._previous
+
+    @property
+    def second_previous(self) -> Any:
+        """Value from one accepted transient step before ``previous``."""
+        if self._second_previous is None:
+            raise ValueError(
+                f"State {self._code} has no second_previous. "
+                "Transient history has not been initialized for two accepted steps."
+            )
+
+        return self._second_previous
+
+    def store_previous(self) -> None:
+        """Store the current value as transient history.
+
+        The transient solver calls this after each accepted timestep. Components
+        should not need to call it directly.
+        """
+        if self.is_assigned:
+            self._second_previous = self._previous
+            self._previous = self.value
+
+    def clear_previous(self) -> None:
+        """Clear stored transient history."""
+        self._previous = None
+        self._second_previous = None
 
     @property
     def numeric_value(self) -> float:

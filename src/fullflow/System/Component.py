@@ -164,6 +164,14 @@ class Component:
         return []
 
     @property
+    def transient_variables(self) -> list[State]:
+        return []
+
+    @property
+    def transient_derivatives(self) -> list[Any]:
+        return []
+
+    @property
     def ignored_export_attributes(self) -> set[str]:
         return set()
 

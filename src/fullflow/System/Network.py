@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
-from .State import is_state_like
+from .State import State, is_state_like
 from fullflow.Exports.HDF5 import write_solution
 
 if TYPE_CHECKING:
@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 class Network:
     def __init__(self, name: str) -> None:
         self.name = name
+        self.time = State(0.0)
         self.component_list: list[Component] = []
         self.balance_list: list[Balance] = []
         self.model_list: list[Any] = []
