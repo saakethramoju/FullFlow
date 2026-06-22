@@ -4,10 +4,10 @@ import math
 from scipy.special import wrightomega
 from typing import TYPE_CHECKING
 
-from fullflow.System import Component, State
+from fullflow.System import Component
 
 if TYPE_CHECKING:
-    from fullflow.System import Network
+    from fullflow.System import Network, State
 
 
 
@@ -28,7 +28,6 @@ class Colebrook(Component):
         reynolds_number_threshold: State | float = 2300.0,
     ):
         self.setup()
-        self._is_turbulent = State(False)
 
     def evaluate_states(self):
         mdot = abs(self.mass_flow.value)
@@ -47,7 +46,8 @@ class Colebrook(Component):
 
         self.Deff = Deff
 
-        is_turbulent = self._is_turbulent.propose(Re_Dh > self.reynolds_number_threshold.value)
+        # Freeze the laminar/turbulent branch during transient nonlinear solves.
+        is_turbulent = self.propose("is_turbulent", Re_Dh > self.reynolds_number_threshold.value)
 
         if not is_turbulent:
             self.reynolds_number.value = Re_Dh
@@ -134,7 +134,6 @@ class PetukhovFriction(Component):
         reynolds_number_threshold: State | float = 2300.0,
     ):
         self.setup()
-        self._is_turbulent = State(False)
 
     def evaluate_states(self):
         mdot = abs(self.mass_flow.value)
@@ -148,7 +147,8 @@ class PetukhovFriction(Component):
 
         self.reynolds_number.value = Re
 
-        is_turbulent = self._is_turbulent.propose(Re > self.reynolds_number_threshold.value)
+        # Freeze the laminar/turbulent branch during transient nonlinear solves.
+        is_turbulent = self.propose("is_turbulent", Re > self.reynolds_number_threshold.value)
 
         if not is_turbulent:
             f = 4.0 * Po / Re

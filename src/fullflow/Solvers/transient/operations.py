@@ -137,10 +137,10 @@ class TransientStepSolve:
     ) -> StepDiagnostics:
         """Solve and accept one timestep.
 
-        Discrete mode States are frozen during the nonlinear solve so component
-        branches that use ``State.propose`` do not jump while SciPy perturbs the
-        continuous variables.  Proposed discrete changes are committed only after
-        the timestep residual has passed the acceptance check.
+        Component discrete modes are frozen during the nonlinear solve so
+        branches that use ``Component.propose`` do not jump while SciPy perturbs
+        the continuous variables.  Proposed discrete changes are committed only
+        after the timestep residual has passed the acceptance check.
         """
         least_squares_settings.validate()
         state_settings.validate()

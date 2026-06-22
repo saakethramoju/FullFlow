@@ -95,6 +95,9 @@ class Component:
     def initialize_component(self, name: str, network: Network) -> None:
         self.name = name
         self.network = network
+        self._discrete_frozen = False
+        self._proposed_modes = {}
+        self._proposed_mode_values = {}
         self.network.add_component(self)
 
     @staticmethod
@@ -148,6 +151,110 @@ class Component:
         cls._validate_template_arguments("template", name, kwargs)
         return cls.model(name, **kwargs)
 
+    def propose(
+        self,
+        name: str,
+        value: Any,
+        *,
+        turn_on: float | None = None,
+        turn_off: float | None = None,
+        initial: bool = False,
+    ) -> bool:
+        """Safely propose a boolean/discrete mode owned by this component.
+
+        Components use this for discontinuous runtime branches such as
+        cavitating/noncavitating, choked/unchoked, laminar/turbulent,
+        normal-shock/no-shock, limiters, or bang-bang valves.  The mode is
+        stored as a normal ``State`` either by reusing an existing component
+        attribute named by ``name`` or by creating a hidden internal mode State.
+
+        In normal evaluation, the proposed mode is assigned immediately.
+        During a transient nonlinear solve, the transient solver freezes
+        component discrete modes before SciPy perturbs the continuous unknowns.
+        While frozen, this method records the proposed value but returns the
+        currently accepted value, so residual equations do not jump branches
+        inside one nonlinear solve.  Proposed mode changes are committed only
+        after the timestep is accepted.
+
+        The simple form uses a boolean condition::
+
+            is_choked = self.propose("is_choked", pressure_ratio <= critical)
+
+        The threshold form adds hysteresis::
+
+            is_open = self.propose(
+                "is_open",
+                pressure,
+                turn_on=opening_pressure,
+                turn_off=closing_pressure,
+            )
+
+        With hysteresis, a False mode turns True only when ``value > turn_on``;
+        a True mode turns False only when ``value < turn_off``.  Between those
+        thresholds, the current mode is kept.
+        """
+        if (turn_on is None) != (turn_off is None):
+            raise ValueError(
+                "turn_on and turn_off must either both be provided or both be omitted."
+            )
+
+        if name in self.__dict__:
+            state = self.__dict__[name]
+        else:
+            state = self._proposed_modes.get(name)
+
+            if state is None:
+                state = State(bool(initial))
+                self._proposed_modes[name] = state
+
+        if not state.is_assigned:
+            state.value = bool(initial)
+
+        current_value = bool(state.value)
+
+        if turn_on is None:
+            proposed_value = bool(value)
+        else:
+            turn_on_value = float(turn_on)
+            turn_off_value = float(turn_off)
+
+            if turn_on_value < turn_off_value:
+                raise ValueError("turn_on must be greater than or equal to turn_off.")
+
+            signal = float(value)
+
+            if current_value:
+                proposed_value = signal > turn_off_value
+            else:
+                proposed_value = signal > turn_on_value
+
+        if self._discrete_frozen:
+            self._proposed_mode_values[id(state)] = (state, proposed_value)
+            return current_value
+
+        state.value = proposed_value
+        self._proposed_mode_values.pop(id(state), None)
+        return bool(state.value)
+
+    def freeze_discrete(self) -> None:
+        """Freeze component discrete modes before a transient nonlinear solve."""
+        self._discrete_frozen = True
+        self._proposed_mode_values.clear()
+
+    def commit_discrete(self) -> None:
+        """Accept proposed discrete-mode changes after an accepted timestep."""
+        proposed_values = list(self._proposed_mode_values.values())
+        self._discrete_frozen = False
+        self._proposed_mode_values.clear()
+
+        for state, proposed_value in proposed_values:
+            state.value = proposed_value
+
+    def reject_discrete(self) -> None:
+        """Discard proposed discrete-mode changes after a failed timestep."""
+        self._discrete_frozen = False
+        self._proposed_mode_values.clear()
+
     def pre_evaluation(self) -> None:
         pass
 
@@ -188,7 +295,11 @@ class Component:
 
     @property
     def ignored_export_attributes(self) -> set[str]:
-        return set()
+        return {
+            "_discrete_frozen",
+            "_proposed_modes",
+            "_proposed_mode_values",
+        }
 
     @staticmethod
     def _format_value(value: Any) -> Any:

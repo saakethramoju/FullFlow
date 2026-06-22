@@ -735,12 +735,7 @@ class TransientRuntimeCache:
             )
 
     def _collect_all_state_refs(self) -> tuple[Any, ...]:
-        """Collect every State-like object reachable from the network.
-
-        Discrete-mode freezing uses this broader list instead of ``state_refs``
-        because a discrete mode may also be an iteration variable, schedule
-        target, or nested inside a container.
-        """
+        """Collect every State-like object reachable from the network."""
         refs: list[Any] = []
         seen: set[int] = set()
 
@@ -779,25 +774,19 @@ class TransientRuntimeCache:
         return tuple(refs)
 
     def freeze_discrete_states(self) -> None:
-        """Freeze all State-like objects for safe ``State.propose`` calls."""
-        for state in self.all_state_refs:
-            freeze = getattr(state, "freeze_discrete", None)
-            if callable(freeze):
-                freeze()
+        """Freeze component discrete modes for safe ``Component.propose`` calls."""
+        for component in self.component_list:
+            component.freeze_discrete()
 
     def commit_discrete_states(self) -> None:
-        """Commit all proposed discrete-mode changes after an accepted step."""
-        for state in self.all_state_refs:
-            commit = getattr(state, "commit_discrete", None)
-            if callable(commit):
-                commit()
+        """Commit proposed component discrete-mode changes after an accepted step."""
+        for component in self.component_list:
+            component.commit_discrete()
 
     def reject_discrete_states(self) -> None:
-        """Reject all proposed discrete-mode changes after a failed step."""
-        for state in self.all_state_refs:
-            reject = getattr(state, "reject_discrete", None)
-            if callable(reject):
-                reject()
+        """Reject proposed component discrete-mode changes after a failed step."""
+        for component in self.component_list:
+            component.reject_discrete()
 
     def _collect_state_refs(self) -> tuple[Any, ...]:
         """Collect non-iteration State objects for fixed-point checks."""

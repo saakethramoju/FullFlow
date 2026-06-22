@@ -3,10 +3,10 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
-from fullflow.System import Component, State
+from fullflow.System import Component
 
 if TYPE_CHECKING:
-    from fullflow.System import Network
+    from fullflow.System import Network, State
 
 
 class CompressibleOrifice(Component):
@@ -56,7 +56,10 @@ class CompressibleOrifice(Component):
         pressure_ratio = Pb / Po
         critical_pressure_ratio = (2.0 / (g + 1.0)) ** (g / (g - 1.0))
 
-        if pressure_ratio <= critical_pressure_ratio:
+        # Freeze the choked/unchoked branch during transient nonlinear solves.
+        is_choked = self.propose("is_choked", pressure_ratio <= critical_pressure_ratio)
+
+        if is_choked:
             flow_function = math.sqrt((g / (R * T0)) * (2.0 / (g + 1.0)) ** ((g + 1.0) / (g - 1.0)))
         else:
             flow_function = math.sqrt((2.0 * g / (R * T0 * (g - 1.0))) * (pressure_ratio ** (2.0 / g) - pressure_ratio ** ((g + 1.0) / g)))
@@ -169,13 +172,15 @@ class IsentropicNozzle(Component):
         FP_throat = FP_exit * eps
         choked_check2 = FP_throat > FP_choked
 
-        choked = choked_check1 or choked_check2
+        # Freeze the choked/unchoked nozzle branch during transient nonlinear solves.
+        choked = self.propose("is_choked", choked_check1 or choked_check2)
 
         if not choked:
             mdot = FP_throat * Po * At / (R * To) ** 0.5
             Me = self._mach_from_pressure_ratio(PR, g)
             Pe = Pamb
-            shock = False
+            # Keep the normal-shock branch fixed while the timestep is solved.
+            self.propose("normal_shock", False)
             Ms = 0.0
 
         else:
@@ -184,7 +189,8 @@ class IsentropicNozzle(Component):
             if eps <= 1.0:
                 Me = 1.0
                 Pe = Po / self._pressure_ratio_from_mach(Me, g)
-                shock = False
+                # Keep the normal-shock branch fixed while the timestep is solved.
+                self.propose("normal_shock", False)
                 Ms = 0.0
 
             else:
@@ -196,17 +202,20 @@ class IsentropicNozzle(Component):
                 if RPR >= 1.0:
                     Me = Me_test
                     Pe = Pe_test
-                    shock = False
+                    # Keep the normal-shock branch fixed while the timestep is solved.
+                    self.propose("normal_shock", False)
                     Ms = 0.0
 
                 else:
                     Ps2_Ps1 = self._normal_shock_static_pressure_ratio(Me_test, g)
                     RPRS = Ps2_Ps1 * RPR
 
-                    if RPRS >= 1.0:
+                    # Freeze the normal-shock/no-shock branch during transient nonlinear solves.
+                    shock = self.propose("normal_shock", RPRS < 1.0)
+
+                    if not shock:
                         Me = Me_test
                         Pe = Pe_test
-                        shock = False
                         Ms = 0.0
 
                     else:
@@ -215,12 +224,10 @@ class IsentropicNozzle(Component):
                         FP_exit = FP_choked / (Pt2_Pt1 * eps)
                         Me = self._mach_from_flow_parameter(FP_exit, g, 1.0e-12, 1.0 - 1.0e-12)
                         Pe = Po * Pt2_Pt1 / self._pressure_ratio_from_mach(Me, g)
-                        shock = True
 
         self.mass_flow.value = mdot
         self.exit_mach_number.value = Me
         self.exit_static_pressure.value = Pe
-        self.normal_shock.value = shock
         self.shock_mach_number.value = Ms
 
     @staticmethod
@@ -305,4 +312,3 @@ class IsentropicNozzle(Component):
     @staticmethod
     def _pressure_ratio_from_mach(M: float, g: float) -> float:
         return (1.0 + 0.5 * (g - 1.0) * M**2) ** (g / (g - 1.0))
-
