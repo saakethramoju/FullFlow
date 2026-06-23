@@ -518,6 +518,7 @@ def write_transient_solution(
     step_rows: list[dict[str, Any]],
     final_records: list[dict[str, Any]],
     models: list[Any] | None = None,
+    output_times: list[float] | None = None,
 ) -> Path:
     """Write current transient data for a network.
 
@@ -528,7 +529,10 @@ def write_transient_solution(
     history_rows = solution_records(history_records)
     track_rows = solution_records(track_records)
     final_rows = solution_records(final_records)
-    time_values = _ordered_times(history_rows)
+    if output_times is None:
+        time_values = _ordered_times(history_rows + track_rows)
+    else:
+        time_values = np.asarray(output_times, dtype=float)
 
     with h5py.File(path, "a") as h5:
         _initialize_file(h5)

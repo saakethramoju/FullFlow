@@ -52,7 +52,8 @@ class TransientPrinter:
         diagnostics_list: list[Any],
         start_time: float,
         final_time: float,
-        requested_dt: float,
+        requested_dt: Any,
+        adaptive: bool,
         method: str,
         jac: str,
         ftol: float,
@@ -97,13 +98,16 @@ class TransientPrinter:
         if last_status is not None:
             table.add_row(_plain("Last SciPy status"), _plain(last_status))
         table.add_row(_plain("Last SciPy message"), _plain(last_message))
-        table.add_row(_plain("Solver type"), _plain("Fixed-step implicit backward Euler"))
+        solver_type = "Adaptive implicit backward Euler" if adaptive else "Fixed-step implicit backward Euler"
+        requested_dt_text = str(requested_dt) if isinstance(requested_dt, str) else f"{float(requested_dt):.9g}"
+
+        table.add_row(_plain("Solver type"), _plain(solver_type))
         table.add_row(_plain("Nonlinear solver"), _plain("scipy.optimize.least_squares"))
         table.add_row(_plain("Solver method"), _plain(method))
         table.add_row(_plain("Jacobian method"), _plain(jac))
         table.add_row(_plain("Start time"), _plain(f"{start_time:.9g}"))
         table.add_row(_plain("Final time"), _plain(f"{final_time:.9g}"))
-        table.add_row(_plain("Requested dt"), _plain(f"{requested_dt:.9g}"))
+        table.add_row(_plain("Requested dt"), _plain(requested_dt_text))
         table.add_row(_plain("Accepted steps"), _plain(len(diagnostics_list)))
         table.add_row(_plain("Automatic retries"), _plain(total_retries))
         table.add_row(_plain("Solve time"), _plain(f"{solve_time:.3f} s"))

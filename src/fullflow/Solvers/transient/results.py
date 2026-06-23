@@ -18,27 +18,36 @@ def format_records(records: list[dict[str, Any]], return_type: str):
 
 
 class TransientHistory:
-    """Collect full-network transient history at each accepted timestep.
+    """Collect full transient output at selected accepted timesteps.
 
-    The HDF5 export writes every component and balance attribute at every saved
-    time.  ``network.track(...)`` is still supported, but it only creates
-    convenient aliases under ``/<network>/transient/tracks``; it is no longer
-    required for plotting or reading transient component histories.
+    ``save_dt`` controls which accepted times are stored.  Whenever a time is
+    saved, the full network export is stored.  ``network.track(...)`` values are
+    also stored in the convenience ``/tracks`` HDF5 group, but tracking does not
+    decide which states are saved.
     """
 
     def __init__(self) -> None:
         self.records: list[dict[str, Any]] = []
         self.track_records: list[dict[str, Any]] = []
+        self.output_times: list[float] = []
+
+    @property
+    def public_records(self) -> list[dict[str, Any]]:
+        """Return the records that should be returned from ``Transient.solve``."""
+        return self.records
 
     def append(self, network, time_value: float) -> None:
-        """Append current full-network and tracked values at ``time_value``."""
+        """Append current full-network output values at ``time_value``."""
+        time_value = float(time_value)
+        self.output_times.append(time_value)
+
         for record in network.save(filename=None, return_type="dict"):
-            row = {"time": float(time_value)}
+            row = {"time": time_value}
             row.update(record)
             self.records.append(row)
 
         for record in network.tracked_records():
-            row = {"time": float(time_value)}
+            row = {"time": time_value}
             row.update(record)
             self.track_records.append(row)
 
@@ -55,4 +64,5 @@ class TransientHistory:
             step_rows=step_rows,
             final_records=network.save(filename=None, return_type="dict"),
             models=network.model_list,
+            output_times=self.output_times,
         )

@@ -161,7 +161,7 @@ class TransientStepSolve:
         cache = self._cache_getter()
         self._active_cache = cache
         x0 = cache.iteration_value_array()
-        accepted_snapshot = cache.snapshot_iteration_variables()
+        accepted_snapshot = cache.snapshot_mutable_states()
         accepted_time = float(self.network.time.value)
 
         cache.freeze_discrete_states()
@@ -261,7 +261,7 @@ class TransientStepSolve:
 
         except Exception:
             cache.reject_discrete_states()
-            cache.restore_iteration_variables(accepted_snapshot)
+            cache.restore_mutable_states(accepted_snapshot)
             self.network.time.value = accepted_time
             raise
         finally:

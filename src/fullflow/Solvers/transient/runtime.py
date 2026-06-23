@@ -35,12 +35,14 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+import copy
 from numbers import Real
 from typing import Any
 
 import numpy as np
 
 from fullflow.System.State import (
+    State,
     is_assignable_state_like,
     is_state_like,
     resolve_numeric,
@@ -182,6 +184,12 @@ class TransientRuntimeCache:
         # evaluate_states() passes have settled.  They exclude solver unknowns
         # so the evaluator never treats SciPy's current guess as a derived state.
         self.state_refs = self._collect_state_refs()
+
+        # These references are used for failed-step rollback.  They include
+        # solver unknowns, explicit outputs, hidden mode states, lookup backing
+        # states, and network time so a rejected timestep cannot leave partial
+        # residual-call mutations behind.
+        self.all_state_refs = self._collect_all_state_refs()
         self.version = self.network.version
 
     def _cache_component_transient_lists(self) -> None:
@@ -667,6 +675,92 @@ class TransientRuntimeCache:
 
         for value, state in zip(values, self.iteration_variables):
             state.value = value
+
+    @staticmethod
+    def _snapshot_value(value: Any) -> Any:
+        """Copy a stored State value while preserving State object references."""
+        if is_state_like(value):
+            return value
+
+        if isinstance(value, dict):
+            return {
+                TransientRuntimeCache._snapshot_value(key): TransientRuntimeCache._snapshot_value(item)
+                for key, item in value.items()
+            }
+
+        if isinstance(value, list):
+            return [TransientRuntimeCache._snapshot_value(item) for item in value]
+
+        if isinstance(value, tuple):
+            return tuple(TransientRuntimeCache._snapshot_value(item) for item in value)
+
+        if isinstance(value, set):
+            return {TransientRuntimeCache._snapshot_value(item) for item in value}
+
+        if isinstance(value, frozenset):
+            return frozenset(
+                TransientRuntimeCache._snapshot_value(item)
+                for item in value
+            )
+
+        try:
+            return copy.deepcopy(value)
+        except Exception:
+            return value
+
+    def snapshot_mutable_states(self) -> tuple[tuple[Any, ...], ...]:
+        """Capture all reachable mutable State values before a timestep attempt.
+
+        SciPy residual calls can touch more than the explicit solver unknowns.
+        Explicit components may write mass flow, heat flow, lookup guesses, mode
+        States, or other derived outputs before a timestep is accepted.  A failed
+        timestep must restore those values before the outer loop retries with a
+        smaller dt.
+        """
+        snapshot: list[tuple[Any, ...]] = []
+
+        for state in self.all_state_refs:
+            if isinstance(state, State):
+                snapshot.append(
+                    (
+                        "state",
+                        state,
+                        self._snapshot_value(state._value),
+                        self._snapshot_value(state._previous),
+                        self._snapshot_value(state._second_previous),
+                    )
+                )
+                continue
+
+            if not is_assignable_state_like(state):
+                continue
+
+            try:
+                if not state.is_assigned:
+                    continue
+                value = self._snapshot_value(state.value)
+            except Exception:
+                continue
+
+            snapshot.append(("proxy", state, value))
+
+        return tuple(snapshot)
+
+    @staticmethod
+    def restore_mutable_states(snapshot: tuple[tuple[Any, ...], ...]) -> None:
+        """Restore a snapshot created by :meth:`snapshot_mutable_states`."""
+        for item in snapshot:
+            kind = item[0]
+
+            if kind == "state":
+                _, state, value, previous, second_previous = item
+                state._value = TransientRuntimeCache._snapshot_value(value)
+                state._previous = TransientRuntimeCache._snapshot_value(previous)
+                state._second_previous = TransientRuntimeCache._snapshot_value(second_previous)
+                continue
+
+            _, state, value = item
+            state.value = TransientRuntimeCache._snapshot_value(value)
 
     def snapshot_iteration_variables(self) -> tuple[tuple[Any, Any], ...]:
         """Capture assigned solver values so failed evaluations can be restored."""
