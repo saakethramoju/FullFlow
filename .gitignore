@@ -4,6 +4,7 @@ __pycache__/
 *.pyo
 *.pyd
 .Python
+.vscode
 
 dist/
 build/
@@ -19,3 +20,4 @@ test.py
 # HDF5 map/output files
 *.h5
 *.hdf5
+*.json
