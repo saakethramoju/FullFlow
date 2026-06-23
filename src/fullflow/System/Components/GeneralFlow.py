@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import numpy as np
 from typing import TYPE_CHECKING
 
 from fullflow.System import Component
@@ -147,10 +148,12 @@ class DarcyWeisbach(Component):
 
         pressure_drop = p1 - p2
 
-        if abs(pressure_drop) < 1e-12:
-            self.effective_area.value = 0.0
+        effective_area_value = 2.0 * rho * abs(pressure_drop)
+
+        if effective_area_value > 0.0:
+            self.effective_area.value = abs(mdot) / math.sqrt(effective_area_value)
         else:
-            self.effective_area.value = abs(mdot) / math.sqrt(2.0 * rho * abs(pressure_drop))
+            self.effective_area.value = 0.0
 
         pressure = (p1 - p2) * A
         friction = Kf * mdot * abs(mdot) * A
@@ -194,6 +197,7 @@ class DischargeCoefficient(Component):
     ):
         self.setup()
 
+
     def evaluate_states(self) -> None:
         P1 = self.upstream_pressure.value
         P2 = self.downstream_pressure.value
@@ -213,19 +217,10 @@ class DischargeCoefficient(Component):
             self._mass_flow_dot = (dP - (R / rho) * mdot * abs(mdot)) / Z
 
         else:
-            if dP > 0.0:
-                sign = 1.0
-            elif dP < 0.0:
-                sign = -1.0
-            else:
-                sign = 0.0
+            sign = np.sign(dP)
+            value = max(0.0, 2.0 * rho * abs(dP))
 
-            value = 2.0 * rho * abs(dP)
-
-            if value >= 0.0:
-                self.mass_flow.value = sign * Cd * A * math.sqrt(value)
-            else:
-                self.mass_flow.value = math.nan
+            self.mass_flow.value = sign * Cd * A * math.sqrt(value)
 
     @property
     def transient_variables(self) -> list[State]:
@@ -310,13 +305,7 @@ class CavitatingVenturi(Component):
         Cd_noncav = self.noncavitating_discharge_coefficient.value
 
         dP = P1 - P2
-
-        if dP > 0.0:
-            sign = 1.0
-        elif dP < 0.0:
-            sign = -1.0
-        else:
-            sign = 0.0
+        sign = np.sign(dP)
 
         P2_critical = Pvap + R * (P1 - Pvap)
         self.critical_downstream_pressure = P2_critical
@@ -327,12 +316,10 @@ class CavitatingVenturi(Component):
         if is_cavitating:
             self.throat_pressure = Pvap
 
-            dP = P1 - Pvap
+            dP_cav = P1 - Pvap
+            value = max(0.0, 2.0 * rho * dP_cav)
 
-            if dP > 0.0:
-                self.mass_flow.value = Cd_cav * A * math.sqrt(2.0 * rho * dP)
-            else:
-                self.mass_flow.value = 0.0
+            self.mass_flow.value = Cd_cav * A * math.sqrt(value)
 
         else:
             if dP > 0.0 and R < 1.0:
@@ -340,11 +327,10 @@ class CavitatingVenturi(Component):
             else:
                 self.throat_pressure = P1
 
-            if dP != 0.0:
-                self.mass_flow.value = sign * Cd_noncav * A * math.sqrt(2.0 * rho * abs(dP))
-            else:
-                self.mass_flow.value = 0.0
+            value = max(0.0, 2.0 * rho * abs(dP))
 
+            self.mass_flow.value = sign * Cd_noncav * A * math.sqrt(value)
+            
     @property
     def ignored_export_attributes(self):
         return super().ignored_export_attributes | {"critical_downstream_pressure"}
