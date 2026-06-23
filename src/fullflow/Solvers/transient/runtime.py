@@ -665,14 +665,30 @@ class TransientRuntimeCache:
         return [resolve_numeric(value) for value in residual_source]
 
     @staticmethod
-    def _transient_scale(item: TransientItem) -> float:
-        """Scale used to make integration residuals dimensionless-ish.
+    def _transient_scale(
+        item: TransientItem,
+        *,
+        dt: float,
+        derivative: float,
+    ) -> float:
+        """Scale used for internally generated integration residuals.
 
-        Algebraic residuals are left exactly as the component returns them, just
-        like steady-state.  Only internally generated integration residuals are
-        scaled because their raw units could be kg, J, K, rad/s, etc.
+        Algebraic residuals are left exactly as components and balances return
+        them, matching the steady-state solver.  Only backward-Euler
+        integration residuals are normalized because their raw units can be kg,
+        J, K, rad/s, etc.
+
+        The scale includes the current state, the previous state, and the
+        expected timestep change.  This prevents tiny absolute conservation
+        defects, such as ``1e-8 kg/m^3`` on a ``1000 kg/m^3`` density state,
+        from causing a failed timestep.
         """
-        return max(abs(float(item.state.value)), abs(float(item.state.previous)), 1.0)
+        return max(
+            abs(float(item.state.value)),
+            abs(float(item.state.previous)),
+            abs(float(dt * derivative)),
+            1.0,
+        )
 
     def collect_residuals(self, dt: float) -> np.ndarray:
         """Collect transient, algebraic, and balance residuals.
@@ -691,7 +707,7 @@ class TransientRuntimeCache:
             state = float(item.state.value)
             previous = float(item.state.previous)
             derivative = self._derivative_value(item)
-            scale = self._transient_scale(item)
+            scale = self._transient_scale(item, dt=dt, derivative=derivative)
             residuals.append((state - previous - dt * derivative) / scale)
 
         for component in self.algebraic_residual_owners:

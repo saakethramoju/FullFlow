@@ -74,31 +74,49 @@ class Volume(Component):
 
     Transient
     ---------
-    The nonlinear solver iterates on pressure and either enthalpy or temperature,
-    but the actual integrated states are density and internal energy.
+    The nonlinear solver still iterates on convenient thermodynamic variables:
 
-    This follows the ROCETS-style idea:
+        pressure
+        pressure and enthalpy
+        pressure and temperature
 
-        iteration variables:
-            pressure, enthalpy
-
-        integrated states:
-            density, internal_energy
-
-    This avoids using density/internal energy as nonlinear iteration variables
-    while still integrating conservative mass and energy equations.
-
-    The component also exposes:
+    but the actual integrated states are now conservative extensive quantities:
 
         mass = density * volume
+        total_internal_energy = mass * internal_energy
 
-    so other transient components, like Composition, can integrate quantities
-    such as m*x without needing to duplicate the node mass calculation.
+    This keeps the ROCETS-style pressure/enthalpy iteration behavior while
+    allowing the volume itself to change during a transient.  A scheduled or
+    balanced volume can move independently of the pressure iteration variable,
+    and mass is still conserved exactly by the transient residual:
 
-    Assumptions
-    -----------
-    The current transient form assumes fixed volume. If volume changes with time,
-    a volume_derivative term should be added later.
+        d(mass)/dt = mass_flow_in - mass_flow_out
+
+    If the energy balance is enabled, the component integrates total internal
+    energy:
+
+        d(mass * internal_energy)/dt =
+            mass_flow_in * total_enthalpy_in
+          - mass_flow_out * total_enthalpy_out
+          + heat_rate
+          + work_rate
+
+    The optional ``work_rate`` input is where boundary work, shaft work, or
+    other direct work terms can be supplied.  For a moving volume boundary, the
+    usual sign convention is:
+
+        work_rate = -pressure * volume_derivative
+
+    Positive ``heat_rate`` or ``work_rate`` adds energy to the control volume.
+
+    Compatibility
+    -------------
+    The old inputs still work.  If only mass conservation is supplied, the
+    component still solves one transient equation using pressure as the nonlinear
+    variable.  If energy inputs are supplied, it still solves pressure plus the
+    selected energy variable.  The difference is only that transient integration
+    is performed on ``mass`` and ``total_internal_energy`` instead of directly on
+    ``density`` and specific ``internal_energy``.
     """
 
     def __init__(
@@ -111,6 +129,7 @@ class Volume(Component):
         total_enthalpy_in: State | float | None = None,
         total_enthalpy_out: State | float | None = None,
         heat_rate: State | float | None = None,
+        work_rate: State | float | None = None,
         temperature: State | None = None,
         density: State | None = None,
         internal_energy: State | None = None,
@@ -118,6 +137,7 @@ class Volume(Component):
         mass_flow_out: State | float | None = None,
         energy_variable: str = "enthalpy",
         mass: State | None = None,
+        total_internal_energy: State | None = None,
     ):
         aliases = {
             "h": "enthalpy",
@@ -151,6 +171,12 @@ class Volume(Component):
             and density is not None
         )
 
+        self._has_energy_output = (
+            volume is not None
+            and density is not None
+            and internal_energy is not None
+        )
+
         self._has_transient_mass_balance = (
             volume is not None
             and density is not None
@@ -174,6 +200,9 @@ class Volume(Component):
 
         self.mass.value = self.density.value * self.volume.value
 
+        if self._has_energy_output:
+            self.total_internal_energy.value = self.mass.value * self.internal_energy.value
+
     def _outlet_enthalpy(self) -> float:
         if self.total_enthalpy_out.is_assigned:
             return self.total_enthalpy_out.value
@@ -184,6 +213,16 @@ class Volume(Component):
         raise ValueError(
             f"{self.name}: energy balance requires total_enthalpy_out or enthalpy to be assigned."
         )
+
+    def _heat_rate(self) -> float:
+        if self.heat_rate.is_assigned:
+            return self.heat_rate.value
+        return 0.0
+
+    def _work_rate(self) -> float:
+        if self.work_rate.is_assigned:
+            return self.work_rate.value
+        return 0.0
 
     def _check_transient_mass_balance(self) -> None:
         if not self._has_transient_mass_balance:
@@ -216,9 +255,13 @@ class Volume(Component):
         if not self._has_energy_balance:
             return [mass_balance]
 
-        qdot = self.heat_rate.value if self.heat_rate.is_assigned else 0.0
         h_out = self._outlet_enthalpy()
-        energy_balance = self.mass_flow_in.value * self.total_enthalpy_in.value - self.mass_flow_out.value * h_out + qdot
+        energy_balance = (
+            self.mass_flow_in.value * self.total_enthalpy_in.value
+            - self.mass_flow_out.value * h_out
+            + self._heat_rate()
+            + self._work_rate()
+        )
 
         return [mass_balance, energy_balance]
 
@@ -241,11 +284,11 @@ class Volume(Component):
         self._check_transient_energy_balance()
 
         if not self._has_transient_energy_balance:
-            return [self.density]
+            return [self.mass]
 
         return [
-            self.density,
-            self.internal_energy,
+            self.mass,
+            self.total_internal_energy,
         ]
 
     @property
@@ -253,31 +296,24 @@ class Volume(Component):
         self._check_transient_mass_balance()
         self._check_transient_energy_balance()
 
-        V = self.volume.value
-        rho = self.density.value
-
         mdot_in = self.mass_flow_in.value
         mdot_out = self.mass_flow_out.value
 
-        density_derivative = (mdot_in - mdot_out) / V
+        mass_derivative = mdot_in - mdot_out
 
         if not self._has_transient_energy_balance:
-            return [density_derivative]
+            return [mass_derivative]
 
-        u = self.internal_energy.value
-
-        qdot = self.heat_rate.value if self.heat_rate.is_assigned else 0.0
         h_out = self._outlet_enthalpy()
 
-        energy_rate = (
+        total_internal_energy_derivative = (
             mdot_in * self.total_enthalpy_in.value
             - mdot_out * h_out
-            + qdot
+            + self._heat_rate()
+            + self._work_rate()
         )
 
-        internal_energy_derivative = (energy_rate / V - u * density_derivative) / rho
-
         return [
-            density_derivative,
-            internal_energy_derivative,
+            mass_derivative,
+            total_internal_energy_derivative,
         ]

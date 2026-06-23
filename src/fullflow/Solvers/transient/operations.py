@@ -7,9 +7,9 @@ This module contains the numerical core used by :class:`Transient`:
 * solve one implicit backward-Euler timestep,
 * check the accepted residual against the per-step tolerance.
 
-No retry logic is implemented here yet.  If a bounded timestep cannot satisfy
-``rtol``, the solver raises a clear error and leaves the network at the final
-attempted state for debugging.
+This module solves one requested timestep.  The public ``Transient.solve`` loop
+can retry a failed step with smaller substeps; this inner object keeps the
+single-step residual solve focused and deterministic.
 """
 
 from __future__ import annotations
@@ -42,6 +42,7 @@ class StepDiagnostics:
     sol: Any | None
     residual: np.ndarray
     elapsed_time: float
+    retries: int = 0
 
     @property
     def max_residual(self) -> float:
@@ -308,11 +309,17 @@ class TransientStepSolve:
         t_new: float,
         dt: float,
     ) -> None:
-        """Raise if SciPy failed or per-timestep residual tolerance was missed."""
+        """Raise if the accepted residual is too large.
+
+        SciPy is still run with strict ``ftol``, ``xtol``, and ``gtol``.  After
+        SciPy stops, timestep acceptance is based on the recomputed residual.
+        This allows a physically converged step to pass even when SciPy reports
+        a technical termination such as ``max_nfev``.
+        """
         final_residual = np.array(residual, dtype=float)
         max_residual = np.max(np.abs(final_residual)) if len(final_residual) else 0.0
 
-        if success and max_residual <= settings.rtol:
+        if max_residual <= settings.rtol:
             return
 
         try:
@@ -334,12 +341,12 @@ class TransientStepSolve:
 
         lines = [
             "Transient timestep failed or converged to unacceptable residuals.",
-            "No retry was attempted; reduce dt, adjust bounds, or improve the initial condition.",
+            "The outer transient loop may retry this step with a smaller dt.",
             f"time = {t_new:.9g}",
             f"dt = {dt:.9g}",
             f"success = {success}",
             f"message = {message}",
-            f"max |residual| = {max_residual:.3e}",
+            f"max |accepted residual| = {max_residual:.3e}",
             f"per-step residual tolerance = {settings.rtol:.3e}",
         ]
 

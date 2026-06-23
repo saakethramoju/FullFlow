@@ -37,11 +37,13 @@ class TransientPrinter:
 
     def print_step(self, diagnostics) -> None:
         """Print one compact accepted-step progress line."""
+        retry_text = f", retries={diagnostics.retries}" if diagnostics.retries else ""
         self.console.print(
             f"Transient step accepted: "
             f"t={diagnostics.time:.9g}, "
             f"dt={diagnostics.dt:.9g}, "
             f"max|residual|={diagnostics.max_residual:.3e}"
+            f"{retry_text}"
         )
 
     def print_summary(
@@ -67,6 +69,7 @@ class TransientPrinter:
         total_nfev = 0
         total_njev = 0
         total_cost = 0.0
+        total_retries = sum(int(getattr(row, "retries", 0) or 0) for row in diagnostics_list)
         last_status = None
         last_message = "No nonlinear timestep solve was required."
         last_optimality = None
@@ -102,6 +105,7 @@ class TransientPrinter:
         table.add_row(_plain("Final time"), _plain(f"{final_time:.9g}"))
         table.add_row(_plain("Requested dt"), _plain(f"{requested_dt:.9g}"))
         table.add_row(_plain("Accepted steps"), _plain(len(diagnostics_list)))
+        table.add_row(_plain("Automatic retries"), _plain(total_retries))
         table.add_row(_plain("Solve time"), _plain(f"{solve_time:.3f} s"))
         table.add_row(_plain("Total function evaluations"), _plain(total_nfev))
         table.add_row(_plain("Total Jacobian evaluations"), _plain(total_njev))

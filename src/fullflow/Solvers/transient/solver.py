@@ -46,10 +46,9 @@ class Transient:
 
     Notes
     -----
-    This implementation intentionally has no retry logic and no adaptive ODE
-    error control.  Each timestep is a bounded least-squares solve.  If SciPy
-    cannot satisfy the per-step residual tolerance with the current ``dt``, the
-    solver raises an error.
+    Each timestep is a bounded least-squares solve.  If the requested timestep
+    does not satisfy the per-step residual tolerance, the solver automatically
+    retries smaller half-steps before raising an error.
     """
 
     def __init__(self, network) -> None:
@@ -115,6 +114,7 @@ class Transient:
                     "optimality": 0.0 if sol is None else getattr(sol, "optimality", None),
                     "variable_count": len(diagnostics.x0),
                     "residual_count": len(diagnostics.residual),
+                    "retries": diagnostics.retries,
                 }
             )
 
@@ -133,9 +133,11 @@ class Transient:
         ftol: float = 1e-12,
         xtol: float = 1e-12,
         gtol: float = 1e-12,
-        rtol: float = 1e-10,
+        rtol: float = 1e-8,
         state_max_passes: int = 5,
         state_tolerance: float = 1e-10,
+        max_step_retries: int = 8,
+        minimum_dt: float | None = None,
     ):
         """Advance the network from its current time to ``t_final``.
 
@@ -179,12 +181,13 @@ class Transient:
         ftol, xtol, gtol : float
             SciPy least-squares convergence tolerances.
 
-        rtol : float, default=1e-10
+        rtol : float, default=1e-8
             Per-timestep residual acceptance tolerance.  After SciPy terminates,
             the recomputed final timestep residual must satisfy
-            ``max(abs(residual)) <= rtol``.  Dynamic residuals are scaled by their
-            state magnitude; algebraic residuals are used exactly as components
-            and balances return them.
+            ``max(abs(residual)) <= rtol``.  Internally generated integration
+            residuals are normalized by the state/change scale; algebraic
+            residuals are used exactly as components and balances return them.
+            SciPy still uses the stricter ``ftol``, ``xtol``, and ``gtol`` above.
 
         state_max_passes : int, default=5
             Maximum number of repeated ``evaluate_states()`` passes inside each
@@ -193,13 +196,26 @@ class Transient:
         state_tolerance : float, default=1e-10
             Fixed-point convergence tolerance for derived-state evaluation.
 
+        max_step_retries : int, default=8
+            Number of automatic half-step retries allowed when a timestep does
+            not satisfy the acceptance residual.
+
+        minimum_dt : float, optional
+            Smallest automatic retry timestep.  If omitted, the retry floor is
+            ``dt * 1e-9``.
+
         Returns
         -------
         list[dict]
             Time-stamped tracked records for every accepted timestep, including
             the evaluated initial state.
         """
-        transient_settings = TransientSettings(dt=dt, t_final=t_final)
+        transient_settings = TransientSettings(
+            dt=dt,
+            t_final=t_final,
+            max_step_retries=max_step_retries,
+            minimum_dt=minimum_dt,
+        )
         transient_settings.validate()
 
         least_squares_settings = LeastSquaresSettings(
@@ -241,15 +257,60 @@ class Transient:
             if dt_step <= 0.0:
                 break
 
-            t_new = float(self.network.time.value) + dt_step
-            diagnostics = self.step_solver.run_once(
-                t_new=t_new,
-                dt=dt_step,
-                least_squares_settings=least_squares_settings,
-                state_settings=state_settings,
-            )
+            current_time = float(self.network.time.value)
+            trial_dt = dt_step
+            retries = 0
+            last_error: Exception | None = None
+
+            while True:
+                t_new = current_time + trial_dt
+
+                try:
+                    diagnostics = self.step_solver.run_once(
+                        t_new=t_new,
+                        dt=trial_dt,
+                        least_squares_settings=least_squares_settings,
+                        state_settings=state_settings,
+                    )
+                    diagnostics.retries = retries
+                    break
+
+                except Exception as error:
+                    last_error = error
+
+                    if retries >= transient_settings.max_step_retries:
+                        raise RuntimeError(
+                            "Transient timestep failed after automatic retry.\n"
+                            f"time = {current_time:.9g}\n"
+                            f"requested dt = {dt_step:.9g}\n"
+                            f"last attempted dt = {trial_dt:.9g}\n"
+                            f"retries = {retries}\n"
+                            f"minimum dt = {transient_settings.retry_floor:.9g}\n"
+                            "Last error:\n"
+                            f"{error}"
+                        ) from error
+
+                    next_dt = 0.5 * trial_dt
+                    if next_dt < transient_settings.retry_floor:
+                        raise RuntimeError(
+                            "Transient timestep failed before reaching an acceptable residual, "
+                            "and the next retry would be below minimum_dt.\n"
+                            f"time = {current_time:.9g}\n"
+                            f"requested dt = {dt_step:.9g}\n"
+                            f"last attempted dt = {trial_dt:.9g}\n"
+                            f"next attempted dt = {next_dt:.9g}\n"
+                            f"minimum dt = {transient_settings.retry_floor:.9g}\n"
+                            "Last error:\n"
+                            f"{error}"
+                        ) from error
+
+                    retries += 1
+                    trial_dt = next_dt
+                    self.network.time.value = current_time
+                    self._cache()
+
             self.step_diagnostics.append(diagnostics)
-            self.history.append(self.network, t_new)
+            self.history.append(self.network, diagnostics.time)
 
             if statistics:
                 self.printer.print_step(diagnostics)
