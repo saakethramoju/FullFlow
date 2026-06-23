@@ -91,6 +91,7 @@ class TransientStepSolve:
 
         cache.assign_iteration_values(x)
         self.network.time.value = self._active_time
+        cache.set_transient_context(dt=self._active_dt)
 
         try:
             self.evaluator.run(
@@ -126,6 +127,7 @@ class TransientStepSolve:
         self._active_cache = cache
 
         try:
+            cache.set_transient_context(dt=0.0)
             self.evaluator.run(
                 max_passes=state_settings.max_passes,
                 tolerance=state_settings.tolerance,
@@ -311,8 +313,10 @@ class TransientStepSolve:
     ) -> None:
         """Raise if the accepted residual is too large.
 
-        SciPy is still run with strict ``ftol``, ``xtol``, and ``gtol``.  After
-        SciPy stops, timestep acceptance is based on the recomputed residual.
+        SciPy is still run with strict nonlinear tolerances.  By default, transient
+        solves disable SciPy ``gtol`` so gradient-based termination cannot stop
+        early on a small-but-unaccepted integration residual.  After SciPy stops,
+        timestep acceptance is based on the recomputed residual.
         This allows a physically converged step to pass even when SciPy reports
         a technical termination such as ``max_nfev``.
         """

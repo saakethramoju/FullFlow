@@ -294,6 +294,36 @@ class Component:
         return []
 
     @property
+    def transient_algebraic_variables(self) -> list[State]:
+        """Extra new-time unknowns used only during transient solves.
+
+        These States are written by the transient nonlinear solver, but they do
+        not create their own integration residuals.  They are useful for
+        variable-geometry components where a Balance or another algebraic
+        equation closes the extra unknown.
+        """
+        return []
+
+    @property
+    def transient_history_states(self) -> list[State]:
+        """Extra States whose previous timestep value should be stored.
+
+        Transient states are stored automatically.  Components can add related
+        algebraic States here when they need old/new differences, such as a
+        moving volume boundary used for boundary work.
+        """
+        return []
+
+    def set_transient_context(self, *, dt: float) -> None:
+        """Receive timestep context from the transient solver.
+
+        Components normally do not need this.  Variable-volume energy balances
+        use it to compute a backward-Euler volume derivative from current and
+        previous volume values.
+        """
+        self._transient_dt = float(dt)
+
+    @property
     def ignored_export_attributes(self) -> set[str]:
         return {
             "_discrete_frozen",

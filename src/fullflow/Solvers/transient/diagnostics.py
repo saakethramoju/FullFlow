@@ -57,7 +57,7 @@ class TransientPrinter:
         jac: str,
         ftol: float,
         xtol: float,
-        gtol: float,
+        gtol: float | None,
         rtol: float,
         solve_time: float,
     ) -> None:
@@ -117,7 +117,7 @@ class TransientPrinter:
         table.add_row(_plain("Residual tolerance"), _plain(f"{rtol:.3e}"))
         table.add_row(_plain("ftol"), _plain(f"{ftol:.3e}"))
         table.add_row(_plain("xtol"), _plain(f"{xtol:.3e}"))
-        table.add_row(_plain("gtol"), _plain(f"{gtol:.3e}"))
+        table.add_row(_plain("gtol"), _plain("disabled" if gtol is None else f"{gtol:.3e}"))
 
         self.console.print()
         self.console.print(table)

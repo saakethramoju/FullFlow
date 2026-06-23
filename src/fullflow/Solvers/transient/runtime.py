@@ -135,6 +135,12 @@ class TransientRuntimeCache:
         self.transient_states = tuple(item.state for item in self.transient_items)
         self.transient_ids = {id(state) for state in self.transient_variables}
         self.transient_state_ids = {id(state) for state in self.transient_states}
+        self.transient_algebraic_items = tuple(
+            self._collect_transient_algebraic_items()
+        )
+        self.transient_history_states = tuple(
+            self._collect_transient_history_states()
+        )
 
         self.algebraic_components = tuple(
             component
@@ -148,14 +154,15 @@ class TransientRuntimeCache:
             self._iteration_items(self.balance_list, owner_kind="balance")
         )
 
-        self._validate_no_solver_variable_overlap()
         self._validate_no_transient_state_overlap()
 
-        self.iteration_items = (
+        raw_iteration_items = (
             self.transient_iteration_items
+            + self.transient_algebraic_items
             + self.algebraic_component_items
             + self.balance_items
         )
+        self.iteration_items = self._deduplicate_iteration_items(raw_iteration_items)
         self.iteration_variables = tuple(item.state for item in self.iteration_items)
         self.iteration_ids = {id(state) for state in self.iteration_variables}
         self.iteration_labels = tuple(item.label for item in self.iteration_items)
@@ -181,15 +188,21 @@ class TransientRuntimeCache:
         """Cache transient variable/state lists once per network version."""
         self._transient_variable_lists: dict[int, list[Any]] = {}
         self._transient_state_lists: dict[int, list[Any]] = {}
+        self._transient_algebraic_variable_lists: dict[int, list[Any]] = {}
+        self._transient_history_state_lists: dict[int, list[Any]] = {}
         self.dynamic_component_ids: set[int] = set()
 
         for component in self.component_list:
             variables = self._as_list(component.transient_variables)
             states = self._as_list(component.transient_states)
+            algebraic_variables = self._as_list(component.transient_algebraic_variables)
+            history_states = self._as_list(component.transient_history_states)
 
             component_id = id(component)
             self._transient_variable_lists[component_id] = variables
             self._transient_state_lists[component_id] = states
+            self._transient_algebraic_variable_lists[component_id] = algebraic_variables
+            self._transient_history_state_lists[component_id] = history_states
 
             if variables:
                 self.dynamic_component_ids.add(component_id)
@@ -235,6 +248,12 @@ class TransientRuntimeCache:
         # variable/state membership is cached.  Derivatives are re-read after
         # evaluate_states() on every residual call.
         return self._as_list(component.transient_derivatives)
+
+    def _component_transient_algebraic_variables(self, component: Any) -> list[Any]:
+        return self._transient_algebraic_variable_lists[id(component)]
+
+    def _component_transient_history_states(self, component: Any) -> list[Any]:
+        return self._transient_history_state_lists[id(component)]
 
     def _component_is_dynamic(self, component: Any) -> bool:
         return id(component) in self.dynamic_component_ids
@@ -340,6 +359,57 @@ class TransientRuntimeCache:
 
         return items
 
+    def _collect_transient_algebraic_items(self) -> list[IterationItem]:
+        """Collect extra transient unknowns that do not add integration residuals."""
+        items: list[IterationItem] = []
+
+        for component in self.component_list:
+            for state in self._component_transient_algebraic_variables(component):
+                if not is_assignable_state_like(state):
+                    raise TypeError(
+                        f"{component.name}: transient algebraic variable must be an "
+                        "assignable, non-derived State."
+                    )
+                items.append(
+                    IterationItem(
+                        state=state,
+                        label=self.state_label(component, state),
+                        owner_kind="transient algebraic",
+                        owner=component,
+                    )
+                )
+
+        return items
+
+    def _collect_transient_history_states(self) -> list[Any]:
+        """Collect extra States whose previous values must advance each step."""
+        states: list[Any] = []
+        seen: set[int] = set()
+
+        def add(state: Any, owner: Any) -> None:
+            if not is_state_like(state):
+                raise TypeError(
+                    f"{owner.name}: transient history state must be a State-like object."
+                )
+            if not callable(getattr(state, "store_previous", None)):
+                raise TypeError(
+                    f"{owner.name}: transient history state must support store_previous()."
+                )
+            state_id = id(state)
+            if state_id in seen:
+                return
+            seen.add(state_id)
+            states.append(state)
+
+        for item in self.transient_items:
+            add(item.state, item.owner)
+
+        for component in self.component_list:
+            for state in self._component_transient_history_states(component):
+                add(state, component)
+
+        return states
+
     def _collect_algebraic_component_items(self) -> list[IterationItem]:
         """Collect iteration variables only from non-dynamic components.
 
@@ -377,35 +447,26 @@ class TransientRuntimeCache:
 
         return items
 
-    def _validate_no_solver_variable_overlap(self) -> None:
-        """Reject duplicate unknown ownership before SciPy sees the vector."""
-        groups = {
-            "transient": self.transient_iteration_items,
-            "component": self.algebraic_component_items,
-            "balance": self.balance_items,
-        }
+    @staticmethod
+    def _deduplicate_iteration_items(items: tuple[IterationItem, ...]) -> tuple[IterationItem, ...]:
+        """Return solver unknowns with shared State objects kept only once.
 
-        owners_by_state: dict[int, list[str]] = {}
-        for group_name, items in groups.items():
-            for item in items:
-                owners_by_state.setdefault(id(item.state), []).append(
-                    f"{group_name}: {item.label}"
-                )
+        Shared States are intentional in transient tank models.  For example, two
+        Volume components may share one tank pressure, and a variable volume may
+        appear both as a Volume transient algebraic variable and as the variable
+        of a Balance that supplies the geometry equation.
+        """
+        unique: list[IterationItem] = []
+        seen: set[int] = set()
 
-        conflicts = [labels for labels in owners_by_state.values() if len(labels) > 1]
-        if not conflicts:
-            return
+        for item in items:
+            state_id = id(item.state)
+            if state_id in seen:
+                continue
+            seen.add(state_id)
+            unique.append(item)
 
-        lines = [
-            "Transient solver variable overlap detected.",
-            "",
-            "Each State can be solved by only one transient equation, component equation, or Balance.",
-            "Conflicting variables:",
-        ]
-        for labels in conflicts:
-            lines.extend(f"  - {label}" for label in labels)
-            lines.append("")
-        raise ValueError("\n".join(lines).rstrip())
+        return tuple(unique)
 
     def _validate_no_transient_state_overlap(self) -> None:
         """Reject multiple integration equations for the same transient state.
@@ -626,19 +687,24 @@ class TransientRuntimeCache:
         for pre_evaluation in self.pre_evaluation_callables:
             pre_evaluation()
 
+    def set_transient_context(self, *, dt: float) -> None:
+        """Pass timestep context to every component before evaluation."""
+        for component in self.component_list:
+            component.set_transient_context(dt=dt)
+
     def store_previous_values(self) -> None:
-        """Store accepted values for all transient variables.
+        """Store accepted values for all transient history States.
 
         This is called only after a timestep is accepted.  During a nonlinear
         solve, ``state.previous`` stays fixed while SciPy changes ``state.value``.
         """
-        for item in self.transient_items:
-            item.state.store_previous()
+        for state in self.transient_history_states:
+            state.store_previous()
 
     def clear_previous_values(self) -> None:
-        """Clear transient history for all transient variables."""
-        for item in self.transient_items:
-            item.state.clear_previous()
+        """Clear transient history for all transient history States."""
+        for state in self.transient_history_states:
+            state.clear_previous()
 
     def _derivative_value(self, item: TransientItem) -> float:
         """Return the current numeric derivative for ``item``.

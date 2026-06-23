@@ -132,7 +132,7 @@ class Transient:
         jacobian_method: str = "3-point",
         ftol: float = 1e-12,
         xtol: float = 1e-12,
-        gtol: float = 1e-12,
+        gtol: float | None = None,
         rtol: float = 1e-8,
         state_max_passes: int = 5,
         state_tolerance: float = 1e-10,
@@ -178,8 +178,13 @@ class Transient:
         jacobian_method : str, default="3-point"
             Finite-difference Jacobian approximation passed to SciPy.
 
-        ftol, xtol, gtol : float
+        ftol, xtol : float
             SciPy least-squares convergence tolerances.
+
+        gtol : float or None, default=None
+            SciPy gradient convergence tolerance. ``None`` disables gradient-based
+            termination, which avoids false convergence for small normalized
+            transient residuals with weak finite-difference gradients.
 
         rtol : float, default=1e-8
             Per-timestep residual acceptance tolerance.  After SciPy terminates,
@@ -187,7 +192,10 @@ class Transient:
             ``max(abs(residual)) <= rtol``.  Internally generated integration
             residuals are normalized by the state/change scale; algebraic
             residuals are used exactly as components and balances return them.
-            SciPy still uses the stricter ``ftol``, ``xtol``, and ``gtol`` above.
+            SciPy still uses the stricter ``ftol`` and ``xtol`` above.
+            By default ``gtol`` is disabled for transient solves because small
+            residual magnitudes can make gradient-based termination stop before
+            the timestep residual is actually accepted.
 
         state_max_passes : int, default=5
             Maximum number of repeated ``evaluate_states()`` passes inside each
