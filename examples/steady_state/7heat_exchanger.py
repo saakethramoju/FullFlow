@@ -430,15 +430,18 @@ HotFluidFriction1 = Colebrook(
 )
 
 
-# Hot node 1 enforces mass and energy balance. Because energy_variable="T",
+# Hot node 1 is a real lumped storage volume. In steady state, FullFlow drives
+# mass_dot and total_internal_energy_dot to zero. Because energy_variable="T",
 # temperature is the thermal solve variable while enthalpy comes from the map.
 HotFluidNode1 = Volume(
     "Hot Fluid Node 1",
     HeatExchanger,
     volume=1,
     pressure=hot_fluid_node1_pressure,
+    density=GasolineMap1.density,
     temperature=hot_fluid_node1_temperature,
     enthalpy=GasolineMap1.enthalpy,
+    internal_energy=GasolineMap1.enthalpy - hot_fluid_node1_pressure / GasolineMap1.density,
     energy_variable="T",
     total_enthalpy_in=SourceGasolineMap.enthalpy,
     mass_flow_in=HotFluidTube1.mass_flow,
@@ -479,14 +482,17 @@ HotFluidFriction2 = Colebrook(
 
 
 
-# Hot node 2 enforces mass and energy balance.
+# Hot node 2 is another lumped storage volume. Steady state drives its mass and
+# energy derivatives to zero.
 HotFluidNode2 = Volume(
     "Hot Fluid Node 2",
     HeatExchanger,
     volume=1,
     pressure=hot_fluid_node2_pressure,
+    density=GasolineMap2.density,
     temperature=hot_fluid_node2_temperature,
     enthalpy=GasolineMap2.enthalpy,
+    internal_energy=GasolineMap2.enthalpy - hot_fluid_node2_pressure / GasolineMap2.density,
     energy_variable="T",
     total_enthalpy_in=GasolineMap1.enthalpy,
     mass_flow_in=HotFluidTube2.mass_flow,
@@ -629,14 +635,17 @@ CoolantFriction1 = Colebrook(
 )
 
 
-# Coolant node 1 enforces mass and energy balance.
+# Coolant node 1 is a lumped storage volume. Steady state drives its mass and
+# energy derivatives to zero.
 CoolantNode1 = Volume(
     "Coolant Node 1",
     HeatExchanger,
     volume=1,
     pressure=CoolantNode1Fluid.pressure,
+    density=CoolantNode1Fluid.density,
     temperature=CoolantNode1Fluid.temperature,
     enthalpy=CoolantNode1Fluid.enthalpy,
+    internal_energy=CoolantNode1Fluid.internal_energy,
     energy_variable="T",
     total_enthalpy_in=CoolantSource.enthalpy,
     mass_flow_in=CoolantTube1.mass_flow,
@@ -678,14 +687,17 @@ CoolantFriction2 = Colebrook(
 )
 
 
-# Coolant node 2 enforces mass and energy balance.
+# Coolant node 2 is a lumped storage volume. Steady state drives its mass and
+# energy derivatives to zero.
 CoolantNode2 = Volume(
     "Coolant Node 2",
     HeatExchanger,
     volume=1,
     pressure=CoolantNode2Fluid.pressure,
+    density=CoolantNode2Fluid.density,
     temperature=CoolantNode2Fluid.temperature,
     enthalpy=CoolantNode2Fluid.enthalpy,
+    internal_energy=CoolantNode2Fluid.internal_energy,
     energy_variable="T",
     total_enthalpy_in=CoolantNode1Fluid.enthalpy,
     mass_flow_in=CoolantTube2.mass_flow,

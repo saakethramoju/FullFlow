@@ -155,18 +155,23 @@ Diff = IsentropicDiffuser(
 
 
 # -----------------------------------------------------------------------------
-# Lumped volume / internal node
+# Lumped storage volume / internal node
+#
+# SteadyState drives Node.mass_dot and Node.total_internal_energy_dot to zero.
+# Transient would integrate the same mass and energy storage equations.
 # -----------------------------------------------------------------------------
 
 Node = Volume(
     "Node",
     CompressibleNetwork,
     pressure=NodeFluid.pressure,
+    volume=1,
+    density=NodeFluid.density,
+    mass_flow_in=Diff.mass_flow,
     enthalpy=NodeFluid.enthalpy,
     temperature=NodeFluid.temperature,
-    mass_flow_in=Diff.mass_flow,
+    internal_energy=NodeFluid.internal_energy,
     total_enthalpy_in=Diff.total_enthalpy,
-    volume=1,
 )
 
 

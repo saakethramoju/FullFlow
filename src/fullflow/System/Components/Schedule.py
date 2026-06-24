@@ -125,27 +125,6 @@ class Schedule(Component):
 
         self.target.value = float(value)
 
-    @property
-    def transient_history_states(self) -> list[State]:
-        states: list[State] = []
-        seen: set[int] = set()
-
-        for item in self._input_list:
-            if not is_state_like(item):
-                continue
-
-            if not callable(getattr(item, "store_previous", None)):
-                continue
-
-            item_id = id(item)
-            if item_id in seen:
-                continue
-
-            seen.add(item_id)
-            states.append(item)
-
-        return states
-
     @staticmethod
     def _normalize_inputs(inputs):
         if inputs is None:

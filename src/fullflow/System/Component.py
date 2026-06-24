@@ -98,6 +98,7 @@ class Component:
         self._discrete_frozen = False
         self._proposed_modes = {}
         self._proposed_mode_values = {}
+        self._transient_dt = 0.0
         self.network.add_component(self)
 
     @staticmethod
@@ -258,69 +259,51 @@ class Component:
     def pre_evaluation(self) -> None:
         pass
 
-    @property
-    def iteration_variables(self) -> list[State]:
-        return [getattr(self, name) for name in self._iteration_variable_names]
-
     def evaluate_states(self) -> None:
+        """Update the component outputs from the current input States.
+
+        Most custom components only need this method.  Use it to calculate any
+        output States and any named derivative/error quantities used by
+        ``dynamics`` or ``balances``.
+        """
         pass
 
     @property
-    def residuals(self) -> list[State | float]:
-        return []
+    def dynamics(self) -> list[tuple]:
+        """Dynamic equations owned by this component.
 
-    @property
-    def transient_variables(self) -> list[State]:
-        return []
+        Use ``dynamics`` for real storage, inertia, or capacitance.  A dynamic
+        equation is either::
 
-    @property
-    def transient_states(self) -> list[State]:
-        """Conserved quantities advanced by the transient integrator.
+            (state, derivative)
 
-        For most dynamic components, the solver variable and the integrated
-        quantity are the same State.  For example, a rotor solves for and
-        integrates rotor speed.  In that common case, components only need to
-        override ``transient_variables`` and ``transient_derivatives``.
+        or, for conservative variables solved through convenient thermodynamic
+        variables::
 
-        Some components should solve with one set of variables but integrate a
-        different conserved quantity.  A fluid volume is the main example: it
-        may solve for pressure and enthalpy while integrating mass and total
-        internal energy.  Those components override this property.
-        """
-        return self.transient_variables
+            (solve_variable, integrated_state, derivative)
 
-    @property
-    def transient_derivatives(self) -> list[State | float]:
-        return []
-
-    @property
-    def transient_algebraic_variables(self) -> list[State]:
-        """Extra new-time unknowns used only during transient solves.
-
-        These States are written by the transient nonlinear solver, but they do
-        not create their own integration residuals.  They are useful for
-        variable-geometry components where a Balance or another algebraic
-        equation closes the extra unknown.
+        Steady-state solves drive each derivative to zero.  Transient solves
+        integrate each derivative.
         """
         return []
 
     @property
-    def transient_history_states(self) -> list[State]:
-        """Extra States whose previous timestep value should be stored.
+    def balances(self) -> list[tuple]:
+        """Algebraic equations owned by this component.
 
-        Transient states are stored automatically.  Components can add related
-        algebraic States here when they need old/new differences, such as a
-        moving volume boundary used for boundary work.
+        Use ``balances`` only for equations that do **not** represent a time
+        derivative.  Each entry is::
+
+            (variable_to_solve, residual_that_should_be_zero)
+
+        Examples include a pump pressure match, a map inversion, or a controller
+        target.  Do not put conservation derivatives here; those belong in
+        ``dynamics``.
         """
         return []
 
     def set_transient_context(self, *, dt: float) -> None:
-        """Receive timestep context from the transient solver.
-
-        Components normally do not need this.  Variable-volume energy balances
-        use it to compute a backward-Euler volume derivative from current and
-        previous volume values.
-        """
+        """Receive timestep context from the transient solver."""
         self._transient_dt = float(dt)
 
     @property

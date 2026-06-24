@@ -30,6 +30,9 @@ class FlowTube(Component):
         upstream_static_enthalpy: State | None = None,
         total_enthalpy: State | None = None,
     ):
+        self.momentum_error = 0.0
+        self.mass_flow_dot = 0.0
+
         self.setup()
 
     def evaluate_states(self):
@@ -75,24 +78,14 @@ class FlowTube(Component):
                 u2 = mdot / (rho2 * A)
                 inertia = max(mdot, 0.0) * (u2 - u1) - max(-mdot, 0.0) * (u1 - u2)
 
-        self._residual = pressure - friction - inertia - gravity
-        self._mass_flow_dot = self._residual / L
+        self.momentum_error = pressure - friction - inertia - gravity
+        self.mass_flow_dot = self.momentum_error / L
 
     @property
-    def iteration_variables(self) -> list[State]:
-        return [self.mass_flow]
-
-    @property
-    def residuals(self) -> list[State | float]:
-        return [self._residual]
-
-    @property
-    def transient_variables(self) -> list[State]:
-        return [self.mass_flow]
-
-    @property
-    def transient_derivatives(self) -> list[State | float]:
-        return [self._mass_flow_dot]
+    def dynamics(self):
+        # Flow inertia is a real dynamic equation.  SteadyState drives
+        # mass_flow_dot to zero; Transient integrates mass_flow.
+        return [(self.mass_flow, self.mass_flow_dot)]
 
 
 
@@ -115,6 +108,9 @@ class DarcyWeisbach(Component):
         height_change: State | float | None = None,
         effective_area: float | None = None,
     ):
+        self.momentum_error = 0.0
+        self.mass_flow_dot = 0.0
+
         self.setup()
 
     def evaluate_states(self):
@@ -159,24 +155,15 @@ class DarcyWeisbach(Component):
         friction = Kf * mdot * abs(mdot) * A
         gravity = rho * g * dh * A
 
-        self._residual = pressure - friction - gravity
-        self._mass_flow_dot = self._residual / L
+        self.momentum_error = pressure - friction - gravity
+        self.mass_flow_dot = self.momentum_error / L
 
     @property
-    def iteration_variables(self) -> list[State]:
-        return [self.mass_flow]
-
-    @property
-    def residuals(self) -> list[State | float]:
-        return [self._residual]
-
-    @property
-    def transient_variables(self) -> list[State]:
-        return [self.mass_flow]
-
-    @property
-    def transient_derivatives(self) -> list[State | float]:
-        return [self._mass_flow_dot]
+    def dynamics(self):
+        # Pipe inertia is represented by mass_flow_dot.  In steady state this
+        # derivative is driven to zero, which recovers the usual pressure-loss
+        # equation.
+        return [(self.mass_flow, self.mass_flow_dot)]
 
 
 
@@ -195,6 +182,8 @@ class DischargeCoefficient(Component):
         length: float | None = None,
         mass_flow: State | None = None,
     ):
+        self.mass_flow_dot = 0.0
+
         self.setup()
 
 
@@ -214,7 +203,7 @@ class DischargeCoefficient(Component):
             R = 1.0 / (2.0 * (Cd * A)**2)
             Z = L / A
 
-            self._mass_flow_dot = (dP - (R / rho) * mdot * abs(mdot)) / Z
+            self.mass_flow_dot = (dP - (R / rho) * mdot * abs(mdot)) / Z
 
         else:
             sign = np.sign(dP)
@@ -223,15 +212,13 @@ class DischargeCoefficient(Component):
             self.mass_flow.value = sign * Cd * A * math.sqrt(value)
 
     @property
-    def transient_variables(self) -> list[State]:
+    def dynamics(self):
+        # Without length this is a direct algebraic calculator: mass_flow is
+        # written explicitly from pressure drop, so no solver equation is added.
+        # With length, the branch has flow inertia and mass_flow_dot is a real
+        # dynamic equation.
         if self.length.is_assigned:
-            return [self.mass_flow]
-        return []
-
-    @property
-    def transient_derivatives(self) -> list[State | float]:
-        if self.length.is_assigned:
-            return [self._mass_flow_dot]
+            return [(self.mass_flow, self.mass_flow_dot)]
         return []
 
 
@@ -274,7 +261,7 @@ class CavitatingVenturi(Component):
 
         mdot = sign(P1 - P2) Cd_noncav A sqrt(2 rho |P1 - P2|)
 
-    This is a direct calculator. It does not add residuals or iteration variables.
+    This is a direct calculator. It does not add dynamics or balances.
     """
 
     def __init__(

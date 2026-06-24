@@ -237,6 +237,11 @@ class CustomPump(Component):
         discharge_pressure: State,
         gravitational_acceleration: float = 9.80665
     ):
+        # The balances property below reads pressure_error.  Initialize it once
+        # so the component is safe to inspect before the first evaluate_states()
+        # call. evaluate_states() overwrites it with the current physics.
+        self.pressure_error = 0.0
+
         # self.setup() stores all inputs, wraps numeric values, and registers
         # the component with the network.
         self.setup()
@@ -274,26 +279,24 @@ class CustomPump(Component):
         # Convert head rise to pressure rise and add it to inlet pressure.
         self.P2_predicted = P1 + rho*g*H
 
-    @property
-    def iteration_variables(self):
-        """
-        States that the nonlinear solver is allowed to vary.
-
-        Here the solver changes pump mass flow until the discharge pressure
-        residual is satisfied.
-        """
-        return [self.mass_flow]
+        # Algebraic error driven to zero by balances below.
+        self.pressure_error = self.P2_predicted - self.discharge_pressure.value
 
     @property
-    def residuals(self):
+    def balances(self):
         """
-        Residual equations enforced by the nonlinear solver.
+        Algebraic equations enforced by the nonlinear solver.
 
-        The pump is solved when:
+        Each tuple has the form:
+
+            (variable_to_solve, residual_that_should_be_zero)
+
+        This pump has no storage or inertia of its own, so it uses balances, not
+        dynamics. The solver changes pump mass flow until:
 
             P2_predicted = discharge_pressure
         """
-        return [self.P2_predicted - self.discharge_pressure.value]
+        return [(self.mass_flow, self.pressure_error)]
 
 
 # =============================================================================
@@ -415,9 +418,12 @@ Fitting = CustomRestriction(
 #
 # An initial guess of 5 kg/s is supplied for mass_flow_out.
 #
-# The pressure of this volume is the same state as NodeFluid.pressure, so the
-# solver can adjust the pump inlet pressure while keeping the ThermoProp lookup
-# connected to the same pressure state.
+# The pressure of this volume is the same state as NodeFluid.pressure.
+# In steady state, FullFlow drives the volume mass derivative to zero:
+#
+#     mass_dot = Fitting.mass_flow - Node.mass_flow_out = 0
+#
+# The solver varies the pump inlet pressure until that derivative is zero.
 # -----------------------------------------------------------------------------
 
 Node = Volume(
@@ -425,6 +431,7 @@ Node = Volume(
     LOXPumpSystem,
     pressure=NodeFluid.pressure,
     volume=1,
+    density=NodeFluid.density,
     mass_flow_in=Fitting.mass_flow,
     mass_flow_out=5
 )

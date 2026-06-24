@@ -368,17 +368,19 @@ OxInletModel.option(
 # -----------------------------------------------------------------------------
 # Injector manifolds
 # -----------------------------------------------------------------------------
-# The manifold Volume components enforce:
+# The manifold Volume components are real lumped storage volumes.  In steady
+# state, FullFlow drives their mass derivatives to zero:
 #
-#     mass_flow_in - mass_flow_out = 0
+#     mass_dot = mass_flow_in - mass_flow_out = 0
 #
-# Their pressures are iteration variables and their outlet mass flows are used by
-# the downstream injector orifice components.
+# Their pressures are dynamic solve variables and their outlet mass flows are
+# used by the downstream injector orifice components.
 FuelManifold = Volume(
     "Fuel Injector Manifold",
     CavNetwork,
     volume=1,
     pressure=fuel_manifold_pressure,
+    density=FuelManifoldFluid.density,
     mass_flow_in=fuel_inlet_mass_flow,
 )
 
@@ -387,6 +389,7 @@ OxManifold = Volume(
     CavNetwork,
     volume=1,
     pressure=ox_manifold_pressure,
+    density=OxManifoldFluid.density,
     mass_flow_in=ox_inlet_mass_flow,
 )
 
@@ -436,17 +439,24 @@ mixture_ratio <<= OxOrf.mass_flow / FuelOrf.mass_flow
 # mixture_ratio.derive_from(OxOrf.mass_flow / FuelOrf.mass_flow)
 
 
+# Ideal-gas density estimate for the chamber products map.
+# The combustion map supplies chamber temperature and gas constant; pressure is
+# the chamber pressure solve variable.
+chamber_density = chamber_pressure / (ChamberMap.gas_constant * ChamberMap.chamber_temperature)
+
+
 # -----------------------------------------------------------------------------
 # Combustion chamber
 # -----------------------------------------------------------------------------
-# The chamber volume enforces the total propellant mass balance:
+# The chamber is a lumped storage volume.  In steady state, FullFlow drives:
 #
-#     fuel_mass_flow + ox_mass_flow - nozzle_mass_flow = 0
+#     mass_dot = fuel_mass_flow + ox_mass_flow - nozzle_mass_flow = 0
 Chamber = Volume(
     "Combustion Chamber",
     CavNetwork,
     volume=1,
     pressure=chamber_pressure,
+    density=chamber_density,
     mass_flow_in=OxOrf.mass_flow + FuelOrf.mass_flow,
 )
 

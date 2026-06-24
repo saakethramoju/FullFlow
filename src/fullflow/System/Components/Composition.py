@@ -161,37 +161,30 @@ class Composition(Component):
             self._amounts[name].value = mass * self._composition_value(None, name)
 
     @property
-    def iteration_variables(self) -> list[State]:
+    def balances(self):
+        # Without storage mass, composition is an algebraic mixer/splitter.
+        # The solver varies the requested composition values until each
+        # composition flow-rate balance is zero.
+        if self._has_transient_storage:
+            return []
+
         return [
-            value
-            for value in self.solve.value.values()
+            (value, self._composition_flow_rate(name))
+            for name, value in self.solve.value.items()
             if is_state_like(value)
         ]
 
     @property
-    def residuals(self) -> list[State | float]:
+    def dynamics(self):
+        # With storage mass, composition is a real dynamic inventory.  The solver
+        # can vary mass fraction, but the transient state is stored amount:
+        #
+        #     amount_i = mass * x_i
+        #     d(amount_i)/dt = inflow_i - outflow_i
+        #
+        # SteadyState drives the same derivative to zero.
         return [
-            self._composition_flow_rate(name)
-            for name in self.names.value
-        ]
-
-    @property
-    def transient_variables(self) -> list[State]:
-        return [
-            self.solve.value[name]
+            (self.solve.value[name], self._amounts[name], self._composition_flow_rate(name))
             for name in self._transient_names()
         ]
 
-    @property
-    def transient_states(self) -> list[State]:
-        return [
-            self._amounts[name]
-            for name in self._transient_names()
-        ]
-
-    @property
-    def transient_derivatives(self) -> list[State | float]:
-        return [
-            self._composition_flow_rate(name)
-            for name in self._transient_names()
-        ]

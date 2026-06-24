@@ -417,13 +417,9 @@ class SteadyState:
 
         Notes
         -----
-        Iteration variables are collected from:
-
-        - Component ``iteration_variables`` properties.
-        - Balance solve variables.
-
-        Bounds defined on iteration variables are automatically passed to the
-        nonlinear solver.
+        Solver variables are collected from component ``dynamics``, component
+        ``balances``, and user ``Balance`` objects.  Bounds defined on those
+        States are automatically passed to the nonlinear solver.
 
         For debugging a network, it is often useful to first call
         :meth:`static_evaluate` before attempting a full solve.

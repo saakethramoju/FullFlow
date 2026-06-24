@@ -1,34 +1,19 @@
 """Runtime network view used by the transient solver.
 
 ``Network`` stays a lightweight container.  This module is the transient
-solver's interpretation of that container: which States are integrated in time,
-which States are algebraic unknowns, which component residuals are active, and
-which State bounds should be passed to SciPy.
+solver's interpretation of that container: which component ``dynamics`` are
+integrated, which component/user ``balances`` are algebraic unknowns, and which
+State bounds should be passed to SciPy.
 
-The transient unknown vector is ordered as
+The public component API is intentionally small:
 
-    transient variables
-  + algebraic component iteration variables
-  + balance iteration variables
+* ``evaluate_states()`` updates outputs, derivatives, and balance errors.
+* ``dynamics`` lists real storage/inertia/capacitance equations.
+* ``balances`` lists algebraic equations with no storage.
 
-A component can therefore fall into one of three useful categories:
-
-* dynamic component
-    Provides ``transient_variables``, ``transient_states``, and
-    ``transient_derivatives``.  The solver iterates on the transient variables
-    but integrates the transient states.  For most components these are the
-    same States; volumes can solve in pressure/enthalpy while integrating
-    conservative mass/energy states.
-
-* residual algebraic component
-    Provides normal steady-state ``iteration_variables`` and ``residuals``.
-    These equations are solved at each new timestep.
-
-* explicit algebraic component
-    Provides no iteration variables and no residuals.  It is still evaluated on
-    every residual call, but it adds no unknowns and no equations.  This matches
-    components such as a discharge-coefficient calculation that directly writes
-    a mass-flow State from the current pressure-drop guess.
+Steady-state solves drive dynamic derivatives and algebraic balances to zero.
+Transient solves integrate dynamic equations and close algebraic balances at
+each new timestep.
 """
 
 from __future__ import annotations
@@ -46,6 +31,11 @@ from fullflow.System.State import (
     is_assignable_state_like,
     is_state_like,
     resolve_numeric,
+)
+from fullflow.Solvers.equations import (
+    balance_object_equations,
+    component_balances,
+    component_dynamics,
 )
 
 
@@ -65,7 +55,7 @@ class TransientItem:
     The derivative value is intentionally **not** stored here.  Instead, the
     cache stores the derivative list index.  During every residual call, after
     the network has been evaluated at SciPy's current new-time guess, the
-    solver re-reads ``owner.transient_derivatives[derivative_index]``.  That
+    solver re-reads ``owner.dynamics[derivative_index]``.  That
     keeps direct expression derivatives current.
     """
 
@@ -137,30 +127,19 @@ class TransientRuntimeCache:
         self.transient_states = tuple(item.state for item in self.transient_items)
         self.transient_ids = {id(state) for state in self.transient_variables}
         self.transient_state_ids = {id(state) for state in self.transient_states}
-        self.transient_algebraic_items = tuple(
-            self._collect_transient_algebraic_items()
-        )
         self.transient_history_states = tuple(
             self._collect_transient_history_states()
         )
 
-        self.algebraic_components = tuple(
-            component
-            for component in self.component_list
-            if id(component) not in self.dynamic_component_ids
-        )
         self.algebraic_component_items = tuple(
             self._collect_algebraic_component_items()
         )
-        self.balance_items = tuple(
-            self._iteration_items(self.balance_list, owner_kind="balance")
-        )
+        self.balance_items = tuple(self._collect_balance_items())
 
         self._validate_no_transient_state_overlap()
 
         raw_iteration_items = (
             self.transient_iteration_items
-            + self.transient_algebraic_items
             + self.algebraic_component_items
             + self.balance_items
         )
@@ -177,7 +156,7 @@ class TransientRuntimeCache:
             component.evaluate_states for component in self.component_list
         )
 
-        self.algebraic_residual_owners = self.algebraic_components
+        self.algebraic_residual_owners = self.component_list
         self.balance_residual_owners = self.balance_list
 
         # These references are used only to decide whether repeated
@@ -193,24 +172,19 @@ class TransientRuntimeCache:
         self.version = self.network.version
 
     def _cache_component_transient_lists(self) -> None:
-        """Cache transient variable/state lists once per network version."""
+        """Cache dynamic variable/state lists once per network version."""
         self._transient_variable_lists: dict[int, list[Any]] = {}
         self._transient_state_lists: dict[int, list[Any]] = {}
-        self._transient_algebraic_variable_lists: dict[int, list[Any]] = {}
-        self._transient_history_state_lists: dict[int, list[Any]] = {}
         self.dynamic_component_ids: set[int] = set()
 
         for component in self.component_list:
-            variables = self._as_list(component.transient_variables)
-            states = self._as_list(component.transient_states)
-            algebraic_variables = self._as_list(component.transient_algebraic_variables)
-            history_states = self._as_list(component.transient_history_states)
+            dynamic_equations = component_dynamics(component)
+            variables = [equation.variable for equation in dynamic_equations]
+            states = [equation.state for equation in dynamic_equations]
 
             component_id = id(component)
             self._transient_variable_lists[component_id] = variables
             self._transient_state_lists[component_id] = states
-            self._transient_algebraic_variable_lists[component_id] = algebraic_variables
-            self._transient_history_state_lists[component_id] = history_states
 
             if variables:
                 self.dynamic_component_ids.add(component_id)
@@ -241,9 +215,7 @@ class TransientRuntimeCache:
             return value
         if isinstance(value, tuple):
             return list(value)
-        raise TypeError(
-            "transient_variables, transient_states, and transient_derivatives must return a list or tuple."
-        )
+        raise TypeError("dynamics and balances must return a list or tuple.")
 
     def _component_transient_variables(self, component: Any) -> list[Any]:
         return self._transient_variable_lists[id(component)]
@@ -253,15 +225,9 @@ class TransientRuntimeCache:
 
     def _component_transient_derivatives(self, component: Any) -> list[Any]:
         # Derivative values can depend on the current SciPy trial point, so only
-        # variable/state membership is cached.  Derivatives are re-read after
-        # evaluate_states() on every residual call.
-        return self._as_list(component.transient_derivatives)
-
-    def _component_transient_algebraic_variables(self, component: Any) -> list[Any]:
-        return self._transient_algebraic_variable_lists[id(component)]
-
-    def _component_transient_history_states(self, component: Any) -> list[Any]:
-        return self._transient_history_state_lists[id(component)]
+        # variable/state membership is cached.  Derivatives are re-read from
+        # component.dynamics after evaluate_states() on every residual call.
+        return [equation.derivative for equation in component_dynamics(component)]
 
     def _component_is_dynamic(self, component: Any) -> bool:
         return id(component) in self.dynamic_component_ids
@@ -284,28 +250,18 @@ class TransientRuntimeCache:
         if self._is_valid_derivative(derivative):
             return
         raise TypeError(
-            f"{component.name}: transient_derivatives[{index}] must be a State "
+            f"{component.name}: dynamics derivative[{index}] must be a State "
             f"or a numeric value. Got {type(derivative).__name__}."
         )
 
     def _collect_transient_items(self) -> list[TransientItem]:
-        """Collect dynamic unknowns, integrated states, and derivative pairs.
+        """Collect dynamic unknowns, integrated states, and derivatives.
 
-        The three transient lists are parallel:
-
-            transient_variables[i]
-                State solved by SciPy at the new timestep.
-
-            transient_states[i]
-                State advanced by the backward-Euler integration residual.
-
-            transient_derivatives[i]
-                Time derivative of ``transient_states[i]``.
-
-        For simple components, ``transient_states`` defaults to
-        ``transient_variables``.  Components such as fluid volumes may override
-        ``transient_states`` so the nonlinear solve uses convenient variables
-        while the integration residual still conserves mass/energy.
+        These come from component ``dynamics`` tuples.  The two-entry form
+        ``(state, derivative)`` integrates the same State that the solver varies.
+        The three-entry form ``(solve_variable, integrated_state, derivative)``
+        lets a component solve with a convenient variable such as pressure while
+        integrating a conservative quantity such as mass.
         """
         items: list[TransientItem] = []
 
@@ -315,13 +271,13 @@ class TransientRuntimeCache:
 
             if not variables and states:
                 raise ValueError(
-                    f"{component.name}: transient_states were provided, but "
-                    "transient_variables is empty."
+                    f"{component.name}: dynamic integrated states were provided, but "
+                    "dynamic variables is empty."
                 )
 
             if len(variables) != len(states):
                 raise ValueError(
-                    f"{component.name}: transient_variables and transient_states "
+                    f"{component.name}: dynamic variables and dynamic integrated states "
                     "must have the same length. Got "
                     f"{len(variables)} variables and {len(states)} states."
                 )
@@ -329,25 +285,25 @@ class TransientRuntimeCache:
             for index, (variable, state) in enumerate(zip(variables, states)):
                 if not is_assignable_state_like(variable):
                     raise TypeError(
-                        f"{component.name}: transient variable {index} must be an "
+                        f"{component.name}: dynamic variable {index} must be an "
                         "assignable, non-derived State."
                     )
 
                 if not is_state_like(state):
                     raise TypeError(
-                        f"{component.name}: transient state {index} must be a State."
+                        f"{component.name}: dynamic integrated state {index} must be a State."
                     )
 
                 if not callable(getattr(state, "store_previous", None)):
                     raise TypeError(
-                        f"{component.name}: transient state {index} must support "
-                        "store_previous(). Use a State for transient_states."
+                        f"{component.name}: dynamic integrated state {index} must support "
+                        "store_previous(). Use a State for dynamic integrated states."
                     )
 
                 if not callable(getattr(state, "clear_previous", None)):
                     raise TypeError(
-                        f"{component.name}: transient state {index} must support "
-                        "clear_previous(). Use a State for transient_states."
+                        f"{component.name}: dynamic integrated state {index} must support "
+                        "clear_previous(). Use a State for dynamic integrated states."
                     )
 
                 variable_label = self.state_label(component, variable)
@@ -360,29 +316,7 @@ class TransientRuntimeCache:
                         derivative_index=index,
                         variable_label=variable_label,
                         state_label=state_label,
-                        derivative_label=f"{component.name}:transient_derivatives[{index}]",
-                        owner=component,
-                    )
-                )
-
-        return items
-
-    def _collect_transient_algebraic_items(self) -> list[IterationItem]:
-        """Collect extra transient unknowns that do not add integration residuals."""
-        items: list[IterationItem] = []
-
-        for component in self.component_list:
-            for state in self._component_transient_algebraic_variables(component):
-                if not is_assignable_state_like(state):
-                    raise TypeError(
-                        f"{component.name}: transient algebraic variable must be an "
-                        "assignable, non-derived State."
-                    )
-                items.append(
-                    IterationItem(
-                        state=state,
-                        label=self.state_label(component, state),
-                        owner_kind="transient algebraic",
+                        derivative_label=f"{component.name}:dynamics[{index}]",
                         owner=component,
                     )
                 )
@@ -390,19 +324,15 @@ class TransientRuntimeCache:
         return items
 
     def _collect_transient_history_states(self) -> list[Any]:
-        """Collect extra States whose previous values must advance each step."""
+        """Collect integrated States whose previous values define BE residuals."""
         states: list[Any] = []
         seen: set[int] = set()
 
         def add(state: Any, owner: Any) -> None:
             if not is_state_like(state):
-                raise TypeError(
-                    f"{owner.name}: transient history state must be a State-like object."
-                )
+                raise TypeError(f"{owner.name}: dynamic integrated state must be State-like.")
             if not callable(getattr(state, "store_previous", None)):
-                raise TypeError(
-                    f"{owner.name}: transient history state must support store_previous()."
-                )
+                raise TypeError(f"{owner.name}: dynamic integrated state must support store_previous().")
             state_id = id(state)
             if state_id in seen:
                 return
@@ -412,44 +342,41 @@ class TransientRuntimeCache:
         for item in self.transient_items:
             add(item.state, item.owner)
 
-        for component in self.component_list:
-            for state in self._component_transient_history_states(component):
-                add(state, component)
-
         return states
 
     def _collect_algebraic_component_items(self) -> list[IterationItem]:
-        """Collect iteration variables only from non-dynamic components.
+        """Collect variables from component algebraic balances.
 
-        Dynamic components keep their steady-state API for normal ``SteadyState``
-        solves, but during transient stepping their equations come from
-        ``transient_variables``, ``transient_states``, and
-        ``transient_derivatives`` instead.
+        Dynamic equations are integrated.  Algebraic balances, if a component
+        actually needs them, are closed at the same new-time point.
         """
-        return self._iteration_items(self.algebraic_components, owner_kind="component")
-
-    def _iteration_items(
-        self,
-        owners: Iterable[Any],
-        *,
-        owner_kind: str,
-    ) -> list[IterationItem]:
-        """Collect and validate algebraic iteration variables."""
         items: list[IterationItem] = []
 
-        for owner in owners:
-            for state in owner.iteration_variables:
-                if not is_assignable_state_like(state):
-                    raise TypeError(
-                        f"{owner.name}: iteration variable must be an "
-                        "assignable, non-derived State."
-                    )
+        for component in self.component_list:
+            for equation in component_balances(component):
                 items.append(
                     IterationItem(
-                        state=state,
-                        label=self.state_label(owner, state),
-                        owner_kind=owner_kind,
-                        owner=owner,
+                        state=equation.variable,
+                        label=self.state_label(component, equation.variable),
+                        owner_kind="component balance",
+                        owner=component,
+                    )
+                )
+
+        return items
+
+    def _collect_balance_items(self) -> list[IterationItem]:
+        """Collect variables from user Balance objects."""
+        items: list[IterationItem] = []
+
+        for balance in self.balance_list:
+            for equation in balance_object_equations(balance):
+                items.append(
+                    IterationItem(
+                        state=equation.variable,
+                        label=self.state_label(balance, equation.variable),
+                        owner_kind="balance",
+                        owner=balance,
                     )
                 )
 
@@ -477,11 +404,11 @@ class TransientRuntimeCache:
         return tuple(unique)
 
     def _validate_no_transient_state_overlap(self) -> None:
-        """Reject multiple integration equations for the same transient state.
+        """Reject multiple integration equations for the same dynamic integrated state.
 
         Different solver variables may be used to close different conservation
         equations, but each integrated State should have one and only one
-        transient derivative.  Sharing a transient state across two integration
+        transient derivative.  Sharing a dynamic integrated state across two integration
         residuals would advance the same history value twice and is almost
         always a modeling error.
         """
@@ -498,7 +425,7 @@ class TransientRuntimeCache:
             "Transient state overlap detected.",
             "",
             "Each integrated transient State can appear in only one dynamic equation.",
-            "Conflicting transient states:",
+            "Conflicting dynamic integrated states:",
         ]
         for labels in conflicts:
             lines.extend(f"  - {label}" for label in labels)
@@ -565,7 +492,7 @@ class TransientRuntimeCache:
         """Best-effort label for a derivative object."""
         if is_state_like(derivative):
             return self.state_label(owner, derivative)
-        return f"{owner.name}:transient_derivatives[{index}]"
+        return f"{owner.name}:dynamics[{index}]"
 
     def _current_derivative(self, item: TransientItem) -> Any:
         """Read the derivative value/property for ``item`` at the current state."""
@@ -573,7 +500,7 @@ class TransientRuntimeCache:
 
         if len(derivatives) <= item.derivative_index:
             raise ValueError(
-                f"{item.owner.name}: transient_derivatives changed length during the solve. "
+                f"{item.owner.name}: dynamics derivative changed length during the solve. "
                 f"Expected at least {item.derivative_index + 1} entries."
             )
 
@@ -588,22 +515,16 @@ class TransientRuntimeCache:
         labels.extend(f"{item.state_label}.integration" for item in self.transient_items)
 
         for owner in self.algebraic_residual_owners:
-            residuals = owner.residuals
-            if isinstance(residuals, (list, tuple)):
-                labels.extend(
-                    f"{owner.name}.residual[{i}]" for i in range(len(residuals))
-                )
-            else:
-                labels.append(f"{owner.name}.residual")
+            equations = component_balances(owner)
+            labels.extend(
+                f"{owner.name}.balance[{i}]" for i in range(len(equations))
+            )
 
         for balance in self.balance_residual_owners:
-            residuals = balance.residuals
-            if isinstance(residuals, (list, tuple)):
-                labels.extend(
-                    f"{balance.name}.residual[{i}]" for i in range(len(residuals))
-                )
-            else:
-                labels.append(f"{balance.name}.residual")
+            equations = balance_object_equations(balance)
+            labels.extend(
+                f"{balance.name}.balance[{i}]" for i in range(len(equations))
+            )
 
         return labels
 
@@ -786,18 +707,38 @@ class TransientRuntimeCache:
         for component in self.component_list:
             component.set_transient_context(dt=dt)
 
-    def store_previous_values(self) -> None:
-        """Store accepted values for all transient history States.
+    def _states_with_history(self) -> tuple[Any, ...]:
+        """States whose accepted previous values should be available next step.
 
-        This is called only after a timestep is accepted.  During a nonlinear
-        solve, ``state.previous`` stays fixed while SciPy changes ``state.value``.
+        Dynamic integrated States are required for backward Euler.  Other
+        reachable States are stored too so components such as variable-volume
+        ``Volume`` can compute simple accepted-step differences like dV/dt
+        without exposing any special public API hook.
         """
-        for state in self.transient_history_states:
+        states: list[Any] = []
+        seen: set[int] = set()
+
+        for state in self.transient_history_states + self.all_state_refs:
+            if not is_state_like(state):
+                continue
+            if not callable(getattr(state, "store_previous", None)):
+                continue
+            state_id = id(state)
+            if state_id in seen:
+                continue
+            seen.add(state_id)
+            states.append(state)
+
+        return tuple(states)
+
+    def store_previous_values(self) -> None:
+        """Store accepted values after initialization or an accepted timestep."""
+        for state in self._states_with_history():
             state.store_previous()
 
     def clear_previous_values(self) -> None:
-        """Clear transient history for all transient history States."""
-        for state in self.transient_history_states:
+        """Clear stored accepted-step history."""
+        for state in self._states_with_history():
             state.clear_previous()
 
     def _derivative_value(self, item: TransientItem) -> float:
@@ -811,18 +752,20 @@ class TransientRuntimeCache:
 
     @staticmethod
     def flatten_residuals(residual_source: Any) -> list[float]:
-        """Convert component or Balance residuals into numeric floats.
-
-        Public component residuals may be returned as either ``State`` objects
-        or plain numeric values.  This helper resolves any State value at the
-        current solver guess, then converts the result to ``float`` for SciPy.
-        ``None`` means no residuals.
-        """
+        """Convert callable, State, or numeric residuals into floats."""
+        if callable(residual_source):
+            residual_source = residual_source()
         if residual_source is None:
             return []
         if not isinstance(residual_source, (list, tuple)):
             residual_source = (residual_source,)
-        return [resolve_numeric(value) for value in residual_source]
+
+        values: list[float] = []
+        for value in residual_source:
+            if callable(value):
+                value = value()
+            values.append(resolve_numeric(value))
+        return values
 
     @staticmethod
     def _transient_scale(
@@ -871,10 +814,12 @@ class TransientRuntimeCache:
             residuals.append((state - previous - dt * derivative) / scale)
 
         for component in self.algebraic_residual_owners:
-            residuals.extend(self.flatten_residuals(component.residuals))
+            for equation in component_balances(component):
+                residuals.extend(self.flatten_residuals(equation.residual))
 
         for balance in self.balance_residual_owners:
-            residuals.extend(self.flatten_residuals(balance.residuals))
+            for equation in balance_object_equations(balance):
+                residuals.extend(self.flatten_residuals(equation.residual))
 
         return np.array(residuals, dtype=float)
 
@@ -891,8 +836,8 @@ class TransientRuntimeCache:
                 f"Got {len(self.iteration_variables)} solver variables and "
                 f"{len(residuals)} residuals.\n\n"
                 "Common causes:\n"
-                "  - A component lists iteration_variables but returns no residuals.\n"
-                "  - A dynamic component is missing transient_derivatives.\n"
+                "  - A component balance lists a variable but no residual.\n"
+                "  - A dynamic component is missing a derivative in dynamics.\n"
                 "  - A Balance variable was added without enough equations."
             )
 

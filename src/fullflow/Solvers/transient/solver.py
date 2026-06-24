@@ -1,22 +1,21 @@
 """Public transient solver entry point.
 
 The solver implemented here is a fixed-step, implicit backward-Euler network
-solver.  Components expose derivatives; the solver builds residuals.
+solver.  Components expose ``dynamics`` and ``balances``; the solver builds the
+new-time nonlinear residuals.
 
-For every dynamic component triple
+For a dynamic tuple
 
-    transient_variables[i]   -> nonlinear solver unknown
-    transient_states[i]      -> integrated/conserved quantity
-    transient_derivatives[i] -> d(transient_states[i]) / dt
+    (solve_variable, integrated_state, derivative)
 
 one timestep solves
 
-    state_new - state_previous - dt * statedot_new = 0
+    integrated_state_new - integrated_state_previous - dt * derivative_new = 0
 
-where ``statedot_new`` is evaluated after all current SciPy guesses have been
-written into the network and all components have run at
-``network.time = t_new``.  By default ``transient_states`` is the same list as
-``transient_variables``.
+where ``derivative_new`` is evaluated after all current SciPy guesses have been
+written into the network and all components have run at ``network.time = t_new``.
+The simpler two-entry form ``(state, derivative)`` solves with and integrates the
+same State.
 """
 
 from __future__ import annotations

@@ -122,13 +122,18 @@ Mixed.dye_concentration = {"dye": Mixed.dye_percent}
 # -----------------------------------------------------------------------------
 # Mixer node
 # -----------------------------------------------------------------------------
-# The mixer node is a lumped control volume. It solves the node pressure and
-# enforces total mass conservation.
+# The mixer node is a real lumped storage volume. In steady state, FullFlow
+# drives its mass derivative to zero:
+#
+#     mass_dot = SourceA.mass_flow + SourceB.mass_flow - Mixed.mass_flow = 0
+#
+# The solver varies the node pressure until that derivative is zero.
 MixerNode = Volume(
     "Mixer Node",
     MixerNetwork,
     pressure=State(150_000.0),
     volume=1.0,
+    density=water_density,
     mass_flow_in=SourceA.mass_flow + SourceB.mass_flow,
     mass_flow_out=Mixed.mass_flow,
 )

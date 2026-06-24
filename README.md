@@ -161,22 +161,60 @@ Components define equations that contribute to the overall network solution.
 
 ### Custom Components
 
-A minimal custom component only needs a constructor, optional explicit state calculations, and residual equations. For simple solve variables, define `_iteration_variable_names` instead of writing boilerplate properties:
+Custom components should be ordinary Python classes with simple physics in
+`evaluate_states()`.  They expose equations through two clear properties:
+
+* `dynamics` for real storage, inertia, or capacitance. Steady state drives the
+  derivative to zero; transient integrates it.
+* `balances` for algebraic equations that have no storage of their own.
+
+A simple algebraic component looks like this:
 
 ```python
-class PressureNode(Component):
-    _iteration_variable_names = ("pressure",)
-
-    def __init__(self, name, network, pressure, mass_flow_in=None, mass_flow_out=None):
+class PumpPressureMatch(Component):
+    def __init__(self, name, network, mass_flow, pressure_error=0.0):
+        self.pressure_error = 0.0
         self.setup()
 
+    def evaluate_states(self):
+        self.pressure_error = self.predicted_pressure.value - self.target_pressure.value
+
     @property
-    def residuals(self):
-        mdot_in, mdot_out = self.values("mass_flow_in", "mass_flow_out")
-        return [self.residual(mdot_in - mdot_out)]
+    def balances(self):
+        return [(self.mass_flow, self.pressure_error)]
 ```
 
-`self.setup()` still handles FullFlow's normal conversion rules: numbers become `State` objects, existing `State` and `Composition` objects are preserved, and the component is registered with its network. Helper methods such as `self.value(x)`, `self.values(...)`, `self.assign(...)`, and `self.residual(...)` keep user-written components small without exposing solver internals.
+A simple dynamic component looks like this:
+
+```python
+class FirstOrderDecay(Component):
+    def __init__(self, name, network, x=1.0, rate=1.0):
+        self.x_dot = 0.0
+        self.setup()
+
+    def evaluate_states(self):
+        self.x_dot = -self.rate.value * self.x.value
+
+    @property
+    def dynamics(self):
+        return [(self.x, self.x_dot)]
+```
+
+A conservative storage component can solve with a convenient variable while
+integrating a different stored quantity:
+
+```python
+@property
+def dynamics(self):
+    return [(self.pressure, self.mass, self.mass_dot)]
+```
+
+That means: vary `pressure`, but conserve/integrate `mass`.
+
+`self.setup()` still handles FullFlow's normal conversion rules: numbers become
+`State` objects, existing state-like objects are preserved, optional output
+States are created when `None` is passed, and the component is registered with
+its network.
 
 ## Solvers
 
@@ -225,7 +263,6 @@ Examples include:
 
 * Volumes
 * Tanks
-* Junctions
 * Combustion chambers
 * Solid thermal nodes
 

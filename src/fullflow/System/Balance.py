@@ -39,12 +39,17 @@ class Balance:
         network.add_balance(self)
 
     @property
-    def iteration_variables(self) -> list[State]:
-        return [self.variable]
+    def balances(self) -> list[tuple[State, State | float]]:
+        """Algebraic equation exposed to the solvers.
 
-    @property
-    def residuals(self) -> list[State | float]:
-        return [self._residual()]
+        ``Balance`` is the user-facing way to add a plain algebraic closure:
+
+            variable -> adjusted by the solver
+            residual -> driven to zero
+
+        Components use the same ``balances`` convention.
+        """
+        return [(self.variable, self._residual)]
 
     def __str__(self) -> str:
         try:

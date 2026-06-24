@@ -176,26 +176,28 @@ Chamber.mass_flow_out = State(10.0)
 # -----------------------------------------------------------------------------
 # Separator node
 # -----------------------------------------------------------------------------
-# The separator node is a lumped control volume. Its pressure is an iteration
-# variable, and its mass balance couples the inlet tube to the two outlet tubes.
+# The separator node is a real lumped storage volume. In steady state, FullFlow
+# drives its mass derivative to zero. Its pressure is the dynamic solve variable,
+# and its density is estimated by ideal-gas pressure scaling:
+#
+#     rho_node = rho_chamber * P_node / P_chamber
+separator_pressure = State(150 * 6894.76)
+separator_density = Chamber.density * separator_pressure / Chamber.pressure
+
 SeparatorNode = Volume(
     "Separator Node",
     SplitterNetwork,
-    pressure=State(150 * 6894.76),
+    pressure=separator_pressure,
     volume=1.0,
+    density=separator_density,
     mass_flow_in=Chamber.mass_flow_out,
 )
 
 # Keep the node temperature and gas constant equal to the chamber gas for this
-# simple example. The density is estimated by ideal-gas pressure scaling:
-#
-#     rho_node = rho_chamber * P_node / P_chamber
-#
-# Since SeparatorNode.pressure is a State, this density updates as the separator
-# pressure changes during the solve.
+# simple example.
 SeparatorNode.temperature = Chamber.temperature
 SeparatorNode.gas_constant = Chamber.gas_constant
-SeparatorNode.density = Chamber.density * SeparatorNode.pressure / Chamber.pressure
+SeparatorNode.density = separator_density
 
 
 # -----------------------------------------------------------------------------

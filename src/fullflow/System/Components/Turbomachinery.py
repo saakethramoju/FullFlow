@@ -18,23 +18,18 @@ class Rotor(Component):
         polar_moment_of_inertia: float | None = None,
         net_torque: State | None = None,
     ):
+        self.rotor_speed_dot = 0.0
+
         self.setup()
 
-    @property
-    def iteration_variables(self) -> list[State]:
-        return [self.rotor_speed]
+    def evaluate_states(self):
+        self.rotor_speed_dot = self.net_torque.value / self.polar_moment_of_inertia.value * 30.0 / math.pi
 
     @property
-    def residuals(self) -> list[State | float]:
-        return [self.net_torque.value]
-
-    @property
-    def transient_variables(self) -> list[State]:
-        return [self.rotor_speed]
-    
-    @property
-    def transient_derivatives(self) -> list[State | float]:
-        return [self.net_torque.value / self.polar_moment_of_inertia.value * 30.0 / math.pi]
+    def dynamics(self):
+        # Rotor speed is a real dynamic state.  SteadyState drives the torque
+        # balance to zero through rotor_speed_dot; Transient integrates speed.
+        return [(self.rotor_speed, self.rotor_speed_dot)]
 
 
 
@@ -116,6 +111,8 @@ class ConstantDensityPump(Component):
                  efficiency: State | None = None,
                  shaft_power: State | None = None,
                  volumetric_flow: State | None = None,):
+        self.discharge_pressure_error = 0.0
+
         self.setup()
 
     def evaluate_states(self):
@@ -139,6 +136,7 @@ class ConstantDensityPump(Component):
             eta = 0.0
 
         self.po_out = po_in + rho * g * H
+        self.discharge_pressure_error = self.po_out - self.discharge_pressure.value
 
         self.efficiency.value = eta
         self.shaft_power.value = shaft_power
@@ -151,12 +149,10 @@ class ConstantDensityPump(Component):
             self.discharge_total_enthalpy.value = ho_out
 
     @property
-    def iteration_variables(self) -> list[State]:
-        return [self.mass_flow]
-    
-    @property
-    def residuals(self) -> list[State | float]:
-        return [self.po_out - self.discharge_pressure.value]
+    def balances(self):
+        # This pump has no storage of its own.  The solver varies mass_flow until
+        # the pump curve predicts the connected discharge pressure.
+        return [(self.mass_flow, self.discharge_pressure_error)]
 
 
 
@@ -184,6 +180,8 @@ class PolytropicPump(Component):
                  discharge_total_enthalpy: State | None = None,
                  efficiency: State | None = None,
                  shaft_power: State | None = None):
+        self.discharge_pressure_error = 0.0
+
         self.setup()
 
     def evaluate_states(self):
@@ -223,7 +221,8 @@ class PolytropicPump(Component):
 
         beta = 1.0 / (1.0 - density_pressure_slope)
 
-        self._predicted_discharge_pressure = rho2 * (H_specific / beta + p_in / rho1)
+        self.predicted_discharge_pressure = rho2 * (H_specific / beta + p_in / rho1)
+        self.discharge_pressure_error = self.predicted_discharge_pressure - self.discharge_pressure.value
 
         if self.upstream_total_enthalpy.is_assigned:
             ho_in = self.upstream_total_enthalpy.value
@@ -235,9 +234,7 @@ class PolytropicPump(Component):
         self.shaft_power.value = shaft_power
 
     @property
-    def iteration_variables(self) -> list[State]:
-        return [self.mass_flow]
-    
-    @property
-    def residuals(self) -> list[State | float]:
-        return [self._predicted_discharge_pressure - self.discharge_pressure.value]
+    def balances(self):
+        # Algebraic pump equation: vary mass_flow until predicted discharge
+        # pressure equals the connected discharge pressure.
+        return [(self.mass_flow, self.discharge_pressure_error)]

@@ -24,6 +24,11 @@ from fullflow.System.State import (
     is_state_like,
     resolve_value,
 )
+from fullflow.Solvers.equations import (
+    balance_object_equations,
+    component_balances,
+    component_dynamics,
+)
 
 
 _MISSING = object()
@@ -72,12 +77,11 @@ class RuntimeCache:
         self.balance_list = tuple(self.network.balance_list)
         self.model_list = tuple(self.network.model_list)
 
-        self.component_items = tuple(
-            self._iteration_items(self.component_list, owner_kind="component")
-        )
-        self.balance_items = tuple(
-            self._iteration_items(self.balance_list, owner_kind="balance")
-        )
+        self.component_dynamic_items = tuple(self._dynamic_iteration_items())
+        self.component_balance_items = tuple(self._component_balance_iteration_items())
+        self.balance_items = tuple(self._balance_iteration_items())
+
+        self.component_items = self.component_dynamic_items + self.component_balance_items
         self._validate_no_component_balance_overlap()
 
         self.iteration_items = self.component_items + self.balance_items
@@ -99,27 +103,53 @@ class RuntimeCache:
         self.state_refs = self._collect_state_refs()
         self.version = self.network.version
 
-    def _iteration_items(
-        self,
-        owners: Iterable[Any],
-        *,
-        owner_kind: str,
-    ) -> list[IterationItem]:
-        """Collect and validate iteration variables from components or balances."""
+    def _dynamic_iteration_items(self) -> list[IterationItem]:
+        """Collect steady-state unknowns from component dynamics.
+
+        ROCETS-style steady-state trim drives dynamic derivatives to zero.  For
+        example, a fluid volume varies pressure until ``mass_dot = 0``.
+        """
         items: list[IterationItem] = []
 
-        for owner in owners:
-            for state in owner.iteration_variables:
-                if not is_assignable_state_like(state):
-                    raise TypeError(
-                        f"{owner.name}: iteration variable must be an "
-                        "assignable, non-derived State."
-                    )
+        for component in self.component_list:
+            for equation in component_dynamics(component):
                 items.append(
                     IterationItem(
-                        state=state,
-                        label=self.state_label(owner, state),
-                        owner_kind=owner_kind,
+                        state=equation.variable,
+                        label=self.state_label(component, equation.variable),
+                        owner_kind="dynamic",
+                    )
+                )
+
+        return items
+
+    def _component_balance_iteration_items(self) -> list[IterationItem]:
+        """Collect steady-state unknowns from component algebraic balances."""
+        items: list[IterationItem] = []
+
+        for component in self.component_list:
+            for equation in component_balances(component):
+                items.append(
+                    IterationItem(
+                        state=equation.variable,
+                        label=self.state_label(component, equation.variable),
+                        owner_kind="component balance",
+                    )
+                )
+
+        return items
+
+    def _balance_iteration_items(self) -> list[IterationItem]:
+        """Collect steady-state unknowns from user Balance objects."""
+        items: list[IterationItem] = []
+
+        for balance in self.balance_list:
+            for equation in balance_object_equations(balance):
+                items.append(
+                    IterationItem(
+                        state=equation.variable,
+                        label=self.state_label(balance, equation.variable),
+                        owner_kind="balance",
                     )
                 )
 
@@ -151,7 +181,7 @@ class RuntimeCache:
             "Iteration variable overlap detected.",
             "",
             "Balance iteration variables cannot be the same as component iteration variables.",
-            "A State used as a Balance solve variable must not also appear in a Component iteration_variables list.",
+            "A State used as a Balance solve variable must not also appear as a component dynamic or component balance variable.",
             "",
             "Overlapping component variables:",
             *[f"  - {name}" for name in sorted(component_names)],
@@ -222,14 +252,21 @@ class RuntimeCache:
         """Build labels matching the current residual vector order."""
         labels: list[str] = []
 
-        for owner in self.component_list + self.balance_list:
-            residuals = owner.residuals
-            if isinstance(residuals, (list, tuple)):
-                labels.extend(
-                    f"{owner.name}.residual[{i}]" for i in range(len(residuals))
-                )
-            else:
-                labels.append(f"{owner.name}.residual")
+        for component in self.component_list:
+            labels.extend(
+                f"{component.name}.dynamic[{i}]"
+                for i, _ in enumerate(component_dynamics(component))
+            )
+            labels.extend(
+                f"{component.name}.balance[{i}]"
+                for i, _ in enumerate(component_balances(component))
+            )
+
+        for balance in self.balance_list:
+            labels.extend(
+                f"{balance.name}.balance[{i}]"
+                for i, _ in enumerate(balance_object_equations(balance))
+            )
 
         return labels
 
@@ -361,12 +398,20 @@ class RuntimeCache:
 
     @staticmethod
     def flatten_residuals(residual_source: Any) -> list[float]:
-        """Convert State or numeric residual values into floats."""
+        """Convert callable, State, or numeric residual values into floats."""
+        if callable(residual_source):
+            residual_source = residual_source()
         if residual_source is None:
             return []
         if not isinstance(residual_source, (list, tuple)):
             residual_source = (residual_source,)
-        return [float(resolve_value(value)) for value in residual_source]
+
+        values: list[float] = []
+        for value in residual_source:
+            if callable(value):
+                value = value()
+            values.append(float(resolve_value(value)))
+        return values
 
     def collect_residuals(self) -> np.ndarray:
         """Evaluate and flatten all component and balance residuals.
@@ -380,22 +425,30 @@ class RuntimeCache:
 
         for component in self.component_list:
             try:
-                residuals.extend(self.flatten_residuals(component.residuals))
+                # Dynamic equations become steady-state trim equations by
+                # driving the derivative itself to zero.
+                for equation in component_dynamics(component):
+                    residuals.extend(self.flatten_residuals(equation.derivative))
+
+                # Algebraic balances are separate non-storage equations.
+                for equation in component_balances(component):
+                    residuals.extend(self.flatten_residuals(equation.residual))
             except Exception as error:
                 original = str(error).splitlines()[0]
                 raise RuntimeError(
-                    f"Failed while evaluating residuals for component `{component.name}` "
+                    f"Failed while evaluating equations for component `{component.name}` "
                     f"of type `{type(component).__name__}`.\n\n"
-                    "A State used inside this component's residual equations is probably unassigned.\n\n"
+                    "A State used inside this component's dynamics or balances is probably unassigned.\n\n"
                     "Likely fixes:\n"
                     "  - Give the missing State an initial value\n"
                     "  - Connect it to another component that computes it\n"
-                    "  - Make it an iteration variable\n"
-                    "  - If this is a static/transient-only quantity, do not use it in steady-state residuals\n\n"
+                    "  - Make it a dynamics or balances solve variable\n"
+                    "  - Put conservation derivatives in dynamics and algebraic targets in balances\n\n"
                     f"Original error: {original}"
                 ) from None
 
         for balance in self.balance_list:
-            residuals.extend(self.flatten_residuals(balance.residuals))
+            for equation in balance_object_equations(balance):
+                residuals.extend(self.flatten_residuals(equation.residual))
 
         return np.array(residuals, dtype=float)

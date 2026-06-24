@@ -89,25 +89,6 @@ class Network:
 
 
     @staticmethod
-    def _collect_iteration_variables(owners: list[Any]) -> list[State]:
-        variables: list[State] = []
-        for owner in owners:
-            variables.extend(owner.iteration_variables)
-        return variables
-
-    @property
-    def component_iteration_variables(self) -> list[State]:
-        return self._collect_iteration_variables(self.component_list)
-
-    @property
-    def balance_iteration_variables(self) -> list[State]:
-        return self._collect_iteration_variables(self.balance_list)
-
-    @property
-    def iteration_variable_states(self) -> list[State]:
-        return self.component_iteration_variables + self.balance_iteration_variables
-
-    @staticmethod
     def _state_paths(value: Any, target: Any, prefix: str) -> list[str]:
         paths: list[str] = []
         seen: set[int] = set()
@@ -150,14 +131,6 @@ class Network:
                 return paths[0]
 
         return f"{owner.name}:<unknown>"
-
-    @property
-    def iteration_variable_labels(self) -> list[str]:
-        labels: list[str] = []
-        for owner in self.component_list + self.balance_list:
-            for state in owner.iteration_variables:
-                labels.append(self._state_label(owner, state))
-        return labels
 
     @staticmethod
     def _safe_value(value: Any) -> Any:
