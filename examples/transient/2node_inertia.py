@@ -64,26 +64,30 @@ Node = Volume(
     mass_flow_out=pipe2_mass_flow
 )
 
-valve_times = [
-    0.00,
-    0.02,
-    0.04,
-    0.06,
-    0.08,
-    0.10,
-    100.0,
-]
+#valve_times = [0.00, 0.02, 0.04, 0.06, 0.08, 0.10, 100.0]
+#valve_cds   = [1e-12, 0.001, 0.01, 0.35, 0.6, 1.0, 1.0]
 
 
-valve_cds = [
-    1e-12,
-    0.001,
-    0.01,
-    0.35,
-    0.6,
-    1.0,
-    1.0
-]
+def smoothstep(x):
+    x = max(0.0, min(1.0, x))
+    return x * x * (3.0 - 2.0 * x)
+
+
+valve_open_time = 0.5
+
+valve_times = []
+valve_cds = []
+
+for i in range(101):
+    t = valve_open_time * i / 100
+    x = t / valve_open_time
+
+    valve_times.append(t)
+    valve_cds.append(1e-12 + (1.0 - 1e-12) * smoothstep(x))
+
+valve_times.append(100.0)
+valve_cds.append(1.0)
+
 
 ValveCdSchedule = Schedule(
     "Valve Cd Schedule",
@@ -93,7 +97,9 @@ ValveCdSchedule = Schedule(
     values=valve_cds,
 )
 
-
+# without length, DischargeCoefficient becomes purely algebraic
+# length can be used to model inertial lines, but it usually unecessary
+# or even incorrect for modeling valve-like objects
 Pipe2 = DischargeCoefficient(
     "Pipe 2",
     PipeNetwork,
@@ -102,7 +108,6 @@ Pipe2 = DischargeCoefficient(
     density=NodeFluid.density,
     discharge_coefficient=ValveCdSchedule.target,
     cross_sectional_area=(math.pi/4) * (2.0 / 39.37)**2,
-    length=4.5, # without length, DischargeCoefficient becomes purely algebraic
     mass_flow=pipe2_mass_flow
 )
 
@@ -111,16 +116,12 @@ filename = "node_inertia" # in an h5 file, both Steady and Transient results get
 
 SteadyState(PipeNetwork).solve(
     verbose=True,
-    #filename=filename
+    filename=filename
 )
 
-
-
-'''
 Transient(PipeNetwork).solve(
     t_final=5,
     dt=0.01,
     verbose=True,
     filename=filename
 )
-'''

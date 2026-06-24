@@ -215,8 +215,6 @@ class DischargeCoefficient(Component):
 
 
 
-
-
 class CavitatingVenturi(Component):
     """
     Direct-calculation cavitating liquid venturi.
