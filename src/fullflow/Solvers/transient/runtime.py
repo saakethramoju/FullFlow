@@ -36,6 +36,7 @@ from fullflow.Solvers.equations import (
     balance_object_equations,
     component_balances,
     component_dynamics,
+    evaluate_components_for_equation_discovery,
 )
 
 
@@ -119,6 +120,12 @@ class TransientRuntimeCache:
         self.component_list = tuple(self.network.component_list)
         self.balance_list = tuple(self.network.balance_list)
         self.model_list = tuple(self.network.model_list)
+
+        # Component equation properties are allowed to reference derivative or
+        # balance-error attributes created inside evaluate_states().  Evaluate
+        # once before reading dynamics/balances so component constructors do not
+        # need boilerplate like self.mass_flow_dot = 0.0.
+        evaluate_components_for_equation_discovery(self.component_list)
 
         self._cache_component_transient_lists()
 

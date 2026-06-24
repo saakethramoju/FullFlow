@@ -49,10 +49,6 @@ class Solid(Component):
             and convection_coefficient is not None
         )
 
-        # evaluate_states() overwrites this on every solver pass.  Initializing
-        # it here keeps the component easy to inspect before the first solve.
-        self.temperature_dot = 0.0
-
         self.setup()
 
     def evaluate_states(self):
@@ -170,9 +166,6 @@ class Volume(Component):
         self._solve_volume = bool(solve_volume)
         self._boundary_work = bool(boundary_work)
 
-        self.mass_dot = 0.0
-        self.total_internal_energy_dot = 0.0
-
         self._has_energy = total_enthalpy_in is not None and (
             total_enthalpy_out is not None or enthalpy is not None
         )
@@ -186,22 +179,6 @@ class Volume(Component):
             )
 
         self.setup()
-
-        # Optional output/diagnostic States start from harmless numerical
-        # guesses.  The solver overwrites them during evaluate_states().
-        # Initializing them avoids order-dependent crashes during the first
-        # fixed-point evaluation pass when downstream components have not yet
-        # produced their outputs.
-        if not self.mass_flow_out.is_assigned:
-            self.mass_flow_out.value = 0.0
-        if not self.mass.is_assigned:
-            self.mass.value = 0.0
-        if not self.total_internal_energy.is_assigned:
-            self.total_internal_energy.value = 0.0
-        if not self.volume_derivative.is_assigned:
-            self.volume_derivative.value = 0.0
-        if not self.boundary_work_rate.is_assigned:
-            self.boundary_work_rate.value = 0.0
 
         self.energy_variable.value = self._energy_variable
         self.solve_volume.value = self._solve_volume

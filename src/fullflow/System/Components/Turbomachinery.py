@@ -18,8 +18,6 @@ class Rotor(Component):
         polar_moment_of_inertia: float | None = None,
         net_torque: State | None = None,
     ):
-        self.rotor_speed_dot = 0.0
-
         self.setup()
 
     def evaluate_states(self):
@@ -111,8 +109,6 @@ class ConstantDensityPump(Component):
                  efficiency: State | None = None,
                  shaft_power: State | None = None,
                  volumetric_flow: State | None = None,):
-        self.discharge_pressure_error = 0.0
-
         self.setup()
 
     def evaluate_states(self):
@@ -180,8 +176,6 @@ class PolytropicPump(Component):
                  discharge_total_enthalpy: State | None = None,
                  efficiency: State | None = None,
                  shaft_power: State | None = None):
-        self.discharge_pressure_error = 0.0
-
         self.setup()
 
     def evaluate_states(self):

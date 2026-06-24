@@ -30,9 +30,6 @@ class FlowTube(Component):
         upstream_static_enthalpy: State | None = None,
         total_enthalpy: State | None = None,
     ):
-        self.momentum_error = 0.0
-        self.mass_flow_dot = 0.0
-
         self.setup()
 
     def evaluate_states(self):
@@ -108,9 +105,6 @@ class DarcyWeisbach(Component):
         height_change: State | float | None = None,
         effective_area: float | None = None,
     ):
-        self.momentum_error = 0.0
-        self.mass_flow_dot = 0.0
-
         self.setup()
 
     def evaluate_states(self):
@@ -182,8 +176,6 @@ class DischargeCoefficient(Component):
         length: float | None = None,
         mass_flow: State | None = None,
     ):
-        self.mass_flow_dot = 0.0
-
         self.setup()
 
 
