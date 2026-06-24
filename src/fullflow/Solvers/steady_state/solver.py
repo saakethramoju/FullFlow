@@ -64,6 +64,14 @@ class SteadyState:
         self._last_debug_residual: np.ndarray | None = None
         self._last_debug_error: Exception | None = None
 
+        # Some thermodynamic backends legitimately fail for temporary nonlinear
+        # trial points, for example an invalid pressure-enthalpy flash while
+        # SciPy is estimating a Jacobian.  Keep the last valid residual so those
+        # trial points can be penalized instead of aborting the whole solve.
+        self._last_valid_x: np.ndarray | None = None
+        self._last_valid_residual: np.ndarray | None = None
+        self._invalid_residual_penalty = 1.0e12
+
         # Success metadata is populated by the one-shot operation helpers and
         # consumed by ``_print_last_success``.
         self._last_success_kind: str | None = None
@@ -127,11 +135,20 @@ class SteadyState:
             )
             residual = cache.collect_residuals()
             self._last_debug_residual = residual
+            self._last_valid_x = np.array(x, dtype=float)
+            self._last_valid_residual = np.array(residual, dtype=float)
             self.statistics.record(x, residual, cache, phase="solver")
             return residual
 
         except Exception as error:
             self._last_debug_error = error
+            penalty_residual = self._invalid_trial_residual(x, cache)
+
+            if penalty_residual is not None:
+                self._last_debug_residual = penalty_residual
+                self.statistics.record(x, penalty_residual, cache, phase="solver")
+                return penalty_residual
+
             try:
                 self._last_debug_residual = cache.collect_residuals()
             except Exception:
@@ -142,6 +159,35 @@ class SteadyState:
                 "inside evaluate_network_states().\n\n"
                 f"Original error:\n{type(error).__name__}: {error}"
             ) from error
+
+    def _invalid_trial_residual(self, x: np.ndarray, cache: RuntimeCache) -> np.ndarray | None:
+        """Return a large residual for invalid nonlinear trial points.
+
+        External property packages can raise for temporary SciPy guesses that
+        are outside their valid thermodynamic domain.  When a previous valid
+        residual exists, treat the bad point as an expensive trial and let the
+        trust-region algorithm back away.  If even the initial point is invalid,
+        return ``None`` so the real setup error is reported.
+        """
+        if self._last_valid_residual is None:
+            return None
+
+        count = len(self._last_valid_residual)
+
+        if count == 0:
+            return np.array([], dtype=float)
+
+        residual = np.full(count, self._invalid_residual_penalty, dtype=float)
+
+        if self._last_valid_x is not None and len(x) > 0:
+            dx = np.array(x, dtype=float) - self._last_valid_x
+            scale = np.maximum(np.abs(self._last_valid_x), 1.0)
+            normalized_dx = dx / scale
+
+            for index in range(min(count, len(normalized_dx))):
+                residual[index] += 1.0e6 * normalized_dx[index]
+
+        return residual
 
     def evaluate_network_states(
         self,

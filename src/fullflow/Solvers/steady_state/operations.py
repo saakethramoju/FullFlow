@@ -165,6 +165,17 @@ class NonlinearSolve:
         r0 = cache.collect_residuals()
         statistics.record(x0, r0, cache, phase="initial")
 
+        # Seed the residual callback's invalid-trial history with the known-good
+        # initial point.  This lets temporary invalid thermodynamic trial points
+        # inside SciPy's finite-difference/Jacobian search receive a large
+        # residual penalty instead of aborting the solve.
+        residual_owner = getattr(self.residual_function, "__self__", None)
+        if residual_owner is not None:
+            if hasattr(residual_owner, "_last_valid_x"):
+                residual_owner._last_valid_x = np.array(x0, dtype=float)
+            if hasattr(residual_owner, "_last_valid_residual"):
+                residual_owner._last_valid_residual = np.array(r0, dtype=float)
+
         if len(x0) == 0 and len(r0) == 0:
             return self.static_runner.run_once(
                 filename=filename,

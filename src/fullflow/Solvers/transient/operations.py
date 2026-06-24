@@ -72,6 +72,9 @@ class TransientStepSolve:
         self._last_debug_x: np.ndarray | None = None
         self._last_debug_residual: np.ndarray | None = None
         self._last_debug_error: Exception | None = None
+        self._last_valid_x: np.ndarray | None = None
+        self._last_valid_residual: np.ndarray | None = None
+        self._invalid_residual_penalty = 1.0e12
 
     def residual(self, x: np.ndarray) -> np.ndarray:
         """Residual function passed to SciPy for the current timestep.
@@ -101,10 +104,18 @@ class TransientStepSolve:
             )
             residual = cache.collect_residuals(self._active_dt)
             self._last_debug_residual = residual
+            self._last_valid_x = np.array(x, dtype=float)
+            self._last_valid_residual = np.array(residual, dtype=float)
             return residual
 
         except Exception as error:
             self._last_debug_error = error
+            penalty_residual = self._invalid_trial_residual(x)
+
+            if penalty_residual is not None:
+                self._last_debug_residual = penalty_residual
+                return penalty_residual
+
             try:
                 self._last_debug_residual = cache.collect_residuals(self._active_dt)
             except Exception:
@@ -117,6 +128,28 @@ class TransientStepSolve:
                 f"dt = {self._active_dt:.9g}\n"
                 f"Original error:\n{type(error).__name__}: {error}"
             ) from error
+
+    def _invalid_trial_residual(self, x: np.ndarray) -> np.ndarray | None:
+        """Return a large residual for invalid nonlinear trial points."""
+        if self._last_valid_residual is None:
+            return None
+
+        count = len(self._last_valid_residual)
+
+        if count == 0:
+            return np.array([], dtype=float)
+
+        residual = np.full(count, self._invalid_residual_penalty, dtype=float)
+
+        if self._last_valid_x is not None and len(x) > 0:
+            dx = np.array(x, dtype=float) - self._last_valid_x
+            scale = np.maximum(np.abs(self._last_valid_x), 1.0)
+            normalized_dx = dx / scale
+
+            for index in range(min(count, len(normalized_dx))):
+                residual[index] += 1.0e6 * normalized_dx[index]
+
+        return residual
 
     def initialize(self, state_settings: StateEvaluationSettings) -> None:
         """Evaluate the initial network and store transient ``previous`` values."""
@@ -165,6 +198,9 @@ class TransientStepSolve:
         accepted_time = float(self.network.time.value)
 
         cache.freeze_discrete_states()
+
+        self._last_valid_x = None
+        self._last_valid_residual = None
 
         try:
             # Evaluate the residual once before SciPy.  This catches invalid
