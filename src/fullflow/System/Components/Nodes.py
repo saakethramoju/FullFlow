@@ -239,22 +239,16 @@ class Volume(Component):
 
     @staticmethod
     def _optional_value(state) -> float:
-        """Return an optional source term value.
+        """Return an optional energy source term.
 
-        Optional energy terms default to zero.  If the term is connected to a
-        derived State whose source has not been evaluated yet in the current
-        fixed-point pass, keep the previous numeric value for this pass.  Later
-        passes will update it after the source component evaluates.
+        Omitted optional terms are zero.  Connected terms are evaluated normally.
+        If a connected term depends on another component that has not evaluated
+        yet, the unassigned-State error is allowed to propagate so the solver
+        evaluator can defer this component and retry it later in the pass.
         """
         if state is None or not state.is_assigned:
             return 0.0
-        try:
-            return state.value
-        except Exception:
-            try:
-                return float(getattr(state, "_value", 0.0) or 0.0)
-            except Exception:
-                return 0.0
+        return state.value
 
     def _work_pressure(self) -> float:
         if self.work_pressure.is_assigned:
