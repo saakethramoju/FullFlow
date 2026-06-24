@@ -53,7 +53,6 @@ class TransientPrinter:
         start_time: float,
         final_time: float,
         requested_dt: Any,
-        adaptive: bool,
         method: str,
         jac: str,
         ftol: float,
@@ -71,6 +70,8 @@ class TransientPrinter:
         total_njev = 0
         total_cost = 0.0
         total_retries = sum(int(getattr(row, "retries", 0) or 0) for row in diagnostics_list)
+        min_dt = min((float(getattr(row, "dt", 0.0) or 0.0) for row in diagnostics_list), default=0.0)
+        max_dt = max((float(getattr(row, "dt", 0.0) or 0.0) for row in diagnostics_list), default=0.0)
         last_status = None
         last_message = "No nonlinear timestep solve was required."
         last_optimality = None
@@ -98,10 +99,9 @@ class TransientPrinter:
         if last_status is not None:
             table.add_row(_plain("Last SciPy status"), _plain(last_status))
         table.add_row(_plain("Last SciPy message"), _plain(last_message))
-        solver_type = "Adaptive implicit backward Euler" if adaptive else "Fixed-step implicit backward Euler"
-        requested_dt_text = str(requested_dt) if isinstance(requested_dt, str) else f"{float(requested_dt):.9g}"
+        requested_dt_text = f"{float(requested_dt):.9g}"
 
-        table.add_row(_plain("Solver type"), _plain(solver_type))
+        table.add_row(_plain("Solver type"), _plain("Fixed-step implicit backward Euler"))
         table.add_row(_plain("Nonlinear solver"), _plain("scipy.optimize.least_squares"))
         table.add_row(_plain("Solver method"), _plain(method))
         table.add_row(_plain("Jacobian method"), _plain(jac))
@@ -110,6 +110,9 @@ class TransientPrinter:
         table.add_row(_plain("Requested dt"), _plain(requested_dt_text))
         table.add_row(_plain("Accepted steps"), _plain(len(diagnostics_list)))
         table.add_row(_plain("Automatic retries"), _plain(total_retries))
+        if diagnostics_list:
+            table.add_row(_plain("Minimum dt used"), _plain(f"{min_dt:.9g}"))
+            table.add_row(_plain("Maximum dt used"), _plain(f"{max_dt:.9g}"))
         table.add_row(_plain("Solve time"), _plain(f"{solve_time:.3f} s"))
         table.add_row(_plain("Total function evaluations"), _plain(total_nfev))
         table.add_row(_plain("Total Jacobian evaluations"), _plain(total_njev))

@@ -47,9 +47,10 @@ class Transient:
 
     Notes
     -----
-    Each timestep is a bounded least-squares solve.  If the requested timestep
-    does not satisfy the per-step residual tolerance, the solver automatically
-    retries smaller half-steps before raising an error.
+    The user chooses the nominal timestep.  The solver may shorten individual
+    steps to land exactly on final time, tabular ``Schedule`` breakpoints, saved
+    output times, or smaller retry steps after a failed nonlinear solve.  It
+    does not automatically grow the timestep.
     """
 
     def __init__(self, network) -> None:
@@ -144,103 +145,25 @@ class Transient:
         return target_time - current_time
 
     @staticmethod
+    def _validate_timestep(dt: float) -> float:
+        """Return numeric ``dt`` and reject removed automatic timestep modes."""
+        if isinstance(dt, str):
+            raise ValueError(
+                "dt must be a positive number. Automatic timestep modes "
+                "were removed so timestep accuracy stays under user control."
+            )
+
+        dt = float(dt)
+        if dt <= 0.0:
+            raise ValueError(f"dt must be positive. Got {dt}")
+
+        return dt
+
+    @staticmethod
     def _validate_output_settings(save_dt: float | None) -> None:
         """Validate transient output-throttling settings."""
         if save_dt is not None and save_dt <= 0.0:
             raise ValueError(f"save_dt must be positive or None. Got {save_dt}")
-
-    @staticmethod
-    def _auto_timestep(
-        *,
-        start_time: float,
-        t_final: float,
-        save_dt: float | None = None,
-    ) -> float:
-        """Choose a simple starting timestep for ``dt="auto"``."""
-        span = float(t_final) - float(start_time)
-
-        if span <= 0.0:
-            return 1.0
-
-        dt = span / 100.0
-
-        if save_dt is not None:
-            dt = min(dt, float(save_dt))
-
-        return max(dt, span * 1.0e-12)
-
-    @staticmethod
-    def _adaptive_ceiling(
-        *,
-        start_dt: float,
-        start_time: float,
-        t_final: float,
-    ) -> float:
-        """Return the private maximum timestep used by adaptive mode."""
-        span = max(float(t_final) - float(start_time), float(start_dt))
-        return max(float(start_dt), span / 20.0)
-
-    @staticmethod
-    def _step_function_evaluations(diagnostics: StepDiagnostics) -> int:
-        """Return the SciPy function evaluation count for one accepted step."""
-        sol = diagnostics.sol
-        if sol is None:
-            return 0
-
-        return int(getattr(sol, "nfev", 0) or 0)
-
-    @classmethod
-    def _adapt_timestep(
-        cls,
-        *,
-        current_dt: float,
-        picked_dt: float,
-        diagnostics: StepDiagnostics,
-        settings: TransientSettings,
-        rtol: float,
-    ) -> float:
-        """Choose the next timestep for simple adaptive mode."""
-        floor = settings.retry_floor
-        ceiling = settings.timestep_ceiling
-        next_dt = float(current_dt)
-
-        picked_limited = picked_dt < 0.999999 * current_dt
-        nfev = cls._step_function_evaluations(diagnostics)
-
-        if diagnostics.retries:
-            next_dt = diagnostics.dt
-        elif not picked_limited:
-            if diagnostics.max_residual <= 0.01 * rtol and nfev <= 6:
-                next_dt = 1.25 * current_dt
-            elif diagnostics.max_residual >= 0.5 * rtol or nfev >= 20:
-                next_dt = 0.75 * current_dt
-
-        return min(max(next_dt, floor), ceiling)
-
-    @staticmethod
-    def _resolve_timestep_input(
-        *,
-        dt: float | str,
-        adaptive: bool,
-        start_time: float,
-        t_final: float,
-        save_dt: float | None,
-    ) -> tuple[float, bool]:
-        """Return ``(initial_dt, adaptive)`` from the public timestep inputs."""
-        if isinstance(dt, str):
-            if dt.lower() != "auto":
-                raise ValueError("dt must be a positive number or 'auto'.")
-
-            return (
-                Transient._auto_timestep(
-                    start_time=start_time,
-                    t_final=t_final,
-                    save_dt=save_dt,
-                ),
-                True,
-            )
-
-        return float(dt), bool(adaptive)
 
     @staticmethod
     def _should_save_output(
@@ -292,13 +215,12 @@ class Transient:
 
     def solve(
         self,
-        dt: float | str,
+        dt: float,
         t_final: float,
         filename: str | None = None,
         return_type: str = "dict",
         verbose: bool = False,
         statistics: bool = False,
-        adaptive: bool = False,
         solver_method: str = "trf",
         jacobian_method: str = "3-point",
         ftol: float = 1e-12,
@@ -315,13 +237,11 @@ class Transient:
 
         Parameters
         ----------
-        dt : float or "auto"
-            Timestep control. A number gives a fixed timestep by default. A
-            number with ``adaptive=True`` gives the starting timestep for simple
-            automatic timestep adjustment. ``dt="auto"`` lets FullFlow choose a
-            starting timestep and automatically adjust it. Steps are still
-            shortened when needed to land exactly on ``t_final``, saved output
-            times, and tabular ``Schedule`` time points.
+        dt : float
+            User-selected nominal timestep in seconds. Steps are shortened when
+            needed to land exactly on ``t_final``, saved output times, and
+            tabular ``Schedule`` time points. If a timestep fails, the solver
+            rolls back and retries smaller half-steps.
 
         t_final : float
             Final simulation time.  The starting time is the current value of
@@ -335,13 +255,13 @@ class Transient:
 
         save_dt : float, optional
             Output timestep. If omitted, every accepted solver step is saved. If
-            provided, the solver still advances with its normal internal
-            timestep, but output is saved only at multiples of ``save_dt`` and at
-            final time. Timesteps are shortened when needed so saved output lands
-            exactly on the requested output times.
+            provided, the solver still advances with its normal timestep, but
+            output is saved only at multiples of ``save_dt`` and at final time.
+            Timesteps are shortened when needed so saved output lands exactly on
+            the requested output times.
 
         return_type : {"dict"}, default="dict"
-            Return format.  ``"dict"`` returns a list of time-stamped tracked
+            Return format.  ``"dict"`` returns a list of time-stamped full-network
             records.
 
         verbose : bool, default=False
@@ -351,12 +271,6 @@ class Transient:
         statistics : bool, default=False
             Print accepted-step progression as the simulation runs.  This is the
             option to use when you want lines like ``t=..., dt=..., residual=...``.
-
-        adaptive : bool, default=False
-            If ``False``, numeric ``dt`` is used as a fixed timestep with only
-            failed-step retries. If ``True``, numeric ``dt`` is used as the
-            starting timestep and FullFlow grows or shrinks later timesteps
-            based on solve difficulty. ``dt="auto"`` turns this on automatically.
 
         solver_method : str, default="trf"
             SciPy ``least_squares`` method.  ``"trf"`` is recommended because it
@@ -380,7 +294,6 @@ class Transient:
             ``max(abs(residual)) <= rtol``.  Internally generated integration
             residuals are normalized by the state/change scale; algebraic
             residuals are used exactly as components and balances return them.
-            SciPy still uses the stricter ``ftol`` and ``xtol`` above.
             By default ``gtol`` is disabled for transient solves because small
             residual magnitudes can make gradient-based termination stop before
             the timestep residual is actually accepted.
@@ -400,18 +313,14 @@ class Transient:
             Smallest automatic retry timestep.  If omitted, the retry floor is
             ``dt * 1e-9``.
 
-        save_dt
-            Output-throttling control. It does not change the model equations;
-            it only controls which accepted timesteps are stored in memory and
-            written to HDF5.
-
         Returns
         -------
         list[dict]
-            Time-stamped tracked records for every accepted timestep, including
-            the evaluated initial state.
+            Time-stamped full-network records for each saved output time,
+            including the evaluated initial state.
         """
         self._validate_output_settings(save_dt)
+        dt = self._validate_timestep(dt)
 
         start_time_value = float(self.network.time.value)
         if start_time_value > t_final:
@@ -420,27 +329,11 @@ class Transient:
                 f"t_final ({t_final})."
             )
 
-        initial_dt, adaptive = self._resolve_timestep_input(
-            dt=dt,
-            adaptive=adaptive,
-            start_time=start_time_value,
-            t_final=t_final,
-            save_dt=save_dt,
-        )
-
-        maximum_dt = self._adaptive_ceiling(
-            start_dt=initial_dt,
-            start_time=start_time_value,
-            t_final=t_final,
-        ) if adaptive else initial_dt
-
         transient_settings = TransientSettings(
-            dt=initial_dt,
+            dt=dt,
             t_final=t_final,
-            adaptive=adaptive,
             max_step_retries=max_step_retries,
             minimum_dt=minimum_dt,
-            maximum_dt=maximum_dt,
         )
         transient_settings.validate()
 
@@ -472,11 +365,10 @@ class Transient:
         self.history.append(self.network, float(self.network.time.value))
         schedule_breakpoints = self._collect_schedule_breakpoints()
         next_save_time = None if save_dt is None else float(self.network.time.value) + float(save_dt)
-        active_dt = transient_settings.dt
 
         while float(self.network.time.value) < t_final:
             dt_step = self._pick_timestep(
-                active_dt,
+                transient_settings.dt,
                 t_final,
                 schedule_breakpoints,
                 next_save_time,
@@ -487,7 +379,6 @@ class Transient:
             current_time = float(self.network.time.value)
             trial_dt = dt_step
             retries = 0
-            last_error: Exception | None = None
 
             while True:
                 t_new = min(current_time + trial_dt, t_final)
@@ -507,8 +398,6 @@ class Transient:
                     break
 
                 except Exception as error:
-                    last_error = error
-
                     if retries >= transient_settings.max_step_retries:
                         raise RuntimeError(
                             "Transient timestep failed after automatic retry.\n"
@@ -555,15 +444,6 @@ class Transient:
                 while next_save_time is not None and next_save_time <= diagnostics.time + tolerance:
                     next_save_time += float(save_dt)
 
-            if transient_settings.adaptive:
-                active_dt = self._adapt_timestep(
-                    current_dt=active_dt,
-                    picked_dt=dt_step,
-                    diagnostics=diagnostics,
-                    settings=transient_settings,
-                    rtol=least_squares_settings.rtol,
-                )
-
             if statistics:
                 self.printer.print_step(diagnostics)
 
@@ -581,7 +461,6 @@ class Transient:
                 start_time=start_time_value,
                 final_time=float(self.network.time.value),
                 requested_dt=dt,
-                adaptive=transient_settings.adaptive,
                 method=least_squares_settings.solver_method,
                 jac=least_squares_settings.jacobian_method,
                 ftol=least_squares_settings.ftol,

@@ -18,30 +18,23 @@ class TransientSettings:
     Parameters
     ----------
     dt : float
-        Active timestep size in seconds.  For fixed-step solves this is the
-        user's timestep.  For adaptive solves this is the initial timestep.
+        User-selected nominal timestep in seconds.  The solver uses this
+        timestep unless it must shorten a step to hit final time, a schedule
+        breakpoint, a saved-output time, or a failed-step retry.
 
     t_final : float
         Final simulation time in seconds.  The solver starts from the current
         ``network.time`` value and advances until this value is reached.
 
-    adaptive : bool, default=False
-        If ``False``, the solver returns to ``dt`` after automatic retries.  If
-        ``True``, accepted-step difficulty is used to choose the next timestep.
-
     max_step_retries : int, default=8
         Number of automatic half-step retries allowed after a failed timestep.
         This keeps the public API simple: users can usually call
         ``Transient(network).solve(dt=..., t_final=...)`` without manually
-        tuning tolerances or reducing ``dt`` after the first failure.
+        reducing ``dt`` after the first nonlinear failure.
 
     minimum_dt : float, optional
         Smallest timestep allowed during automatic retry.  If omitted, the
         solver uses ``dt * 1e-9``.
-
-    maximum_dt : float, optional
-        Largest timestep allowed by adaptive mode.  This is intentionally an
-        internal setting, not a normal user-facing option.
 
     Notes
     -----
@@ -52,10 +45,8 @@ class TransientSettings:
 
     dt: float
     t_final: float
-    adaptive: bool = False
     max_step_retries: int = 8
     minimum_dt: float | None = None
-    maximum_dt: float | None = None
 
     def validate(self) -> None:
         """Raise ``ValueError`` if the transient time settings are invalid."""
@@ -69,13 +60,6 @@ class TransientSettings:
             )
         if self.minimum_dt is not None and self.minimum_dt <= 0.0:
             raise ValueError(f"minimum_dt must be positive. Got {self.minimum_dt}")
-        if self.maximum_dt is not None and self.maximum_dt <= 0.0:
-            raise ValueError(f"maximum_dt must be positive. Got {self.maximum_dt}")
-        if self.maximum_dt is not None and self.maximum_dt < self.retry_floor:
-            raise ValueError(
-                "maximum_dt must be greater than or equal to the active minimum dt. "
-                f"Got maximum_dt={self.maximum_dt}, minimum_dt={self.retry_floor}"
-            )
 
     @property
     def retry_floor(self) -> float:
@@ -84,11 +68,3 @@ class TransientSettings:
             return float(self.minimum_dt)
 
         return float(self.dt) * 1.0e-9
-
-    @property
-    def timestep_ceiling(self) -> float:
-        """Return the active maximum timestep for adaptive stepping."""
-        if self.maximum_dt is not None:
-            return float(self.maximum_dt)
-
-        return float(self.dt)

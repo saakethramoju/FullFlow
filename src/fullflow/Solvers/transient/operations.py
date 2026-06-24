@@ -233,7 +233,6 @@ class TransientStepSolve:
                 t_new=t_new,
                 dt=dt,
             )
-
             # Commit proposed branch/mode changes after the continuous timestep
             # is accepted, then evaluate once more so exported algebraic outputs
             # reflect the newly accepted discrete mode for the next timestep.
