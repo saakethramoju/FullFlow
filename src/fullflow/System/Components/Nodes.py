@@ -11,23 +11,23 @@ if TYPE_CHECKING:
 class Solid(Component):
     """Lumped solid thermal mass.
 
-    ``Solid`` is a dynamic component.  It represents the thermal energy stored
-    in a solid node, wall segment, chamber liner, heat-exchanger wall, or other
-    lumped material.
-
-    The physical equation is ordinary energy conservation:
+    ``Solid`` represents one thermal node.  The component has one simple
+    conservation law:
 
         temperature_dot = heat_rate / (mass * specific_heat)
 
-    where positive ``heat_rate`` adds energy to the solid.
+    If ``mass`` or ``specific_heat`` is not supplied, ``heat_rate`` is treated
+    as an already-normalized temperature derivative.  This keeps the component
+    useful for quick examples where the user wants to prescribe ``dT/dt``
+    directly.
 
     Solver behavior
     ---------------
-    SteadyState drives ``temperature_dot`` to zero.
-    Transient integrates ``temperature`` using ``temperature_dot``.
+    Steady state:
+        solve ``temperature_dot = 0``
 
-    Therefore ``Solid`` does not need an algebraic ``balance``.  Its steady-state
-    equation is simply its dynamic derivative set to zero.
+    Transient:
+        integrate ``d(temperature)/dt = temperature_dot``
     """
 
     def __init__(
@@ -49,14 +49,13 @@ class Solid(Component):
             and convection_coefficient is not None
         )
 
+        # evaluate_states() overwrites this every pass.  Initializing it here
+        # keeps the component safe to inspect before the first evaluation.
+        self.temperature_dot = 0.0
+
         self.setup()
 
     def evaluate_states(self):
-        # If mass and specific heat are supplied, heat_rate is a heat flow [W]
-        # and the derivative is dT/dt [K/s].  If they are omitted, heat_rate is
-        # treated as an already-normalized derivative/error.  That preserves the
-        # old steady-state convenience behavior while keeping one clear dynamic
-        # equation.
         if self.mass.is_assigned and self.specific_heat.is_assigned:
             self.temperature_dot = self.heat_rate.value / (self.mass.value * self.specific_heat.value)
         else:
@@ -72,55 +71,41 @@ class Solid(Component):
         self.biot_number.value = h * Lc / k
 
     @property
-    def dynamics(self):
+    def dynamics(self) -> list[tuple[State, float]]:
         return [(self.temperature, self.temperature_dot)]
 
 
-
-
-
-
-
-
 class Volume(Component):
-    """Lumped fluid storage volume.
+    """Lumped fluid control volume.
 
-    ``Volume`` is a dynamic storage component.  It owns conservation-law
-    derivatives and does not expose algebraic balances.
+    ``Volume`` is the only fluid node/storage component.  There is no separate
+    ``Junction`` class.  The same ``Volume`` can be used in two simple ways:
 
-    Mass conservation::
+    1. Storage volume
+       Provide ``volume`` and ``density``.  The component stores mass and uses
+       ``dynamics``:
 
-        mass_dot = mass_flow_in - mass_flow_out
+           mass = density * volume
+           mass_dot = mass_flow_in - mass_flow_out
 
-    Optional energy conservation::
+       If energy inputs are also provided, it stores total internal energy:
 
-        total_internal_energy_dot =
-            mass_flow_in  * total_enthalpy_in
-          - mass_flow_out * outlet_enthalpy
-          + heat_rate
-          + work_rate
-          + boundary_work_rate
+           total_internal_energy = mass * internal_energy
+           total_internal_energy_dot = energy_in - energy_out + heat + work
 
-    SteadyState drives these derivatives to zero.  Transient integrates the
-    stored extensive quantities.  This matches the ROCETS-style interpretation:
-    storage, inertia, and capacitance belong in ``dynamics``; plain algebraic
-    closure equations belong in ``balances`` or user ``Balance(...)`` objects.
+       In steady state, the solver drives these derivatives to zero.  In
+       transient, the solver integrates them.
 
-    The solver can use convenient thermodynamic variables as unknowns while
-    conserving extensive quantities internally.  For example, the solver can
-    vary pressure while integrating mass, or vary enthalpy/temperature while
-    integrating total internal energy.
+    2. Algebraic node
+       Omit ``volume`` or ``density``.  The component has no storage, so it uses
+       ``balances`` instead.  This preserves the old steady-state node behavior:
 
-    Changing volume and boundary work
-    ---------------------------------
-    ``volume`` may be a normal State, derived State, or scheduled State.  When
-    ``boundary_work=True``, the component computes
+           mass_flow_in - mass_flow_out = 0
 
-        boundary_work_rate = -work_pressure * volume_dot
+       Optional energy balance works the same way as before.
 
-    where ``volume_dot`` is estimated from accepted transient history during a
-    transient solve.  During steady-state trim, ``volume_dot`` is zero unless a
-    future dedicated moving-boundary component supplies otherwise.
+    This keeps user models simple: use ``Volume`` for both steady nodes and
+    transient storage nodes.  Adding ``volume`` and ``density`` turns storage on.
     """
 
     def __init__(
@@ -128,26 +113,104 @@ class Volume(Component):
         name: str,
         network: Network,
         pressure: State,
-        volume: State | float,
-        density: State,
-        temperature: State | None = None,
+        volume: State | float | None = None,
         enthalpy: State | float | None = None,
-        internal_energy: State | None = None,
-        mass_flow_in: State | float | None = None,
-        mass_flow_out: State | float | None = None,
         total_enthalpy_in: State | float | None = None,
         total_enthalpy_out: State | float | None = None,
         heat_rate: State | float | None = None,
         work_rate: State | float | None = None,
         work_pressure: State | float | None = None,
+        temperature: State | None = None,
+        density: State | None = None,
+        internal_energy: State | None = None,
+        mass_flow_in: State | float | None = None,
+        mass_flow_out: State | float | None = None,
         energy_variable: str = "enthalpy",
-        solve_volume: bool = False,
-        boundary_work: bool = False,
         mass: State | None = None,
         total_internal_energy: State | None = None,
+        solve_volume: bool = False,
+        boundary_work: bool = False,
         volume_derivative: State | None = None,
         boundary_work_rate: State | None = None,
     ):
+        self._energy_variable = self._normalize_energy_variable(name, energy_variable)
+        self._solve_volume = bool(solve_volume)
+        self._boundary_work = bool(boundary_work)
+
+        # Basic availability flags.
+        #
+        # Storage volumes should always own their mass conservation equation.
+        # Omitted inlet/outlet flows are interpreted as zero-flow boundaries,
+        # but the State objects created by Component.setup() can still be
+        # connected later by another component.  This is what lets a blowdown
+        # tank be written naturally as:
+        #
+        #     COPV = Volume(..., volume=..., density=...)
+        #     Valve(..., mass_flow=COPV.mass_flow_out)
+        #
+        # The constructor sees mass_flow_out=None, but the Valve will assign the
+        # generated COPV.mass_flow_out State during evaluation.
+        self._has_mass_storage = volume is not None and density is not None
+        self._has_mass_balance = self._has_mass_storage or (mass_flow_in is not None and mass_flow_out is not None)
+
+        if self._energy_variable == "temperature":
+            self._has_energy_variable = temperature is not None
+        else:
+            self._has_energy_variable = enthalpy is not None
+
+        # Energy storage is enabled by providing a storage volume, an internal
+        # energy lookup, and the selected thermodynamic solve variable.  Energy
+        # transport terms may be omitted initially and connected later through
+        # States such as COPV.total_enthalpy_out.
+        self._has_energy_storage = self._has_mass_storage and internal_energy is not None and self._has_energy_variable
+
+        # Algebraic energy balance mode is still supported for non-storage
+        # nodes, but storage nodes use dynamics instead of balances.
+        self._has_energy_balance = self._has_energy_storage or (
+            not self._has_mass_storage
+            and self._has_energy_variable
+            and (
+                total_enthalpy_in is not None
+                or total_enthalpy_out is not None
+                or enthalpy is not None
+                or heat_rate is not None
+                or work_rate is not None
+                or boundary_work
+            )
+        )
+
+        if self._solve_volume and volume is None:
+            raise ValueError(f"{name}: solve_volume=True requires volume.")
+
+        if self._boundary_work and volume is None:
+            raise ValueError(f"{name}: boundary_work=True requires volume.")
+
+        if self._has_energy_balance and self._energy_variable == "temperature" and temperature is None:
+            raise ValueError(
+                f"{name}: temperature must be provided when energy_variable='temperature'."
+            )
+
+        if self._has_mass_storage and self._has_energy_variable and internal_energy is None:
+            raise ValueError(
+                f"{name}: transient energy storage requires internal_energy. "
+                "For a steady-only algebraic node, omit volume or density."
+            )
+
+        # evaluate_states() overwrites these every pass.  Initializing them here
+        # keeps dynamics/balances simple and avoids hidden getattr fallbacks.
+        self.mass_dot = 0.0
+        self.total_internal_energy_dot = 0.0
+
+        self.setup()
+
+        # These are stored as ordinary State attributes by Component.setup().
+        # Keeping them visible in prints/HDF5 output makes model intent clear.
+        self.energy_variable.value = self._energy_variable
+        self.solve_volume.value = self._solve_volume
+        self.boundary_work.value = self._boundary_work
+
+    @staticmethod
+    def _normalize_energy_variable(name: str, energy_variable: str) -> str:
         aliases = {
             "h": "enthalpy",
             "enthalpy": "enthalpy",
@@ -156,76 +219,62 @@ class Volume(Component):
             "temperature": "temperature",
         }
 
-        self._energy_variable = str(energy_variable).strip().lower()
-        if self._energy_variable not in aliases:
+        value = str(energy_variable).strip().lower()
+        if value not in aliases:
             raise ValueError(
                 f"{name}: energy_variable must be one of {tuple(sorted(aliases))}."
             )
-        self._energy_variable = aliases[self._energy_variable]
 
-        self._solve_volume = bool(solve_volume)
-        self._boundary_work = bool(boundary_work)
-
-        self._has_energy = total_enthalpy_in is not None and (
-            total_enthalpy_out is not None or enthalpy is not None
-        )
-
-        if self._has_energy and internal_energy is None:
-            raise ValueError(f"{name}: energy dynamics require internal_energy.")
-
-        if self._has_energy and self._energy_variable == "temperature" and temperature is None:
-            raise ValueError(
-                f"{name}: temperature must be provided when energy_variable='temperature'."
-            )
-
-        self.setup()
-
-        self.energy_variable.value = self._energy_variable
-        self.solve_volume.value = self._solve_volume
-        self.boundary_work.value = self._boundary_work
+        return aliases[value]
 
     def evaluate_states(self):
-        # Stored mass is the extensive quantity integrated by the transient
-        # solver.  Pressure is the convenient thermodynamic variable used to
-        # close the nonlinear solve.
-        self.mass.value = self.density.value * self.volume.value
+        # Storage mode: compute the extensive quantities from the current
+        # thermodynamic state.  These are the quantities the transient solver
+        # integrates when dynamics are active.
+        if self._has_mass_storage:
+            self.mass.value = self.density.value * self.volume.value
 
-        if self._has_energy:
-            self.total_internal_energy.value = self.mass.value * self.internal_energy.value
+            if self._has_energy_storage:
+                self.total_internal_energy.value = self.mass.value * self.internal_energy.value
 
-        self.mass_dot = self.mass_flow_in.value - self.mass_flow_out.value
+            if self._boundary_work:
+                self.volume_derivative.value = self._volume_derivative()
+                self.boundary_work_rate.value = self._boundary_work_rate()
+            else:
+                self.volume_derivative.value = 0.0
+                self.boundary_work_rate.value = 0.0
 
-        if self._boundary_work:
-            self.volume_derivative.value = self._volume_derivative()
-            self.boundary_work_rate.value = -self._work_pressure() * self.volume_derivative.value
-        else:
-            self.volume_derivative.value = 0.0
-            self.boundary_work_rate.value = 0.0
+        # The same conservation-law rates are used in both modes:
+        # - storage mode: dynamics integrate them / steady drives them to zero
+        # - algebraic mode: balances drive them to zero directly
+        if self._has_mass_balance:
+            self.mass_dot = self._optional_value(self.mass_flow_in) - self._optional_value(self.mass_flow_out)
 
-        if self._has_energy:
-            self.total_internal_energy_dot = self._energy_derivative()
+            if self._has_energy_balance:
+                self.total_internal_energy_dot = self._energy_derivative()
 
     def _outlet_enthalpy(self) -> float:
         if self.total_enthalpy_out.is_assigned:
             return self.total_enthalpy_out.value
+
         if self.enthalpy.is_assigned:
             return self.enthalpy.value
+
         raise ValueError(
-            f"{self.name}: energy dynamics require total_enthalpy_out or enthalpy."
+            f"{self.name}: energy balance requires total_enthalpy_out or enthalpy."
         )
 
     @staticmethod
     def _optional_value(state) -> float:
-        """Return an optional energy source term.
-
-        Omitted optional terms are zero.  Connected terms are evaluated normally.
-        If a connected term depends on another component that has not evaluated
-        yet, the unassigned-State error is allowed to propagate so the solver
-        evaluator can defer this component and retry it later in the pass.
-        """
         if state is None or not state.is_assigned:
             return 0.0
         return state.value
+
+    def _heat_rate(self) -> float:
+        return self._optional_value(self.heat_rate)
+
+    def _work_rate(self) -> float:
+        return self._optional_value(self.work_rate)
 
     def _work_pressure(self) -> float:
         if self.work_pressure.is_assigned:
@@ -236,7 +285,7 @@ class Volume(Component):
         if not self._boundary_work:
             return 0.0
 
-        dt = float(getattr(self, "_transient_dt", 0.0))
+        dt = float(self._transient_dt)
         if dt <= 0.0:
             return 0.0
 
@@ -245,36 +294,82 @@ class Volume(Component):
         except Exception:
             return 0.0
 
+    def _boundary_work_rate(self) -> float:
+        if not self._boundary_work:
+            return 0.0
+
+        return -self._work_pressure() * self._volume_derivative()
+
     def _energy_derivative(self) -> float:
-        h_out = self._outlet_enthalpy()
+        mass_flow_in = self._optional_value(self.mass_flow_in)
+        mass_flow_out = self._optional_value(self.mass_flow_out)
 
-        return (
-            self.mass_flow_in.value * self.total_enthalpy_in.value
-            - self.mass_flow_out.value * h_out
-            + self._optional_value(self.heat_rate)
-            + self._optional_value(self.work_rate)
-            + self.boundary_work_rate.value
-        )
+        energy = self._heat_rate() + self._work_rate() + self._boundary_work_rate()
 
-    def _energy_solve_variable(self):
+        if mass_flow_in != 0.0:
+            if not self.total_enthalpy_in.is_assigned:
+                raise ValueError(f"{self.name}: nonzero inlet flow requires total_enthalpy_in.")
+            energy += mass_flow_in * self.total_enthalpy_in.value
+
+        if mass_flow_out != 0.0:
+            energy -= mass_flow_out * self._outlet_enthalpy()
+
+        return energy
+
+    def _energy_variable_state(self) -> State:
         if self._energy_variable == "temperature":
             return self.temperature
+
         return self.enthalpy
 
-    @property
-    def dynamics(self):
-        # Three-entry dynamics mean:
-        #
-        #     (solve_variable, integrated_state, derivative)
-        #
-        # SteadyState drives ``derivative`` to zero.  Transient forms the
-        # backward-Euler residual for ``integrated_state``.
-        equations = [(self.pressure, self.mass, self.mass_dot)]
+    def _solve_variables(self) -> list[State]:
+        if not self._has_energy_balance:
+            return [self.pressure]
 
-        if self._has_energy:
+        if self._energy_variable == "temperature":
+            return [self.pressure, self.temperature]
+
+        return [self.pressure, self.enthalpy]
+
+    def _steady_balance_residuals(self) -> list[float]:
+        residuals = [self.mass_dot]
+
+        if self._has_energy_balance:
+            residuals.append(self.total_internal_energy_dot)
+
+        return residuals
+
+    @property
+    def balances(self) -> list[tuple[State, float]]:
+        # Algebraic-node mode.  This preserves the old steady-state behavior for
+        # a Volume that has mass/energy flow balances but no storage inventory.
+        #
+        # Storage mode returns no balances because dynamics already represent
+        # the conservation laws.  SteadyState will drive those derivatives to
+        # zero automatically.
+        if not self._has_mass_balance or self._has_mass_storage:
+            return []
+
+        return list(zip(self._solve_variables(), self._steady_balance_residuals()))
+
+    @property
+    def dynamics(self) -> list[tuple[State, State, float]]:
+        # Storage mode.  Three-entry dynamics mean:
+        #
+        #     (solve_variable, stored_quantity, derivative)
+        #
+        # Example: solve for pressure, but integrate mass conservation.
+        if not self._has_mass_storage:
+            return []
+
+        equations = [
+            (self.pressure, self.mass, self.mass_dot),
+        ]
+
+        if self._has_energy_storage:
             equations.append(
                 (
-                    self._energy_solve_variable(),
+                    self._energy_variable_state(),
                     self.total_internal_energy,
                     self.total_internal_energy_dot,
                 )

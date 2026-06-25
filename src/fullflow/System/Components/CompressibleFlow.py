@@ -25,6 +25,7 @@ class CompressibleOrifice(Component):
         upstream_static_temperature: State | None = None,
         total_enthalpy: State | None = None,
         mass_flow: State | None = None,
+        choked: State | None = None
     ):
         self.setup()
 
@@ -57,12 +58,15 @@ class CompressibleOrifice(Component):
         critical_pressure_ratio = (2.0 / (g + 1.0)) ** (g / (g - 1.0))
 
         # Freeze the choked/unchoked branch during transient nonlinear solves.
-        is_choked = self.propose("is_choked", pressure_ratio <= critical_pressure_ratio)
+        #is_choked = self.propose("is_choked", pressure_ratio <= critical_pressure_ratio)
+        is_choked = pressure_ratio <= critical_pressure_ratio
 
         if is_choked:
             flow_function = math.sqrt((g / (R * T0)) * (2.0 / (g + 1.0)) ** ((g + 1.0) / (g - 1.0)))
+            self.choked.value = True
         else:
             flow_function = math.sqrt((2.0 * g / (R * T0 * (g - 1.0))) * (pressure_ratio ** (2.0 / g) - pressure_ratio ** ((g + 1.0) / g)))
+            self.choked.value = False
 
         self.mass_flow.value = flow_sign * CdA * Po * flow_function
 

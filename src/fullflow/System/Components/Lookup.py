@@ -64,10 +64,37 @@ class LookupAttribute:
 
     @value.setter
     def value(self, new_value: Any) -> None:
-        if self.is_input or self.lookup.accepts_input(self.name):
+        # Existing callable inputs stay inputs.  This preserves the natural
+        # behavior for things like:
+        #
+        #     Gas.pressure.value = 2.0e6
+        #
+        # when ``pressure`` was supplied as a Lookup keyword input.
+        if self.is_input or self.name in self.lookup.kwargs:
             self.lookup.set_input(self.name, new_value)
             return
 
+        # Priority-preferred attributes are intentional solver inputs even if
+        # they were not supplied as construction-time kwargs.  Example:
+        #
+        #     Lookup(..., pressure=..., temperature=...,
+        #            priority=("enthalpy", "temperature"))
+        #
+        # lets ``enthalpy`` become the solved input after being seeded from the
+        # first pressure-temperature evaluation.
+        for group in self.lookup.priority:
+            if group and self.name == group[0] and self.lookup.accepts_input(self.name):
+                self.lookup.set_input(self.name, new_value)
+                return
+
+        # Otherwise, an attribute assignment is only an output guess.
+        #
+        # This distinction matters for property wrappers such as IdealGas or
+        # Fluid where outputs like density, enthalpy, entropy, and internal
+        # energy are also valid callable inputs.  Merely using or seeding one of
+        # those output attributes must not silently add it to kwargs, otherwise
+        # the wrapped property object can receive invalid combinations such as
+        # pressure + temperature + internal_energy.
         self.lookup.set_output_guess(self.name, new_value)
 
     @property
@@ -656,16 +683,87 @@ class Lookup(Component, Generic[T]):
         easy state pair such as pressure-temperature and later switch to a solver
         state pair such as pressure-enthalpy without the user manually adding an
         ``enthalpy`` keyword input up front.
+
+        Candidate selection must not recursively evaluate this same lookup.  If
+        the preferred candidate is not assigned yet, this method raises so the
+        priority group can fall back to the next available candidate.  Example:
+        with ``priority=("enthalpy", "temperature")``, an unassigned enthalpy
+        state falls back to the supplied temperature for the first evaluation.
+        The resulting enthalpy is seeded after that evaluation.
         """
         if name in self.kwargs:
             return self.get_input(name)
 
-        if self.accepts_input(name):
-            return self.get_output(name)
+        if not self.accepts_input(name):
+            raise AttributeError(
+                f"{self.name!r} has no available priority input or output named {name!r}."
+            )
+
+        state = self._output_states.get(name)
+
+        if state is not None and state.is_assigned:
+            return state.value
+
+        if self.output.is_assigned:
+            try:
+                return getattr(self.output.value, name)
+            except Exception:
+                pass
 
         raise AttributeError(
-            f"{self.name!r} has no available priority input or output named {name!r}."
+            f"{self.name!r} priority candidate {name!r} is not available yet."
         )
+
+    def _seed_priority_inputs_from_output(self) -> None:
+        """Seed preferred priority inputs from the current lookup result.
+
+        This supports the common property pattern:
+
+            Lookup(..., pressure=..., temperature=...,
+                   priority=("enthalpy", "temperature"))
+
+        The first evaluation can use pressure-temperature because temperature is
+        easy to guess.  After that result exists, the preferred input
+        ``enthalpy`` is assigned from the output so downstream components can
+        solve on enthalpy.
+        """
+        if not self.priority:
+            return
+
+        try:
+            obj = self.output.value
+        except Exception:
+            return
+
+        for group in self.priority:
+            if not group:
+                continue
+
+            preferred = group[0]
+
+            if not self.accepts_input(preferred):
+                continue
+
+            try:
+                value = getattr(obj, preferred)
+            except Exception:
+                continue
+
+            current = self.kwargs.get(preferred, _MISSING)
+
+            if isinstance(current, State):
+                if not current.is_assigned:
+                    current.value = value
+                continue
+
+            if current is _MISSING:
+                self.kwargs[preferred] = State(value)
+                continue
+
+            fallback = self._input_fallback_states.get(preferred)
+
+            if fallback is not None and not fallback.is_assigned:
+                fallback.value = value
 
     def _resolve_args_kwargs(self) -> tuple[list[Any], dict[str, Any]]:
         args = [self._value(arg) for arg in self.args]
@@ -1354,6 +1452,7 @@ class Lookup(Component, Generic[T]):
             ):
                 self._cache_hits += 1
                 self._refresh_output_states()
+                self._seed_priority_inputs_from_output()
                 return
 
             if self.cache:
@@ -1365,6 +1464,7 @@ class Lookup(Component, Generic[T]):
                     self._cache_hits += 1
                     self._last_error = None
                     self._refresh_output_states()
+                    self._seed_priority_inputs_from_output()
                     self.dirty = False
                     return
 
@@ -1395,6 +1495,7 @@ class Lookup(Component, Generic[T]):
             self._evaluation_count += 1
             self._last_error = None
             self._refresh_output_states()
+            self._seed_priority_inputs_from_output()
             self.dirty = False
         finally:
             object.__setattr__(self, "_is_evaluating", False)
