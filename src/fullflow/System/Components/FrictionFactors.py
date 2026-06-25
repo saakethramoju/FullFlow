@@ -46,8 +46,7 @@ class Colebrook(Component):
 
         self.Deff = Deff
 
-        # Freeze the laminar/turbulent branch during transient nonlinear solves.
-        is_turbulent = self.propose("is_turbulent", Re_Dh > self.reynolds_number_threshold.value)
+        is_turbulent = Re_Dh > self.reynolds_number_threshold.value
 
         if not is_turbulent:
             self.reynolds_number.value = Re_Dh
@@ -147,8 +146,7 @@ class PetukhovFriction(Component):
 
         self.reynolds_number.value = Re
 
-        # Freeze the laminar/turbulent branch during transient nonlinear solves.
-        is_turbulent = self.propose("is_turbulent", Re > self.reynolds_number_threshold.value)
+        is_turbulent = Re > self.reynolds_number_threshold.value
 
         if not is_turbulent:
             f = 4.0 * Po / Re

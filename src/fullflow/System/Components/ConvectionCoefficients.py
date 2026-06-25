@@ -389,8 +389,7 @@ class NaturalConvection(Component):
         Pr = Cp * mu / k
         Ra = Gr * Pr
 
-        # Freeze the low-/high-Rayleigh correlation branch during transient nonlinear solves.
-        high_rayleigh = self.propose("high_rayleigh", Ra >= 1.0e9)
+        high_rayleigh = Ra >= 1.0e9
 
         if not high_rayleigh:
             c = 0.59

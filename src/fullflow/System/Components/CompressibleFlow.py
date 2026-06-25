@@ -57,8 +57,6 @@ class CompressibleOrifice(Component):
         pressure_ratio = Pb / Po
         critical_pressure_ratio = (2.0 / (g + 1.0)) ** (g / (g - 1.0))
 
-        # Freeze the choked/unchoked branch during transient nonlinear solves.
-        #is_choked = self.propose("is_choked", pressure_ratio <= critical_pressure_ratio)
         is_choked = pressure_ratio <= critical_pressure_ratio
 
         if is_choked:
@@ -176,15 +174,12 @@ class IsentropicNozzle(Component):
         FP_throat = FP_exit * eps
         choked_check2 = FP_throat > FP_choked
 
-        # Freeze the choked/unchoked nozzle branch during transient nonlinear solves.
-        choked = self.propose("is_choked", choked_check1 or choked_check2)
+        choked = choked_check1 or choked_check2
 
         if not choked:
             mdot = FP_throat * Po * At / (R * To) ** 0.5
             Me = self._mach_from_pressure_ratio(PR, g)
             Pe = Pamb
-            # Keep the normal-shock branch fixed while the timestep is solved.
-            self.propose("normal_shock", False)
             Ms = 0.0
 
         else:
@@ -193,8 +188,6 @@ class IsentropicNozzle(Component):
             if eps <= 1.0:
                 Me = 1.0
                 Pe = Po / self._pressure_ratio_from_mach(Me, g)
-                # Keep the normal-shock branch fixed while the timestep is solved.
-                self.propose("normal_shock", False)
                 Ms = 0.0
 
             else:
@@ -206,16 +199,13 @@ class IsentropicNozzle(Component):
                 if RPR >= 1.0:
                     Me = Me_test
                     Pe = Pe_test
-                    # Keep the normal-shock branch fixed while the timestep is solved.
-                    self.propose("normal_shock", False)
                     Ms = 0.0
 
                 else:
                     Ps2_Ps1 = self._normal_shock_static_pressure_ratio(Me_test, g)
                     RPRS = Ps2_Ps1 * RPR
 
-                    # Freeze the normal-shock/no-shock branch during transient nonlinear solves.
-                    shock = self.propose("normal_shock", RPRS < 1.0)
+                    shock = RPRS < 1.0
 
                     if not shock:
                         Me = Me_test

@@ -287,8 +287,7 @@ class CavitatingVenturi(Component):
         P2_critical = Pvap + R * (P1 - Pvap)
         self.critical_downstream_pressure = P2_critical
 
-        # Freeze the cavitating/noncavitating branch during transient nonlinear solves.
-        is_cavitating = self.propose("is_cavitating", dP > 0.0 and P2 <= P2_critical)
+        is_cavitating = dP > 0.0 and P2 <= P2_critical
 
         if is_cavitating:
             self.throat_pressure = Pvap
