@@ -47,10 +47,6 @@ class CompressibleOrifice(Component):
             T_static = self.upstream_static_temperature.value
             self.total_enthalpy.value = h_static + cp * (T0 - T_static)
 
-        if abs(P1 - P2) <= (1e-8 + 1e-5 * abs(P2)):
-            self.mass_flow.value = 0.0
-            return
-
         flow_sign = 1.0 if P1 > P2 else -1.0
         Po = max(P1, P2)
         Pb = min(P1, P2)
@@ -63,7 +59,8 @@ class CompressibleOrifice(Component):
             flow_function = math.sqrt((g / (R * T0)) * (2.0 / (g + 1.0)) ** ((g + 1.0) / (g - 1.0)))
             self.choked.value = True
         else:
-            flow_function = math.sqrt((2.0 * g / (R * T0 * (g - 1.0))) * (pressure_ratio ** (2.0 / g) - pressure_ratio ** ((g + 1.0) / g)))
+            flow_argument = pressure_ratio ** (2.0 / g) - pressure_ratio ** ((g + 1.0) / g)
+            flow_function = math.sqrt((2.0 * g / (R * T0 * (g - 1.0))) * max(flow_argument, 0.0))
             self.choked.value = False
 
         self.mass_flow.value = flow_sign * CdA * Po * flow_function
