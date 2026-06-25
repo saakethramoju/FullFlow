@@ -5,9 +5,9 @@ A FullFlow component can have two kinds of outputs:
 * **Solver variables** controlled by SciPy's nonlinear solver.
 * **Derived states** updated by each component's ``evaluate_states()`` method.
 
-During every residual call the nonlinear solver proposes a new vector of solver
+During every residual call the nonlinear solver tries a new vector of solver
 variables.  The derived states then need to be recomputed without letting
-component code accidentally overwrite those proposed values.
+component code accidentally overwrite those trial values.
 
 ``StateEvaluator`` also makes component order much less fragile.  If a component
 tries to read an output that has not been produced yet in the current pass, the

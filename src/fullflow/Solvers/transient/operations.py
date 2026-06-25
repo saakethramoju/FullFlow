@@ -79,7 +79,7 @@ class TransientStepSolve:
     def residual(self, x: np.ndarray) -> np.ndarray:
         """Residual function passed to SciPy for the current timestep.
 
-        SciPy proposes values for all new-time unknowns.  We write those values
+        SciPy tries values for all new-time unknowns.  We write those values
         into the network, set the network clock to the target timestep time,
         evaluate all components, then collect residuals in this order:
 
@@ -180,10 +180,9 @@ class TransientStepSolve:
     ) -> StepDiagnostics:
         """Solve and accept one timestep.
 
-        Component discrete modes are frozen during the nonlinear solve so
-        branches that use ``Component.propose`` do not jump while SciPy perturbs
-        the continuous variables.  Proposed discrete changes are committed only
-        after the timestep residual has passed the acceptance check.
+        The component equations are evaluated directly during the nonlinear
+        solve.  Component authors write ordinary component equations; timestep
+        retry and residual acceptance are handled by the transient solver.
         """
         least_squares_settings.validate()
         state_settings.validate()
@@ -196,8 +195,6 @@ class TransientStepSolve:
         x0 = cache.iteration_value_array()
         accepted_snapshot = cache.snapshot_mutable_states()
         accepted_time = float(self.network.time.value)
-
-        cache.freeze_discrete_states()
 
         self._last_valid_x = None
         self._last_valid_residual = None
@@ -225,7 +222,6 @@ class TransientStepSolve:
                     t_new=t_new,
                     dt=dt,
                 )
-                cache.commit_discrete_states()
                 self.evaluator.run(
                     max_passes=state_settings.max_passes,
                     tolerance=state_settings.tolerance,
@@ -249,8 +245,7 @@ class TransientStepSolve:
 
             # Push the candidate solution into the network and recompute all
             # derived states one final time at t_new.  The residual checked below
-            # is recomputed with discrete modes still frozen, so the accepted
-            # continuous state is consistent with the mode used for this step.
+            # is the actual residual used for timestep acceptance.
             cache.assign_iteration_values(sol.x)
             self.network.time.value = t_new
             self.evaluator.run(
@@ -269,10 +264,8 @@ class TransientStepSolve:
                 t_new=t_new,
                 dt=dt,
             )
-            # Commit proposed branch/mode changes after the continuous timestep
-            # is accepted, then evaluate once more so exported algebraic outputs
-            # reflect the newly accepted discrete mode for the next timestep.
-            cache.commit_discrete_states()
+            # Evaluate once more after acceptance so exported algebraic outputs
+            # reflect the accepted continuous state for this timestep.
             self.evaluator.run(
                 max_passes=state_settings.max_passes,
                 tolerance=state_settings.tolerance,
@@ -295,7 +288,6 @@ class TransientStepSolve:
             )
 
         except Exception:
-            cache.reject_discrete_states()
             cache.restore_mutable_states(accepted_snapshot)
             self.network.time.value = accepted_time
             raise
@@ -335,8 +327,8 @@ class TransientStepSolve:
         )
         return kwargs
 
-    @staticmethod
     def _check_residual_vector(
+        self,
         *,
         residual: np.ndarray,
         success: bool,
@@ -352,8 +344,8 @@ class TransientStepSolve:
         solves disable SciPy ``gtol`` so gradient-based termination cannot stop
         early on a small-but-unaccepted integration residual.  After SciPy stops,
         timestep acceptance is based on the recomputed residual.
-        This allows a physically converged step to pass even when SciPy reports
-        a technical termination such as ``max_nfev``.
+        The timestep is accepted only when the recomputed residual satisfies
+        the configured per-step residual tolerance.
         """
         final_residual = np.array(residual, dtype=float)
         max_residual = np.max(np.abs(final_residual)) if len(final_residual) else 0.0

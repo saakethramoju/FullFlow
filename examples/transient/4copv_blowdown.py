@@ -11,7 +11,7 @@ Pressurant = Lookup(
     COPVBlowdown,
     IdealGas,
     "gn2",
-    pressure=1000 * psi_to_pa,
+    pressure=6000 * psi_to_pa,
     temperature=300,
 )
 
@@ -27,7 +27,7 @@ COPV = Volume(
     energy_variable="T",
 )
 
-valve_diameter = 0.075 / 39.37
+valve_diameter = 0.5 / 39.37
 valve_area = (np.pi / 4) * valve_diameter**2
 
 Valve = CompressibleOrifice(
@@ -47,7 +47,8 @@ Valve = CompressibleOrifice(
 
 Transient(COPVBlowdown).solve(
     dt=0.01,
-    t_final=60.0,
+    t_final=20.0,
     filename="COPVBlowdown",
     verbose=True,
+    rtol=1e-2
 )

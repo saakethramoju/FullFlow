@@ -280,7 +280,8 @@ class Transient:
             Finite-difference Jacobian approximation passed to SciPy.
 
         ftol, xtol : float
-            SciPy least-squares convergence tolerances.
+            SciPy least-squares convergence tolerances. The final timestep
+            residual is still checked after SciPy terminates.
 
         gtol : float or None, default=None
             SciPy gradient convergence tolerance. ``None`` disables gradient-based

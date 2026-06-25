@@ -887,21 +887,6 @@ class TransientRuntimeCache:
 
         return tuple(refs)
 
-    def freeze_discrete_states(self) -> None:
-        """Freeze component discrete modes for safe ``Component.propose`` calls."""
-        for component in self.component_list:
-            component.freeze_discrete()
-
-    def commit_discrete_states(self) -> None:
-        """Commit proposed component discrete-mode changes after an accepted step."""
-        for component in self.component_list:
-            component.commit_discrete()
-
-    def reject_discrete_states(self) -> None:
-        """Reject proposed component discrete-mode changes after a failed step."""
-        for component in self.component_list:
-            component.reject_discrete()
-
     def _collect_state_refs(self) -> tuple[Any, ...]:
         """Collect non-iteration State objects for fixed-point checks."""
         refs: list[Any] = []

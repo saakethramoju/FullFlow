@@ -1,6 +1,6 @@
 """Derived-state evaluation for transient solves.
 
-The transient least-squares solver repeatedly proposes new-time values for the
+The transient least-squares solver repeatedly tries new-time values for the
 unknown vector.  Component ``evaluate_states()`` methods then update explicit
 algebraic outputs and derivative quantities.  This evaluator mirrors the
 steady-state evaluator: it repeatedly evaluates components until derived states
