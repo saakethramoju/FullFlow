@@ -14,13 +14,14 @@ class Schedule(Component):
     """
     Generic sampled schedule/command source.
 
-    `Schedule` drives `target` as a function of network time. Functional
-    schedules can also read input states, but those inputs are sampled from the
-    previous accepted transient step. The output is then held fixed during the
-    current nonlinear solve.
+    `Schedule` drives `target` as a function of network time during transient
+    solves. Functional schedules can also read input states, but those inputs
+    are sampled from the previous accepted transient step.
 
-    This makes Schedule safe for command logic, feedback controllers, bang-bang
-    valves, pump-speed commands, and ordinary open-loop time ramps.
+    In steady-state solves, Schedule is inactive. The target State keeps its
+    current value. This lets a steady-state solve use a fixed initial command
+    such as a closed valve, while the transient solve later updates that command
+    from the schedule.
 
     The schedule can be tabular:
 
@@ -38,9 +39,10 @@ class Schedule(Component):
 
         function(time, *previous_input_values)
 
-    If `target` is provided, that State is overwritten.
+    If `target` is provided, that State is driven during transient solves.
 
-    If `target` is not provided, Schedule creates one automatically:
+    If `target` is not provided, Schedule creates one automatically and seeds it
+    from the initial schedule value:
 
         source_pressure = PressureSchedule.target
     """
@@ -58,6 +60,8 @@ class Schedule(Component):
         self._table_schedule = times is not None or values is not None
         self._function_schedule = function is not None
         self._input_list = self._normalize_inputs(inputs)
+        self._target_was_provided = target is not None
+        self._active_in_transient = False
 
         self.setup()
 
@@ -108,22 +112,31 @@ class Schedule(Component):
 
         self.evaluate_in_pre_evaluation = True
 
-        self.evaluate_states()
+        if not self._target_was_provided:
+            self.target.value = float(self._scheduled_value())
+
+    def set_transient_context(self, *, dt: float) -> None:
+        super().set_transient_context(dt=dt)
+        self._active_in_transient = True
 
     def pre_evaluation(self):
-        if self._read(self.evaluate_in_pre_evaluation):
+        if self._active_in_transient and self._read(self.evaluate_in_pre_evaluation):
             self.evaluate_states()
 
     def evaluate_states(self):
+        if not self._active_in_transient:
+            return
+
+        self.target.value = float(self._scheduled_value())
+
+    def _scheduled_value(self):
         t = self._network_time()
 
         if self._function_schedule:
             input_values = [self._previous_input_value(item) for item in self._input_list]
-            value = self._read(self.function)(t, *input_values)
-        else:
-            value = np.interp(t, self.times.value, self.values.value)
+            return self._read(self.function)(t, *input_values)
 
-        self.target.value = float(value)
+        return np.interp(t, self.times.value, self.values.value)
 
     @staticmethod
     def _normalize_inputs(inputs):
