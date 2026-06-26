@@ -47,7 +47,7 @@ class Transient:
     Notes
     -----
     The user chooses the nominal timestep.  The solver may shorten individual
-    steps to land exactly on final time, tabular ``Schedule`` breakpoints, saved
+    steps to land exactly on final time, tabular ``Sequence`` breakpoints, saved
     output times, or smaller retry steps after a failed nonlinear solve.  It
     does not automatically grow the timestep.
     """
@@ -85,12 +85,12 @@ class Transient:
             return self._refresh_runtime_cache()
         return self._runtime_cache.ensure_current()
 
-    def _collect_schedule_breakpoints(self) -> tuple[float, ...]:
-        """Return all known tabular Schedule times in the current network."""
+    def _collect_sequence_breakpoints(self) -> tuple[float, ...]:
+        """Return all known tabular Sequence times in the current network."""
         breakpoints: set[float] = set()
 
         for component in self.network.component_list:
-            if not getattr(component, "_table_schedule", False):
+            if not getattr(component, "_table_sequence", False):
                 continue
 
             times = getattr(component, "times", None)
@@ -118,16 +118,16 @@ class Transient:
         self,
         dt: float,
         t_final: float,
-        schedule_breakpoints: tuple[float, ...] = (),
+        sequence_breakpoints: tuple[float, ...] = (),
         next_save_time: float | None = None,
     ) -> float:
-        """Return the next timestep, shortened at final, schedule, or save times."""
+        """Return the next timestep, shortened at final, sequence, or save times."""
         current_time = float(self.network.time.value)
         target_time = min(current_time + dt, t_final)
 
         tolerance = 1.0e-12 * max(1.0, abs(current_time), abs(target_time))
 
-        for breakpoint_time in schedule_breakpoints:
+        for breakpoint_time in sequence_breakpoints:
             if breakpoint_time <= current_time + tolerance:
                 continue
 
@@ -239,7 +239,7 @@ class Transient:
         dt : float
             User-selected nominal timestep in seconds. Steps are shortened when
             needed to land exactly on ``t_final``, saved output times, and
-            tabular ``Schedule`` time points. If a timestep fails, the solver
+            tabular ``Sequence`` time points. If a timestep fails, the solver
             rolls back and retries smaller half-steps.
 
         t_final : float
@@ -363,14 +363,14 @@ class Transient:
         # point every transient State has ``state.previous == state.value``.
         self.step_solver.initialize(state_settings)
         self.history.append(self.network, float(self.network.time.value))
-        schedule_breakpoints = self._collect_schedule_breakpoints()
+        sequence_breakpoints = self._collect_sequence_breakpoints()
         next_save_time = None if save_dt is None else float(self.network.time.value) + float(save_dt)
 
         while float(self.network.time.value) < t_final:
             dt_step = self._pick_timestep(
                 transient_settings.dt,
                 t_final,
-                schedule_breakpoints,
+                sequence_breakpoints,
                 next_save_time,
             )
             if dt_step <= 0.0:

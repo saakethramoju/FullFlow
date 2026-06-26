@@ -10,30 +10,30 @@ if TYPE_CHECKING:
     from fullflow.System import Network
 
 
-class Schedule(Component):
+class Sequence(Component):
     """
-    Generic sampled schedule/command source.
+    Generic sampled sequence/command source.
 
-    `Schedule` drives `target` as a function of network time during transient
-    solves. Functional schedules can also read input states, but those inputs
+    `Sequence` drives `target` as a function of network time during transient
+    solves. Functional sequences can also read input states, but those inputs
     are sampled from the previous accepted transient step.
 
-    In steady-state solves, Schedule is inactive. The target State keeps its
+    In steady-state solves, Sequence is inactive. The target State keeps its
     current value. This lets a steady-state solve use a fixed initial command
     such as a closed valve, while the transient solve later updates that command
-    from the schedule.
+    from the sequence.
 
-    The schedule can be tabular:
+    The sequence can be tabular:
 
-        Schedule(..., times=[0.0, 1.0], values=[2.0e5, 5.0e5])
+        Sequence(..., times=[0.0, 1.0], values=[2.0e5, 5.0e5])
 
     or functional:
 
-        Schedule(..., function=source_pressure_command)
+        Sequence(..., function=source_pressure_command)
 
     or functional with sampled inputs:
 
-        Schedule(..., function=valve_command, inputs=[node_pressure])
+        Sequence(..., function=valve_command, inputs=[node_pressure])
 
     The callable signature is:
 
@@ -41,10 +41,10 @@ class Schedule(Component):
 
     If `target` is provided, that State is driven during transient solves.
 
-    If `target` is not provided, Schedule creates one automatically and seeds it
-    from the initial schedule value:
+    If `target` is not provided, Sequence creates one automatically and seeds it
+    from the initial sequence value:
 
-        source_pressure = PressureSchedule.target
+        source_pressure = PressureSequence.target
     """
 
     def __init__(
@@ -57,29 +57,29 @@ class Schedule(Component):
         function: Callable[..., float] | None = None,
         inputs: list[Any] | tuple[Any, ...] | Any | None = None,
     ):
-        self._table_schedule = times is not None or values is not None
-        self._function_schedule = function is not None
+        self._table_sequence = times is not None or values is not None
+        self._function_sequence = function is not None
         self._input_list = self._normalize_inputs(inputs)
         self._target_was_provided = target is not None
         self._active_in_transient = False
 
         self.setup()
 
-        if self._table_schedule and self._function_schedule:
+        if self._table_sequence and self._function_sequence:
             raise ValueError(f"{self.name}: provide either times/values or function, not both.")
 
-        if not self._table_schedule and not self._function_schedule:
+        if not self._table_sequence and not self._function_sequence:
             raise ValueError(f"{self.name}: provide either times/values or function.")
 
-        if self._table_schedule and self._input_list:
-            raise ValueError(f"{self.name}: tabular schedules cannot use inputs; use function=... instead.")
+        if self._table_sequence and self._input_list:
+            raise ValueError(f"{self.name}: tabular sequences cannot use inputs; use function=... instead.")
 
         if not is_state_like(self.target):
             raise TypeError(f"{self.name}: target must be a State-like object.")
 
-        if self._table_schedule:
+        if self._table_sequence:
             if times is None or values is None:
-                raise ValueError(f"{self.name}: tabular schedules require both times and values.")
+                raise ValueError(f"{self.name}: tabular sequences require both times and values.")
 
             time_map = np.asarray(self._read(self.times), dtype=float)
             value_map = np.asarray(self._read(self.values), dtype=float)
@@ -94,7 +94,7 @@ class Schedule(Component):
                 raise ValueError(f"{self.name}: times and values must have the same length.")
 
             if len(time_map) < 2:
-                raise ValueError(f"{self.name}: schedule requires at least two points.")
+                raise ValueError(f"{self.name}: sequence requires at least two points.")
 
             sort_indices = np.argsort(time_map)
             time_map = time_map[sort_indices]
@@ -106,14 +106,14 @@ class Schedule(Component):
             self.times.value = time_map
             self.values.value = value_map
 
-        if self._function_schedule:
+        if self._function_sequence:
             if not callable(self._read(self.function)):
                 raise TypeError(f"{self.name}: function must be callable.")
 
         self.evaluate_in_pre_evaluation = True
 
         if not self._target_was_provided:
-            self.target.value = float(self._scheduled_value())
+            self.target.value = float(self._sequenced_value())
 
     def set_transient_context(self, *, dt: float) -> None:
         super().set_transient_context(dt=dt)
@@ -127,12 +127,12 @@ class Schedule(Component):
         if not self._active_in_transient:
             return
 
-        self.target.value = float(self._scheduled_value())
+        self.target.value = float(self._sequenced_value())
 
-    def _scheduled_value(self):
+    def _sequenced_value(self):
         t = self._network_time()
 
-        if self._function_schedule:
+        if self._function_sequence:
             input_values = [self._previous_input_value(item) for item in self._input_list]
             return self._read(self.function)(t, *input_values)
 

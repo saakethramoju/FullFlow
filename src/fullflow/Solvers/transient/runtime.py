@@ -114,7 +114,7 @@ class TransientRuntimeCache:
 
         Phase 6 keeps the expensive network walk here.  Residual calls should
         only assign SciPy's vector, evaluate cached component callables, and
-        collect cached equation blocks.  Nothing schedule-related lives in this
+        collect cached equation blocks.  Nothing sequence-related lives in this
         cache.
         """
         self.component_list = tuple(self.network.component_list)

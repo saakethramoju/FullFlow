@@ -205,7 +205,7 @@ Node = Volume(
 
 
 # -----------------------------------------------------------------------------
-# Smooth valve-opening schedule
+# Smooth valve-opening sequence
 #
 # The valve remains nearly closed until valve_delay, then opens smoothly over
 # valve_open_time using a smoothstep ramp.
@@ -238,8 +238,8 @@ valve_times.append(100.0)
 valve_cds.append(1.0)
 
 
-ValveCdSchedule = Schedule(
-    "Valve Cd Schedule",
+ValveCdSequence = Sequence(
+    "Valve Cd Sequence",
     PipeNetwork,
     times=valve_times,
     values=valve_cds,
@@ -268,7 +268,7 @@ Pipe2 = DischargeCoefficient(
     upstream_pressure=Node.pressure,
     downstream_pressure=101325,
     density=NodeFluid.density,
-    discharge_coefficient=ValveCdSchedule.target,
+    discharge_coefficient=ValveCdSequence.target,
     cross_sectional_area=pipe_area,
     mass_flow=pipe2_mass_flow,
 )
@@ -279,7 +279,7 @@ Pipe2 = DischargeCoefficient(
 #
 # Both the steady-state initialization and transient result are written to the
 # same HDF5 file. The steady solve initializes the closed-valve rest condition;
-# the transient solve then opens the valve according to ValveCdSchedule.
+# the transient solve then opens the valve according to ValveCdSequence.
 # -----------------------------------------------------------------------------
 
 filename = "node_inertia"

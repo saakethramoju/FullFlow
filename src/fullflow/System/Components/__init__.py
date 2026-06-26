@@ -8,4 +8,4 @@ from .ConvectionCoefficients import *
 from .Nodes import *
 from .Lookup import *
 from .Composition import *
-from .Schedule import *
+from .Sequence import *

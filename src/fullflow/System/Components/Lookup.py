@@ -1068,6 +1068,28 @@ class Lookup(Component, Generic[T]):
             if isinstance(current, State):
                 return current
 
+            # Preserve dynamic input links when an input was provided through a
+            # state-like proxy.  Example:
+            #
+            #     Fuel = Lookup(..., pressure=UllageGas.pressure)
+            #     TankLiquid = Volume(..., pressure=Fuel.pressure)
+            #
+            # ``Fuel.pressure`` is an input, so Component.setup() asks for a
+            # State view of it.  The old behavior resolved the current numeric
+            # value once and replaced the dynamic input with ``State(value)``,
+            # which severed the dependency on ``UllageGas.pressure``.
+            #
+            # If the current input knows how to expose a State view, use that
+            # backing State/derived State instead of taking a one-time numeric
+            # snapshot.
+            as_state = getattr(type(current), "as_state", None)
+
+            if callable(as_state):
+                state = as_state(current)
+                self.kwargs[name] = state
+                self.dirty = True
+                return state
+
             try:
                 state = State(self.get_input(name))
             except Exception:

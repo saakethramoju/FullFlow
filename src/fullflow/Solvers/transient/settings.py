@@ -19,7 +19,7 @@ class TransientSettings:
     ----------
     dt : float
         User-selected nominal timestep in seconds.  The solver uses this
-        timestep unless it must shorten a step to hit final time, a schedule
+        timestep unless it must shorten a step to hit final time, a sequence
         breakpoint, a saved-output time, or a failed-step retry.
 
     t_final : float

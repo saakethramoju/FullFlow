@@ -75,37 +75,60 @@ class Solid(Component):
         return [(self.temperature, self.temperature_dot)]
 
 
+
+
+
+
+
+
+
+
+
+
 class Volume(Component):
     """Lumped fluid control volume.
 
     ``Volume`` is the only fluid node/storage component.  There is no separate
-    ``Junction`` class.  The same ``Volume`` can be used in two simple ways:
+    ``Junction`` class.  The same ``Volume`` can be used in three simple ways:
 
-    1. Storage volume
-       Provide ``volume`` and ``density``.  The component stores mass and uses
-       ``dynamics``:
+    1. Fixed-volume storage
+       Provide ``volume`` and ``density`` with ``solve_volume=False``.  The
+       component stores mass and uses ``dynamics``:
 
            mass = density * volume
            mass_dot = mass_flow_in - mass_flow_out
 
-       If energy inputs are also provided, it stores total internal energy:
+       The mass equation solves pressure.  This is the normal mode for COPVs,
+       chambers, fixed ullage volumes, and fixed liquid volumes.
 
-           total_internal_energy = mass * internal_energy
-           total_internal_energy_dot = energy_in - energy_out + heat + work
+    2. Moving-volume storage
+       Provide ``volume`` and ``density`` with ``solve_volume=True``.  The same
+       mass equation is used, but it solves volume instead of pressure:
 
-       In steady state, the solver drives these derivatives to zero.  In
-       transient, the solver integrates them.
+           mass = density * volume
+           mass_dot = mass_flow_in - mass_flow_out
 
-    2. Algebraic node
+       Pressure still exists and can still drive connected branches, but it must
+       come from another connected state or relation.  This is useful for
+       draining liquid inventories, moving ullage boundaries, and piston volumes.
+
+    3. Algebraic node
        Omit ``volume`` or ``density``.  The component has no storage, so it uses
        ``balances`` instead.  This preserves the old steady-state node behavior:
 
            mass_flow_in - mass_flow_out = 0
 
-       Optional energy balance works the same way as before.
+    If energy inputs are provided, ``Volume`` stores total internal energy:
 
-    This keeps user models simple: use ``Volume`` for both steady nodes and
-    transient storage nodes.  Adding ``volume`` and ``density`` turns storage on.
+        total_internal_energy = mass * internal_energy
+        total_internal_energy_dot = energy_in - energy_out + heat + work
+
+    Boundary work is automatic for energy-storage volumes:
+
+        boundary_work_rate = -work_pressure * dV/dt
+
+    ``work_rate`` remains available for explicit shaft, electrical, stirrer, or
+    other non-flow work.  ``work_pressure`` defaults to the volume pressure.
     """
 
     def __init__(
@@ -129,13 +152,11 @@ class Volume(Component):
         mass: State | None = None,
         total_internal_energy: State | None = None,
         solve_volume: bool = False,
-        boundary_work: bool = False,
         volume_derivative: State | None = None,
         boundary_work_rate: State | None = None,
     ):
         self._energy_variable = self._normalize_energy_variable(name, energy_variable)
         self._solve_volume = bool(solve_volume)
-        self._boundary_work = bool(boundary_work)
 
         # Basic availability flags.
         #
@@ -175,15 +196,11 @@ class Volume(Component):
                 or enthalpy is not None
                 or heat_rate is not None
                 or work_rate is not None
-                or boundary_work
             )
         )
 
-        if self._solve_volume and volume is None:
-            raise ValueError(f"{name}: solve_volume=True requires volume.")
-
-        if self._boundary_work and volume is None:
-            raise ValueError(f"{name}: boundary_work=True requires volume.")
+        if self._solve_volume and not self._has_mass_storage:
+            raise ValueError(f"{name}: solve_volume=True requires both volume and density.")
 
         if self._has_energy_balance and self._energy_variable == "temperature" and temperature is None:
             raise ValueError(
@@ -207,7 +224,6 @@ class Volume(Component):
         # Keeping them visible in prints/HDF5 output makes model intent clear.
         self.energy_variable.value = self._energy_variable
         self.solve_volume.value = self._solve_volume
-        self.boundary_work.value = self._boundary_work
 
     @staticmethod
     def _normalize_energy_variable(name: str, energy_variable: str) -> str:
@@ -237,12 +253,8 @@ class Volume(Component):
             if self._has_energy_storage:
                 self.total_internal_energy.value = self.mass.value * self.internal_energy.value
 
-            if self._boundary_work:
-                self.volume_derivative.value = self._volume_derivative()
-                self.boundary_work_rate.value = self._boundary_work_rate()
-            else:
-                self.volume_derivative.value = 0.0
-                self.boundary_work_rate.value = 0.0
+            self.volume_derivative.value = self._volume_derivative()
+            self.boundary_work_rate.value = self._boundary_work_rate()
 
         # The same conservation-law rates are used in both modes:
         # - storage mode: dynamics integrate them / steady drives them to zero
@@ -282,9 +294,6 @@ class Volume(Component):
         return self.pressure.value
 
     def _volume_derivative(self) -> float:
-        if not self._boundary_work:
-            return 0.0
-
         dt = float(self._transient_dt)
         if dt <= 0.0:
             return 0.0
@@ -295,16 +304,13 @@ class Volume(Component):
             return 0.0
 
     def _boundary_work_rate(self) -> float:
-        if not self._boundary_work:
-            return 0.0
-
         return -self._work_pressure() * self._volume_derivative()
 
     def _energy_derivative(self) -> float:
         mass_flow_in = self._optional_value(self.mass_flow_in)
         mass_flow_out = self._optional_value(self.mass_flow_out)
 
-        energy = self._heat_rate() + self._work_rate() + self._boundary_work_rate()
+        energy = self._heat_rate() + self._work_rate() + self.boundary_work_rate.value
 
         if mass_flow_in != 0.0:
             if not self.total_enthalpy_in.is_assigned:
@@ -358,12 +364,18 @@ class Volume(Component):
         #
         #     (solve_variable, stored_quantity, derivative)
         #
-        # Example: solve for pressure, but integrate mass conservation.
+        # Fixed-volume storage solves pressure from the mass inventory.
+        # Moving-volume storage solves volume from the mass inventory.
         if not self._has_mass_storage:
             return []
 
+        if self._solve_volume:
+            mass_solve_variable = self.volume
+        else:
+            mass_solve_variable = self.pressure
+
         equations = [
-            (self.pressure, self.mass, self.mass_dot),
+            (mass_solve_variable, self.mass, self.mass_dot),
         ]
 
         if self._has_energy_storage:

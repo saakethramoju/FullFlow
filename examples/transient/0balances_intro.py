@@ -32,7 +32,7 @@ def outlet_bang_bang(t, pressure):
     return outlet_cda.value
 
 
-ValveCdASchedule = Schedule(
+ValveCdASequence = Sequence(
     "Valve CdA",
     Test,
     target=valve_cda,
@@ -40,7 +40,7 @@ ValveCdASchedule = Schedule(
 )
 
 
-OutletCdASchedule = Schedule(
+OutletCdASequence = Sequence(
     "Outlet CdA",
     Test,
     target=outlet_cda,

@@ -13,7 +13,7 @@ The purpose of this example is to demonstrate:
 
     - lumped pipe inertia
     - distributed fluid storage using multiple Volume nodes
-    - a scheduled valve-area closure
+    - a sequenced valve-area closure
     - steady-state initialization before a transient valve closure
     - GFSSP-style branch/node discretization of a long pipe
 
@@ -83,7 +83,7 @@ uses the same idea:
     - Pipe segments carry momentum / flow inertia.
     - Volume nodes store fluid mass.
     - The outlet valve is algebraic and imposes a pressure-flow relation.
-    - The valve area is scheduled as a function of time.
+    - The valve area is sequenced as a function of time.
 
 Each DarcyWeisbach pipe segment contributes a dynamic equation for mass flow.
 Each Volume contributes a dynamic equation for mass storage.
@@ -194,7 +194,7 @@ print("Usual wave Courant number  =", courant_usual)
 
 
 # -----------------------------------------------------------------------------
-# Valve closing schedule
+# Valve closing sequence
 #
 # GFSSP EX15VLV.DAT:
 #
@@ -207,7 +207,7 @@ print("Usual wave Courant number  =", courant_usual)
 #     0.10        1.0e-16
 #     100         1.0e-16
 #
-# The valve area is stored as a State because the Schedule component writes to
+# The valve area is stored as a State because the Sequence component writes to
 # it during the transient solve.
 # -----------------------------------------------------------------------------
 
@@ -234,8 +234,8 @@ valve_areas = [
 ]
 
 
-ValveAreaSchedule = Schedule(
-    "Valve Area Schedule",
+ValveAreaSequence = Sequence(
+    "Valve Area Sequence",
     WaterHammer,
     target=valve_area,
     times=valve_times,
@@ -378,7 +378,7 @@ for i in range(node_count):
 #
 # The valve is an algebraic discharge-coefficient restriction.
 #
-# The scheduled valve_area is used as the cross-sectional area. As the schedule
+# The sequenced valve_area is used as the cross-sectional area. As the sequence
 # closes the area, the outlet flow decreases.
 #
 # No length is provided here. That is intentional: the valve itself is treated as
