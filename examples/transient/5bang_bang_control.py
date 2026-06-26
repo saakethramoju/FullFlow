@@ -19,10 +19,15 @@ ullage_pressure = State(101325)
 liquid_volume = State(110 / 1000)
 ullage_volume = 125 / 1000 - liquid_volume
 
+
+# Fluid was chosen over IdealGas to represent the pressurant 
+# since PYroMat and CEA have minimum temperatures of 200 K
+# for gaseous spcies, but isentropic nitrogen blowdown can 
+# go below that. 
 Pressurant = Lookup(
     "Pressurant Gas",
     BangBangSim,
-    IdealGas,
+    Fluid,
     "gn2",
     pressure=initial_copv_pressure,
     temperature=initial_copv_temperature,
@@ -31,7 +36,7 @@ Pressurant = Lookup(
 UllageGas = Lookup(
     "Ullage Gas",
     BangBangSim,
-    IdealGas,
+    Fluid,
     "gn2",
     temperature = 300,
     pressure = ullage_pressure,
@@ -113,7 +118,6 @@ Ullage = Volume(
     temperature=UllageGas.temperature,
     density=UllageGas.density,
     internal_energy=UllageGas.internal_energy,
-    #enthalpy=UllageGas.enthalpy,
     energy_variable="T",
     mass_flow_in=BangBangValve.mass_flow,
     total_enthalpy_in=BangBangValve.total_enthalpy
@@ -131,18 +135,36 @@ TankLiquid = Volume(
 )
 
 
+tank_cross_sectional_area = (np.pi/4) * (12 / 39.37)**2
+liquid_height = TankLiquid.volume / tank_cross_sectional_area
+
+g = 9.80665
+
+head_pressure = TankLiquid.density * g * liquid_height
+
+
+FuelwithHeadPressure = Lookup(
+    "Fuel with Head Pressure",
+    BangBangSim,
+    Fluid,
+    "ch4",
+    pressure = UllageGas.pressure + head_pressure,
+    temperature = 100
+)
+
+
 MainLine = DarcyWeisbach(
     "Main Line",
     BangBangSim,
     mass_flow=TankLiquid.mass_flow_out,
-    upstream_pressure=TankLiquid.pressure,
+    upstream_pressure=FuelwithHeadPressure.pressure,
     downstream_pressure=NodeFluid.pressure,
     length=3,
     hydraulic_diameter=0.5 / 39.37,
     cross_sectional_area=(np.pi / 4) * (0.5 / 39.37)**2,
-    density=TankLiquid.density,
+    density=FuelwithHeadPressure.density,
     friction_factor=0.02,
-    #height_change=-3
+    height_change=-3
 )
 
 
@@ -212,7 +234,6 @@ SteadyState(BangBangSim).solve(verbose=True)
 
 Transient(BangBangSim).solve(
     dt = 0.01,
-    t_final=25.0,
+    t_final=22.5,
     filename="BangBang",
-    rtol=1e-5
 )
