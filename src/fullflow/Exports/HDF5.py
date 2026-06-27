@@ -13,6 +13,7 @@ Network object::
         attrs: kind="network", name="original network name"
         /steady_state
             /components/<component>/<attribute>
+            /tracks/<tracked_name>
             /table/<column>
             /diagnostics/<column>
             /statistics/<table>/<column>
@@ -23,6 +24,7 @@ Network object::
             /table/<column>
             /diagnostics/<column>
             /final/components/<component>/<attribute>
+            /final/tracks/<tracked_name>
             /final/table/<column>
 
 Map object::
@@ -53,7 +55,7 @@ import numpy as np
 HDF5_EXTENSIONS = {".h5", ".hdf5"}
 _STRING_DTYPE = h5py.string_dtype(encoding="utf-8")
 _FORMAT = "fullflow-simple-hdf5"
-_SCHEMA_VERSION = 3
+_SCHEMA_VERSION = 4
 
 
 @dataclass(frozen=True, slots=True)
@@ -449,6 +451,28 @@ def _write_tracks(parent: h5py.Group, rows: list[dict[str, Any]], time_values: n
     return tracks_group
 
 
+def _static_track_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [row for row in solution_records(rows) if row.get("component_type") == "TrackedState"]
+
+
+def _write_static_tracks(parent: h5py.Group, rows: list[dict[str, Any]]) -> h5py.Group:
+    tracks_group = _replace_group(parent, "tracks")
+    tracks_group.attrs["kind"] = "tracked_values"
+
+    for row in _static_track_rows(rows):
+        track_name = str(row.get("attribute", "track"))
+        value = row.get("numeric_value")
+
+        if value is not None and math.isfinite(_as_float(value)):
+            dataset_value = float(value)
+        else:
+            dataset_value = row.get("value")
+
+        _write_dataset(tracks_group, track_name, dataset_value, attrs={"name": track_name})
+
+    return tracks_group
+
+
 def _section_from_group_path(group_path: str) -> str:
     text = str(group_path).strip("/").lower()
     if "transient" in text and "final" in text:
@@ -498,8 +522,9 @@ def write_solution(
         section_group.attrs["kind"] = section.rsplit("/", 1)[-1]
         section_group.attrs["updated_utc"] = _now()
 
-        _delete_children(section_group, ["components", "table", "model_configuration"])
+        _delete_children(section_group, ["components", "tracks", "table", "model_configuration"])
         _write_component_values(section_group, rows)
+        _write_static_tracks(section_group, rows)
         _write_table(section_group, "table", rows)
 
         model_rows = model_configuration(models)
@@ -552,6 +577,7 @@ def write_transient_solution(
         final_group = transient_group.create_group("final")
         final_group.attrs["kind"] = "final"
         _write_component_values(final_group, final_rows)
+        _write_static_tracks(final_group, final_rows)
         _write_table(final_group, "table", final_rows)
 
         model_rows = model_configuration(models)
