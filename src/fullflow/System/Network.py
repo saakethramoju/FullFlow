@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
-from .State import State, is_state_like
+from .State import State, is_state_like, label_state_refs
 from fullflow.Exports.HDF5 import write_solution
 
 if TYPE_CHECKING:
@@ -14,6 +14,7 @@ class Network:
     def __init__(self, name: str) -> None:
         self.name = name
         self.time = State(0.0)
+        self.time.add_label(f"{self.name}:time")
         self.component_list: list[Component] = []
         self.balance_list: list[Balance] = []
         self.model_list: list[Any] = []
@@ -60,6 +61,8 @@ class Network:
         max_items: int | None = None,
         flatten: bool = True,
     ) -> Any:
+        label_state_refs(value, f"track:{name}")
+
         self.tracked_state_list.append(
             {
                 "name": name,

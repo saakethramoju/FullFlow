@@ -13,6 +13,7 @@ __all__ = [
     "resolve_value",
     "resolve_numeric",
     "is_assignable_state_like",
+    "label_state_refs",
 ]
 
 
@@ -102,6 +103,7 @@ class State:
         "_upper_bound",
         "_keep_feasible",
         "_code",
+        "_labels",
     )
 
     def __init__(
@@ -118,6 +120,7 @@ class State:
         self._lower_bound, self._upper_bound = self._normalize_bounds(bounds)
         self._keep_feasible = bool(keep_feasible)
         self._code = hex(id(self))
+        self._labels: list[str] = []
 
         if value is not None:
             self.value = value
@@ -253,14 +256,52 @@ class State:
 
         return lower, upper
 
+    def add_label(self, label: str) -> "State":
+        """Attach a non-unique diagnostic label to this State."""
+        label = str(label)
+
+        if label and label not in self._labels:
+            self._labels.append(label)
+
+        return self
+
+    @property
+    def labels(self) -> tuple[str, ...]:
+        """Non-unique diagnostic labels attached by components, balances, and tracking."""
+        return tuple(self._labels)
+
+    @property
+    def label(self) -> str:
+        """Primary diagnostic label, falling back to the internal identity code."""
+        if self._labels:
+            return self._labels[0]
+
+        return self._code
+
+    def _diagnostic_name(self) -> str:
+        if not self._labels:
+            return self._code
+
+        if len(self._labels) == 1:
+            return f"{self._labels[0]} [{self._code}]"
+
+        extra = ", ".join(self._labels[1:4])
+
+        if len(self._labels) > 4:
+            extra += ", ..."
+
+        return f"{self._labels[0]} [{self._code}; also: {extra}]"
+
     def _validate_bounds(self, value: float) -> None:
         if value < self._lower_bound:
             raise ValueError(
-                f"Value {value} is below the lower bound of {self._lower_bound}."
+                f"State {self._diagnostic_name()} value {value} is below "
+                f"the lower bound of {self._lower_bound}."
             )
         if value > self._upper_bound:
             raise ValueError(
-                f"Value {value} is above the upper bound of {self._upper_bound}."
+                f"State {self._diagnostic_name()} value {value} is above "
+                f"the upper bound of {self._upper_bound}."
             )
 
     def _requires_numeric_value(self) -> bool:
@@ -271,7 +312,7 @@ class State:
             numeric_value = float(value)
         except Exception as exc:
             raise TypeError(
-                f"State {self._code} contains non-numeric value "
+                f"State {self._diagnostic_name()} contains non-numeric value "
                 f"{type(value).__name__!r} and cannot be used in numeric math."
             ) from exc
 
@@ -288,7 +329,7 @@ class State:
                 raise
 
         if self._value is None:
-            raise ValueError(f"State {self._code} has no assigned value.")
+            raise ValueError(f"State {self._diagnostic_name()} has no assigned value.")
 
         return self._value
 
@@ -348,7 +389,7 @@ class State:
         """Value from the most recently accepted transient step."""
         if self._previous is None:
             raise ValueError(
-                f"State {self._code} has no previous. "
+                f"State {self._diagnostic_name()} has no previous. "
                 "Transient history has not been initialized."
             )
 
@@ -359,7 +400,7 @@ class State:
         """Value from one accepted transient step before ``previous``."""
         if self._second_previous is None:
             raise ValueError(
-                f"State {self._code} has no second_previous. "
+                f"State {self._diagnostic_name()} has no second_previous. "
                 "Transient history has not been initialized for two accepted steps."
             )
 
@@ -510,8 +551,8 @@ class State:
     def __str__(self) -> str:
         value = self._value_string_for_display()
         if self.has_bounds:
-            return f"State(code={self._code}, value={value}, bounds={self.bounds})"
-        return f"State(code={self._code}, value={value})"
+            return f"State(label={self.label!r}, code={self._code}, value={value}, bounds={self.bounds})"
+        return f"State(label={self.label!r}, code={self._code}, value={value})"
 
     def __repr__(self) -> str:
         return str(self)
@@ -646,3 +687,67 @@ class State:
 
     def copysign(self, other: Any) -> "State":
         return self._binary(other, math.copysign)
+
+
+def label_state_refs(value: Any, label: str, seen: set[int] | None = None) -> None:
+    """Attach a diagnostic label to State objects inside a value/container.
+
+    Labels are intentionally non-unique. A shared State can collect several
+    component/attribute paths, which makes unassigned-state and numeric errors
+    much easier to trace without requiring user-provided State names.
+    """
+    if seen is None:
+        seen = set()
+
+    value_id = id(value)
+
+    if value_id in seen:
+        return
+
+    seen.add(value_id)
+
+    if isinstance(value, State):
+        value.add_label(label)
+
+        try:
+            inner_value = value.value
+        except Exception:
+            return
+
+        if inner_value is not value:
+            label_state_refs(inner_value, label, seen)
+
+        return
+
+    as_state = getattr(type(value), "as_state", None)
+
+    if callable(as_state):
+        try:
+            state = as_state(value)
+        except Exception:
+            return
+
+        if state is not value:
+            label_state_refs(state, label, seen)
+
+        return
+
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            label_state_refs(item, f"{label}.{key}", seen)
+        return
+
+    if isinstance(value, list):
+        for index, item in enumerate(value):
+            label_state_refs(item, f"{label}[{index}]", seen)
+        return
+
+    if isinstance(value, tuple):
+        for index, item in enumerate(value):
+            label_state_refs(item, f"{label}[{index}]", seen)
+        return
+
+    if isinstance(value, (set, frozenset)):
+        for item in value:
+            label_state_refs(item, f"{label}[]", seen)
+        return

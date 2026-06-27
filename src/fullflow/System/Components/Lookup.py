@@ -9,6 +9,7 @@ from typing import Any, Callable, Generic, TypeVar, TYPE_CHECKING
 import numpy as np
 
 from fullflow.System import Component, State
+from fullflow.System.State import label_state_refs
 
 if TYPE_CHECKING:
     from fullflow.System import Network
@@ -126,6 +127,7 @@ class LookupAttribute:
             current = self.lookup.kwargs[self.name]
 
             if isinstance(current, State):
+                current.add_label(f"{self.lookup.name}:{self.name}")
                 return current
 
         state = self.lookup._output_states.get(self.name)
@@ -515,7 +517,16 @@ class Lookup(Component, Generic[T]):
         object.__setattr__(self, "args", tuple(args))
         object.__setattr__(self, "kwargs", dict(kwargs))
         object.__setattr__(self, "priority", self._normalize_priority(priority))
-        object.__setattr__(self, "output", output if output is not None else State())
+
+        output_state = output if output is not None else State()
+        output_state.add_label(f"{name}:output")
+        object.__setattr__(self, "output", output_state)
+
+        for index, arg in enumerate(self.args):
+            label_state_refs(arg, f"{self.name}:args[{index}]")
+
+        for key, value in self.kwargs.items():
+            label_state_refs(value, f"{self.name}:{key}")
 
         if lazy is not None:
             evaluate_in_pre_evaluation = not bool(lazy)
@@ -550,23 +561,25 @@ class Lookup(Component, Generic[T]):
         output_guesses = output_guesses or {}
         input_guesses = input_guesses or {}
 
-        object.__setattr__(
-            self,
-            "_output_states",
-            {
-                str(key): value if isinstance(value, State) else State(value)
-                for key, value in output_guesses.items()
-            },
-        )
+        output_states = {}
 
-        object.__setattr__(
-            self,
-            "_input_fallback_states",
-            {
-                str(key): value if isinstance(value, State) else State(value)
-                for key, value in input_guesses.items()
-            },
-        )
+        for key, value in output_guesses.items():
+            key = str(key)
+            state = value if isinstance(value, State) else State(value)
+            state.add_label(f"{self.name}:{key}")
+            output_states[key] = state
+
+        object.__setattr__(self, "_output_states", output_states)
+
+        input_fallback_states = {}
+
+        for key, value in input_guesses.items():
+            key = str(key)
+            state = value if isinstance(value, State) else State(value)
+            state.add_label(f"{self.name}:{key}")
+            input_fallback_states[key] = state
+
+        object.__setattr__(self, "_input_fallback_states", input_fallback_states)
 
         self._inspect_callable_signature()
 
@@ -757,7 +770,9 @@ class Lookup(Component, Generic[T]):
                 continue
 
             if current is _MISSING:
-                self.kwargs[preferred] = State(value)
+                state = State(value)
+                state.add_label(f"{self.name}:{preferred}")
+                self.kwargs[preferred] = state
                 continue
 
             fallback = self._input_fallback_states.get(preferred)
@@ -944,7 +959,9 @@ class Lookup(Component, Generic[T]):
             fallback = self._input_fallback_states.get(name)
 
             if fallback is None:
-                self._input_fallback_states[name] = State(old_value)
+                fallback = State(old_value)
+                fallback.add_label(f"{self.name}:{name}")
+                self._input_fallback_states[name] = fallback
             else:
                 try:
                     fallback.value = old_value
@@ -990,6 +1007,8 @@ class Lookup(Component, Generic[T]):
             old_storage_key != new_storage_key
             or old_value_key != new_value_key
         )
+
+        label_state_refs(self.kwargs.get(name, _MISSING), f"{self.name}:{name}")
 
         if changed:
             self.dirty = True
@@ -1041,9 +1060,12 @@ class Lookup(Component, Generic[T]):
             state = self._output_states.get(name)
 
             if state is not None:
+                state.add_label(f"{self.name}:{name}")
                 return state
 
-            return State._derived(lambda: self._attribute_for(name).value)
+            state = State._derived(lambda: self._attribute_for(name).value)
+            state.add_label(f"{self.name}:{name}")
+            return state
 
         if self.input_is_active(name):
             return self.input_state(name)
@@ -1051,9 +1073,12 @@ class Lookup(Component, Generic[T]):
         state = self._output_states.get(name)
 
         if state is not None:
+            state.add_label(f"{self.name}:{name}")
             return state
 
-        return State._derived(lambda: self.get_output(name))
+        state = State._derived(lambda: self.get_output(name))
+        state.add_label(f"{self.name}:{name}")
+        return state
 
     def input(self, name: str) -> LookupAttribute:
         if not self.has_input(name) and not self.accepts_input(name):
@@ -1066,6 +1091,7 @@ class Lookup(Component, Generic[T]):
             current = self.kwargs[name]
 
             if isinstance(current, State):
+                current.add_label(f"{self.name}:{name}")
                 return current
 
             # Preserve dynamic input links when an input was provided through a
@@ -1086,6 +1112,7 @@ class Lookup(Component, Generic[T]):
 
             if callable(as_state):
                 state = as_state(current)
+                label_state_refs(state, f"{self.name}:{name}")
                 self.kwargs[name] = state
                 self.dirty = True
                 return state
@@ -1095,6 +1122,7 @@ class Lookup(Component, Generic[T]):
             except Exception:
                 state = State() if default is None else State(default)
 
+            state.add_label(f"{self.name}:{name}")
             self.kwargs[name] = state
             self.dirty = True
             return state
@@ -1109,6 +1137,7 @@ class Lookup(Component, Generic[T]):
                 pass
 
         state = State() if default is None else State(default)
+        state.add_label(f"{self.name}:{name}")
         self.kwargs[name] = state
         self.dirty = True
         return state
@@ -1120,6 +1149,7 @@ class Lookup(Component, Generic[T]):
             else:
                 self._input_fallback_states[name] = State(default)
 
+        self._input_fallback_states[name].add_label(f"{self.name}:{name}")
         return self._input_fallback_states[name]
 
     def output_state(self, name: str, default: Any = _MISSING) -> State:
@@ -1129,10 +1159,12 @@ class Lookup(Component, Generic[T]):
             else:
                 self._output_states[name] = State(default)
 
+        self._output_states[name].add_label(f"{self.name}:{name}")
         return self._output_states[name]
 
     def set_output_guess(self, name: str, value: Any) -> None:
         if isinstance(value, State):
+            value.add_label(f"{self.name}:{name}")
             self._output_states[name] = value
             return
 

@@ -5,7 +5,7 @@ import sys
 from typing import TYPE_CHECKING, Any
 
 from .Model import ModelOption
-from .State import State
+from .State import State, label_state_refs
 
 if TYPE_CHECKING:
     from fullflow.System import Network
@@ -71,11 +71,9 @@ class Component:
                 attr_name in defaults
                 and value is defaults[attr_name]
             )
-            setattr(
-                self,
-                attr_name,
-                self.initialize_attribute(value, is_default_value),
-            )
+            attribute = self.initialize_attribute(value, is_default_value)
+            label_state_refs(attribute, f"{self.name}:{attr_name}")
+            setattr(self, attr_name, attribute)
 
     def initialize_attribute(
         self,

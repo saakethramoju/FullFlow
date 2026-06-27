@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from .State import State, is_assignable_state_like
+from .State import State, is_assignable_state_like, label_state_refs
 
 if TYPE_CHECKING:
     from fullflow.System import Network
@@ -25,11 +25,13 @@ class Balance:
         self.name = name
         self.network = network
         self.variable = variable
+        label_state_refs(self.variable, f"{self.name}:variable")
 
         if bounds is not None and not variable.has_bounds:
             variable.set_bounds(bounds, keep_feasible=keep_feasible)
 
         if isinstance(function, State):
+            label_state_refs(function, f"{self.name}:residual")
             self._residual = lambda: function.value
         elif callable(function):
             self._residual = function
