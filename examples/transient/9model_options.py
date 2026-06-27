@@ -1,5 +1,6 @@
 """
-Simple transient pump startup, valve closure, and pump shutdown example.
+Simple transient pump startup, valve closure, and pump shutdown example
+with pump model options.
 
 Physical layout
 ---------------
@@ -18,7 +19,9 @@ Physical layout
       pressure and density from Fluid lookup
             |
             v
-      Constant-density pump
+      Pump model
+      Option 1: ConstantDensityPump
+      Option 2: PolytropicPump
       speed ramps up, holds, then shuts down
             |
             v
@@ -47,10 +50,14 @@ Physical layout
 Model notes
 -----------
 
-This example is intentionally simple.
+This example is intentionally simple, but now uses model options.
 
-There are no model options. The pump is a ConstantDensityPump whose head rise
-follows a simple speed-squared relation:
+The model named "Pump Model" has two options:
+
+    1. Constant Density Pump
+    2. Polytropic Pump
+
+The pump head rise follows a simple speed-squared relation:
 
     head_rise = design_head_rise * (rotor_speed / design_rotor_speed)^2
 
@@ -59,7 +66,7 @@ approximately zero.
 
 The transient sequence is:
 
-    1. Pump starts at 0 rpm with the outlet valve open.
+    1. Pump starts near 0 rpm with the outlet valve open.
     2. Pump spins up while the outlet valve is open.
     3. Pump holds at design speed.
     4. Outlet valve closes.
@@ -74,9 +81,7 @@ and pressure evolves from mass conservation:
 
     d(mass)/dt = mdot_in - mdot_out
 
-The source and drain are also Fluid lookups. The source lookup supplies inlet
-line density and viscosity. The outlet node lookup supplies outlet line density
-and viscosity.
+The transient solve evaluates every pump option independently.
 """
 
 import numpy as np
@@ -89,7 +94,7 @@ from thermoprop import *
 # Output file
 # ---------------------------------------------------------------------------
 
-filename = "simple_transient_pump_valve_shutdown"
+filename = "simple_transient_pump_model_options"
 
 
 # ---------------------------------------------------------------------------
@@ -123,7 +128,7 @@ design_head_rise = design_pressure_rise / (water_density_reference * g)
 # Network
 # ---------------------------------------------------------------------------
 
-PumpNetwork = Network("Simple Transient Pump Valve Shutdown")
+PumpNetwork = Network("Simple Transient Pump Model Options")
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +145,11 @@ water_temperature = State(water_temperature_value)
 # Rotor-speed schedule
 # ---------------------------------------------------------------------------
 
-rotor_speed = State(0.0)
+# This tiny idle speed behaves like zero for the example, but avoids the exact
+# zero-pressure-ratio / zero-density-ratio singularity in PolytropicPump.
+rotor_speed_idle = 1.0
+
+rotor_speed = State(rotor_speed_idle)
 
 rotor_start_delay = 0.5
 rotor_ramp_time = 6.0
@@ -152,18 +161,18 @@ def rotor_speed_schedule(t):
     """
     Spin the pump up, hold briefly, then slowly shut it down.
 
-    A short start delay keeps the first few transient steps exactly at the
+    A short start delay keeps the first few transient steps essentially at the
     initialized zero-flow condition.
     """
 
     if t <= rotor_start_delay:
-        return 0.0
+        return rotor_speed_idle
 
     ramp_fraction = (t - rotor_start_delay) / rotor_ramp_time
 
     if ramp_fraction < 1.0:
         ramp_fraction = 0.5 - 0.5 * np.cos(np.pi * ramp_fraction)
-        return design_rotor_speed * ramp_fraction
+        return rotor_speed_idle + (design_rotor_speed - rotor_speed_idle) * ramp_fraction
 
     if t < rotor_shutdown_delay:
         return design_rotor_speed
@@ -171,11 +180,11 @@ def rotor_speed_schedule(t):
     ramp_fraction = (t - rotor_shutdown_delay) / rotor_shutdown_time
 
     if ramp_fraction >= 1.0:
-        return 0.0
+        return rotor_speed_idle
 
     ramp_fraction = 0.5 - 0.5 * np.cos(np.pi * ramp_fraction)
 
-    return design_rotor_speed * (1.0 - ramp_fraction)
+    return rotor_speed_idle + (design_rotor_speed - rotor_speed_idle) * (1.0 - ramp_fraction)
 
 
 RotorSpeedSequence = Sequence(
@@ -246,7 +255,7 @@ valve_mass_flow = State(0.0)
 outlet_line_mass_flow = State(0.0)
 
 pump_inlet_pressure = State(source_pressure_value)
-pump_discharge_pressure = State(source_pressure_value)
+pump_discharge_pressure = State(source_pressure_value + water_density_reference * g * pump_head_rise.value)
 outlet_node_pressure = State(drain_pressure_value)
 
 
@@ -340,8 +349,6 @@ DrainWater = Lookup(
 # Inlet line friction factor
 # ---------------------------------------------------------------------------
 
-# The source lookup supplies viscosity for the inlet branch. This is especially
-# useful when the source fluid temperature or pressure changes in other examples.
 InletLineFriction = Churchill(
     "Inlet Line Friction",
     PumpNetwork,
@@ -389,18 +396,36 @@ PumpInletNode = Volume(
 
 
 # ---------------------------------------------------------------------------
-# Constant-density pump
+# Pump model options
 # ---------------------------------------------------------------------------
 
-Pump = ConstantDensityPump(
-    "Pump",
-    PumpNetwork,
-    mass_flow=pump_mass_flow,
-    rotor_speed=rotor_speed,
-    head_rise=pump_head_rise,
-    density=PumpInletWater.density,
-    upstream_pressure=PumpInletNode.pressure,
-    discharge_pressure=pump_discharge_pressure,
+PumpModel = Model("Pump Model", PumpNetwork)
+
+PumpModel.option(
+    "Constant Density Pump",
+    ConstantDensityPump.template(
+        "Pump",
+        mass_flow=pump_mass_flow,
+        rotor_speed=rotor_speed,
+        head_rise=pump_head_rise,
+        density=PumpInletWater.density,
+        upstream_pressure=PumpInletNode.pressure,
+        discharge_pressure=pump_discharge_pressure,
+    ),
+)
+
+PumpModel.option(
+    "Polytropic Pump",
+    PolytropicPump.template(
+        "Pump",
+        mass_flow=pump_mass_flow,
+        rotor_speed=rotor_speed,
+        head_rise=pump_head_rise,
+        upstream_pressure=PumpInletNode.pressure,
+        discharge_pressure=pump_discharge_pressure,
+        upstream_density=PumpInletWater.density,
+        discharge_density=PumpDischargeWater.density,
+    ),
 )
 
 
@@ -414,7 +439,7 @@ PumpDischargeNode = Volume(
     pressure=pump_discharge_pressure,
     volume=pump_discharge_volume,
     density=PumpDischargeWater.density,
-    mass_flow_in=Pump.mass_flow,
+    mass_flow_in=pump_mass_flow,
     mass_flow_out=valve_mass_flow,
 )
 
@@ -529,11 +554,11 @@ PumpNetwork.track("Outlet Node Stored Mass [kg]", OutletNode.mass)
 # Steady-state initialization
 # ---------------------------------------------------------------------------
 
-# Initialize the network at 0 rpm, with source and drain at the same pressure.
-# The initial flow should be approximately zero.
+# Initialize using the first successful option in Pump Model.
 SteadyState(PumpNetwork).solve(
     verbose=True,
     filename=filename,
+    model="Pump Model",
 )
 
 
@@ -541,12 +566,13 @@ SteadyState(PumpNetwork).solve(
 # Transient solve
 # ---------------------------------------------------------------------------
 
-# The pump spins up while the valve is open. Then the valve closes and the pump
-# slowly shuts down.
+# Evaluate both pump options as independent transient runs.
 Transient(PumpNetwork).solve(
     dt=0.01,
     t_final=22.0,
     filename=filename,
+    model="Pump Model",
+    evaluate_all_model_options=True,
     statistics=True,
     state_max_passes=30,
 )
