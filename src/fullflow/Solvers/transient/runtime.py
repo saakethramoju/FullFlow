@@ -32,6 +32,7 @@ from fullflow.System.State import (
     is_state_like,
     resolve_numeric,
 )
+from fullflow.Solvers.balance_filtering import filter_user_balances
 from fullflow.Solvers.equations import (
     balance_object_equations,
     component_balances,
@@ -94,8 +95,9 @@ class TransientRuntimeCache:
     class.
     """
 
-    def __init__(self, network) -> None:
+    def __init__(self, network, ignore_balances=None) -> None:
         self.network = network
+        self.ignore_balances = ignore_balances
         self.version = -1
         self.refresh()
 
@@ -118,7 +120,10 @@ class TransientRuntimeCache:
         cache.
         """
         self.component_list = tuple(self.network.component_list)
-        self.balance_list = tuple(self.network.balance_list)
+        self.balance_list, self.ignored_balance_list = filter_user_balances(
+            self.network.balance_list,
+            self.ignore_balances,
+        )
         self.model_list = tuple(self.network.model_list)
 
         # Component equation properties are allowed to reference derivative or

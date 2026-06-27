@@ -89,30 +89,20 @@ class Volume(Component):
     """Lumped fluid control volume.
 
     ``Volume`` is the only fluid node/storage component.  There is no separate
-    ``Junction`` class.  The same ``Volume`` can be used in three simple ways:
+    ``Junction`` class.  The same ``Volume`` can be used in two simple ways:
 
-    1. Fixed-volume storage
-       Provide ``volume`` and ``density`` with ``solve_volume=False``.  The
-       component stores mass and uses ``dynamics``:
-
-           mass = density * volume
-           mass_dot = mass_flow_in - mass_flow_out
-
-       The mass equation solves pressure.  This is the normal mode for COPVs,
-       chambers, fixed ullage volumes, and fixed liquid volumes.
-
-    2. Moving-volume storage
-       Provide ``volume`` and ``density`` with ``solve_volume=True``.  The same
-       mass equation is used, but it solves volume instead of pressure:
+    1. Storage volume
+       Provide ``volume`` and ``density``.  The component stores mass and uses
+       ``dynamics``:
 
            mass = density * volume
            mass_dot = mass_flow_in - mass_flow_out
 
-       Pressure still exists and can still drive connected branches, but it must
-       come from another connected state or relation.  This is useful for
-       draining liquid inventories, moving ullage boundaries, and piston volumes.
+       The mass equation solves pressure.  Variable-geometry problems can still
+       use a changing ``volume`` State, but the volume itself should come from a
+       geometry relation, a user ``Balance``, or another component.
 
-    3. Algebraic node
+    2. Algebraic node
        Omit ``volume`` or ``density``.  The component has no storage, so it uses
        ``balances`` instead.  This preserves the old steady-state node behavior:
 
@@ -151,12 +141,10 @@ class Volume(Component):
         energy_variable: str = "enthalpy",
         mass: State | None = None,
         total_internal_energy: State | None = None,
-        solve_volume: bool = False,
         volume_derivative: State | None = None,
         boundary_work_rate: State | None = None,
     ):
         self._energy_variable = self._normalize_energy_variable(name, energy_variable)
-        self._solve_volume = bool(solve_volume)
 
         # Basic availability flags.
         #
@@ -199,9 +187,6 @@ class Volume(Component):
             )
         )
 
-        if self._solve_volume and not self._has_mass_storage:
-            raise ValueError(f"{name}: solve_volume=True requires both volume and density.")
-
         if self._has_energy_balance and self._energy_variable == "temperature" and temperature is None:
             raise ValueError(
                 f"{name}: temperature must be provided when energy_variable='temperature'."
@@ -223,7 +208,6 @@ class Volume(Component):
         # These are stored as ordinary State attributes by Component.setup().
         # Keeping them visible in prints/HDF5 output makes model intent clear.
         self.energy_variable.value = self._energy_variable
-        self.solve_volume.value = self._solve_volume
 
     @staticmethod
     def _normalize_energy_variable(name: str, energy_variable: str) -> str:
@@ -364,18 +348,14 @@ class Volume(Component):
         #
         #     (solve_variable, stored_quantity, derivative)
         #
-        # Fixed-volume storage solves pressure from the mass inventory.
-        # Moving-volume storage solves volume from the mass inventory.
+        # Fluid storage always solves pressure from the mass inventory.  If a
+        # model needs volume to move, provide volume as a State and close it
+        # with a geometry/mechanical Balance.
         if not self._has_mass_storage:
             return []
 
-        if self._solve_volume:
-            mass_solve_variable = self.volume
-        else:
-            mass_solve_variable = self.pressure
-
         equations = [
-            (mass_solve_variable, self.mass, self.mass_dot),
+            (self.pressure, self.mass, self.mass_dot),
         ]
 
         if self._has_energy_storage:

@@ -55,6 +55,7 @@ class SteadyState:
         self.console = Console()
         self.statistics = SolverStatistics(console=self.console)
         self._runtime_cache: RuntimeCache | None = None
+        self._ignore_balances = None
         self._active_state_settings = StateEvaluationSettings()
 
         # Debug fields are populated during residual calls. They are useful when
@@ -106,7 +107,10 @@ class SteadyState:
 
     def _refresh_runtime_cache(self) -> RuntimeCache:
         """Force a fresh runtime view of the current network."""
-        self._runtime_cache = RuntimeCache(self.network)
+        self._runtime_cache = RuntimeCache(
+            self.network,
+            ignore_balances=self._ignore_balances,
+        )
         return self._runtime_cache
 
     def _cache(self) -> RuntimeCache:
@@ -320,6 +324,9 @@ class SteadyState:
         This method does not perform any nonlinear solving. Residual equations,
         balances, and iteration variables are ignored.
         """
+        self._ignore_balances = None
+        self._runtime_cache = None
+
         state_settings = StateEvaluationSettings(
             max_passes=state_max_passes,
             tolerance=state_tolerance,
@@ -363,6 +370,7 @@ class SteadyState:
         rtol: float = 1e-2,
         state_max_passes: int = 5,
         state_tolerance: float = 1e-10,
+        ignore_balances=None,
     ):
         """
         Solve the network steady state.
@@ -455,6 +463,11 @@ class SteadyState:
         state_tolerance : float, default=1e-10
             Convergence tolerance used when settling derived states.
 
+        ignore_balances : None, "all", or iterable of str, optional
+            User ``Balance`` objects to exclude from this solve. Ignoring a
+            balance removes both its residual and its associated iteration
+            variable. Component balances are not affected.
+
         Returns
         -------
         dict or model result object
@@ -470,6 +483,9 @@ class SteadyState:
         For debugging a network, it is often useful to first call
         :meth:`static_evaluate` before attempting a full solve.
         """
+        self._ignore_balances = ignore_balances
+        self._runtime_cache = None
+
         if static:
             return self.static_evaluate(
                 model=model,

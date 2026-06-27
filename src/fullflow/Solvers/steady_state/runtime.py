@@ -24,6 +24,7 @@ from fullflow.System.State import (
     is_state_like,
     resolve_value,
 )
+from fullflow.Solvers.balance_filtering import filter_user_balances
 from fullflow.Solvers.equations import (
     balance_object_equations,
     component_balances,
@@ -52,8 +53,9 @@ class RuntimeCache:
     decides how those objects should be interpreted for steady-state solving.
     """
 
-    def __init__(self, network) -> None:
+    def __init__(self, network, ignore_balances=None) -> None:
         self.network = network
+        self.ignore_balances = ignore_balances
         self.version = -1
         self.refresh()
 
@@ -75,7 +77,10 @@ class RuntimeCache:
         here makes individual residual calls simpler and faster.
         """
         self.component_list = tuple(self.network.component_list)
-        self.balance_list = tuple(self.network.balance_list)
+        self.balance_list, self.ignored_balance_list = filter_user_balances(
+            self.network.balance_list,
+            self.ignore_balances,
+        )
         self.model_list = tuple(self.network.model_list)
 
         # Component equation properties are allowed to reference derivative or

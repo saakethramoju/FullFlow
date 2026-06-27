@@ -56,6 +56,7 @@ class Transient:
         self.network = network
         self.console = Console()
         self._runtime_cache: TransientRuntimeCache | None = None
+        self._ignore_balances = None
         self.evaluator = TransientStateEvaluator(self._cache)
         self.step_solver = TransientStepSolve(
             network,
@@ -76,7 +77,10 @@ class Transient:
 
     def _refresh_runtime_cache(self) -> TransientRuntimeCache:
         """Force a fresh transient runtime view of the current network."""
-        self._runtime_cache = TransientRuntimeCache(self.network)
+        self._runtime_cache = TransientRuntimeCache(
+            self.network,
+            ignore_balances=self._ignore_balances,
+        )
         return self._runtime_cache
 
     def _cache(self) -> TransientRuntimeCache:
@@ -231,6 +235,7 @@ class Transient:
         max_step_retries: int = 8,
         minimum_dt: float | None = None,
         save_dt: float | None = None,
+        ignore_balances=None,
     ):
         """Advance the network from its current time to ``t_final``.
 
@@ -258,6 +263,11 @@ class Transient:
             output is saved only at multiples of ``save_dt`` and at final time.
             Timesteps are shortened when needed so saved output lands exactly on
             the requested output times.
+
+        ignore_balances : None, "all", or iterable of str, optional
+            User ``Balance`` objects to exclude from this transient solve.
+            Ignoring a balance removes both its residual and its associated
+            iteration variable. Component balances are not affected.
 
         return_type : {"dict"}, default="dict"
             Return format.  ``"dict"`` returns a list of time-stamped full-network
@@ -319,6 +329,9 @@ class Transient:
             Time-stamped full-network records for each saved output time,
             including the evaluated initial state.
         """
+        self._ignore_balances = ignore_balances
+        self._runtime_cache = None
+
         self._validate_output_settings(save_dt)
         dt = self._validate_timestep(dt)
 
