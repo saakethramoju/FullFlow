@@ -8,26 +8,38 @@ if TYPE_CHECKING:
     from fullflow.System import Network, State
 
 
+
+
 class Solid(Component):
-    """Lumped solid thermal mass.
+    """Lumped solid thermal node.
 
-    ``Solid`` represents one thermal node.  The component has one simple
-    conservation law:
+    ``Solid`` can be used in two ways:
 
-        temperature_dot = heat_rate / (mass * specific_heat)
+    1. Thermal storage node
+       Provide ``mass`` and ``specific_heat``.  The component integrates
+       temperature using:
 
-    If ``mass`` or ``specific_heat`` is not supplied, ``heat_rate`` is treated
-    as an already-normalized temperature derivative.  This keeps the component
-    useful for quick examples where the user wants to prescribe ``dT/dt``
-    directly.
+           temperature_dot = heat_rate / (mass * specific_heat)
+
+    2. Algebraic thermal node
+       Omit ``mass`` and ``specific_heat``.  The component has no thermal
+       capacitance, so it cannot store energy.  Instead, it solves the
+       quasi-steady heat balance:
+
+           heat_rate = 0
+
+       This is useful for massless thermal junctions or steady conduction
+       interface temperatures.
 
     Solver behavior
     ---------------
     Steady state:
-        solve ``temperature_dot = 0``
+        Storage node: drive ``temperature_dot = 0``.
+        Algebraic node: solve ``heat_rate = 0``.
 
     Transient:
-        integrate ``d(temperature)/dt = temperature_dot``
+        Storage node: integrate ``dT/dt = temperature_dot``.
+        Algebraic node: solve ``heat_rate = 0`` at each accepted timestep.
     """
 
     def __init__(
@@ -35,7 +47,7 @@ class Solid(Component):
         name: str,
         network: Network,
         temperature: State,
-        mass: float | None = None,
+        mass: State | float | None = None,
         specific_heat: State | float | None = None,
         characteristic_length: State | float | None = None,
         thermal_conductivity: State | float | None = None,
@@ -43,23 +55,29 @@ class Solid(Component):
         biot_number: State | None = None,
         heat_rate: State | float = 0.0,
     ):
+        self._has_thermal_storage = mass is not None and specific_heat is not None
+
+        if (mass is None) != (specific_heat is None):
+            raise ValueError(
+                f"{name}: mass and specific_heat must be provided together. "
+                "Provide both for thermal storage, or omit both for an algebraic thermal node."
+            )
+
         self._has_biot_inputs = (
             characteristic_length is not None
             and thermal_conductivity is not None
             and convection_coefficient is not None
         )
 
-        # evaluate_states() overwrites this every pass.  Initializing it here
-        # keeps the component safe to inspect before the first evaluation.
         self.temperature_dot = 0.0
 
         self.setup()
 
     def evaluate_states(self):
-        if self.mass.is_assigned and self.specific_heat.is_assigned:
+        if self._has_thermal_storage:
             self.temperature_dot = self.heat_rate.value / (self.mass.value * self.specific_heat.value)
         else:
-            self.temperature_dot = self.heat_rate.value
+            self.temperature_dot = 0.0
 
         if not self._has_biot_inputs:
             return
@@ -71,7 +89,17 @@ class Solid(Component):
         self.biot_number.value = h * Lc / k
 
     @property
+    def balances(self) -> list[tuple[State, float]]:
+        if self._has_thermal_storage:
+            return []
+
+        return [(self.temperature, self.heat_rate.value)]
+
+    @property
     def dynamics(self) -> list[tuple[State, float]]:
+        if not self._has_thermal_storage:
+            return []
+
         return [(self.temperature, self.temperature_dot)]
 
 
