@@ -17,7 +17,7 @@ from rich import box
 from rich.table import Table
 from rich.text import Text
 
-from fullflow.Exports.HDF5 import HDF5Target, safe_group_name, write_tables
+from fullflow.Exports.HDF5 import HDF5Target, run_group_path, safe_group_name, write_tables
 
 
 def _plain(value: Any) -> Text:
@@ -659,17 +659,15 @@ class SolverStatistics:
 
 def statistics_path(filename: str, network_name: str | None = None, table_group: str = "statistics") -> HDF5Target:
     if network_name is None:
-        return HDF5Target(filename, "statistics")
-    return HDF5Target(filename, f"{safe_group_name(network_name)}/steady_state/{safe_group_name(table_group)}")
+        return HDF5Target(filename, f"steady_state/runs/base/{safe_group_name(table_group)}")
+    return HDF5Target(
+        filename,
+        f"{safe_group_name(network_name)}/{run_group_path('steady_state')}/{safe_group_name(table_group)}",
+    )
 
 
 def model_option_statistics_path(filename: str, model_name: str, option_name: str, network_name: str | None = None) -> HDF5Target:
+    path = f"{run_group_path('steady_state', model_name=model_name, option_name=option_name)}/statistics"
     if network_name is None:
-        return HDF5Target(
-            filename,
-            f"model_options/{safe_group_name(model_name)}/{safe_group_name(option_name)}/statistics",
-        )
-    return HDF5Target(
-        filename,
-        f"{safe_group_name(network_name)}/model_options/{safe_group_name(model_name)}/{safe_group_name(option_name)}/statistics",
-    )
+        return HDF5Target(filename, path)
+    return HDF5Target(filename, f"{safe_group_name(network_name)}/{path}")

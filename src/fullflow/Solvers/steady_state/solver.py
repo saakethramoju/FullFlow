@@ -206,12 +206,16 @@ class SteadyState:
         filename: str | None = None,
         return_type: str = "dict",
         state_settings: StateEvaluationSettings | None = None,
+        group_path: str = "steady_state/runs/base",
+        metadata: dict[str, Any] | None = None,
     ):
         """Run one static evaluation after model options have been selected."""
         solution, diagnostics = self.static_runner.run_once(
             filename=filename,
             return_type=return_type,
             state_settings=state_settings,
+            group_path=group_path,
+            metadata=metadata,
         )
         self._last_success_kind = "static"
         self._last_static_elapsed_time = diagnostics.elapsed_time
@@ -226,6 +230,8 @@ class SteadyState:
         state_settings: StateEvaluationSettings | None = None,
         statistics: bool = False,
         statistics_filename: str | None = None,
+        group_path: str = "steady_state/runs/base",
+        metadata: dict[str, Any] | None = None,
     ):
         """Run one nonlinear solve after model options have been selected."""
         self._active_state_settings = state_settings or StateEvaluationSettings(max_passes=5)
@@ -237,6 +243,8 @@ class SteadyState:
             state_settings=self._active_state_settings,
             statistics=self.statistics,
             statistics_filename=statistics_filename,
+            group_path=group_path,
+            metadata=metadata,
         )
 
         if isinstance(diagnostics, StaticDiagnostics):
@@ -336,11 +344,15 @@ class SteadyState:
             filename: str | None = None,
             return_type: str = "dict",
             statistics_filename: str | None = None,
+            group_path: str = "steady_state/runs/base",
+            metadata: dict[str, Any] | None = None,
         ):
             return self._static_evaluate_once(
                 filename=filename,
                 return_type=return_type,
                 state_settings=state_settings,
+                group_path=group_path,
+                metadata=metadata,
             )
 
         return self.model_runner.run(
@@ -515,6 +527,8 @@ class SteadyState:
             filename: str | None = None,
             return_type: str = "dict",
             statistics_filename: str | None = None,
+            group_path: str = "steady_state/runs/base",
+            metadata: dict[str, Any] | None = None,
         ):
             return self._solve_once(
                 filename=filename,
@@ -523,6 +537,8 @@ class SteadyState:
                 state_settings=state_settings,
                 statistics=statistics,
                 statistics_filename=statistics_filename,
+                group_path=group_path,
+                metadata=metadata,
             )
 
         return self.model_runner.run(

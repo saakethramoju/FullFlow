@@ -12,20 +12,29 @@ Network object::
     /<network_name>
         attrs: kind="network", name="original network name"
         /steady_state
-            /components/<component>/<attribute>
-            /tracks/<tracked_name>
-            /table/<column>
-            /diagnostics/<column>
-            /statistics/<table>/<column>
+            /runs
+                /base
+                    /metadata
+                    /components/<component>/<attribute>
+                    /tracks/<tracked_name>
+                    /table/<column>
+                    /diagnostics/<column>
+                /<model_name>/<option_name>
+                    ... same as base ...
         /transient
-            /time
-            /components/<component>/<attribute>
-            /tracks/<tracked_name>
-            /table/<column>
-            /diagnostics/<column>
-            /final/components/<component>/<attribute>
-            /final/tracks/<tracked_name>
-            /final/table/<column>
+            /runs
+                /base
+                    /metadata
+                    /time
+                    /components/<component>/<attribute>
+                    /tracks/<tracked_name>
+                    /table/<column>
+                    /diagnostics/<column>
+                    /final/components/<component>/<attribute>
+                    /final/tracks/<tracked_name>
+                    /final/table/<column>
+                /<model_name>/<option_name>
+                    ... same as base ...
 
 Map object::
 
@@ -55,7 +64,7 @@ import numpy as np
 HDF5_EXTENSIONS = {".h5", ".hdf5"}
 _STRING_DTYPE = h5py.string_dtype(encoding="utf-8")
 _FORMAT = "fullflow-simple-hdf5"
-_SCHEMA_VERSION = 4
+_SCHEMA_VERSION = 5
 
 
 @dataclass(frozen=True, slots=True)
@@ -226,6 +235,43 @@ def _delete_children(group: h5py.Group, names: list[str]) -> None:
     for name in names:
         if name in group:
             del group[name]
+
+
+def run_group_path(
+    solve_type: str,
+    *,
+    model_name: str | None = None,
+    option_name: str | None = None,
+    run_name: str = "base",
+) -> str:
+    """Return the canonical network-relative HDF5 path for one solver run.
+
+    All solution exports live under ``/<network>/<solve_type>/runs``.
+    Ordinary solves use ``base``.  Model-option solves use
+    ``<model_name>/<option_name>``.
+    """
+    solve_type = safe_group_name(solve_type)
+
+    if model_name is None and option_name is None:
+        return f"{solve_type}/runs/{safe_group_name(run_name)}"
+
+    if model_name is None or option_name is None:
+        raise ValueError("model_name and option_name must be provided together.")
+
+    return f"{solve_type}/runs/{safe_group_name(model_name)}/{safe_group_name(option_name)}"
+
+
+def _metadata_rows(metadata: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {"key": str(key), "value": _plain(value)}
+        for key, value in metadata.items()
+    ]
+
+
+def _write_metadata(parent: h5py.Group, metadata: dict[str, Any] | None = None) -> h5py.Group:
+    metadata = {} if metadata is None else dict(metadata)
+    metadata.setdefault("updated_utc", _now())
+    return _write_table(parent, "metadata", _metadata_rows(metadata))
 
 
 def _write_dataset(parent: h5py.Group, name: str, value: Any, attrs: dict[str, Any] | None = None) -> h5py.Dataset:
@@ -490,24 +536,25 @@ def write_solution(
     *,
     network_name: str | None = None,
     models: list[Any] | None = None,
-    group_path: str = "solution/current",
+    group_path: str = "steady_state/runs/base",
+    metadata: dict[str, Any] | None = None,
 ) -> Path:
     """Write one exported network solution to HDF5.
 
-    The default writes current steady-state data to::
+    Network solution data is always written inside a run group::
 
-        /<network_name>/steady_state
+        /<network_name>/steady_state/runs/base
+        /<network_name>/steady_state/runs/<model_name>/<option_name>
 
-    Passing ``group_path`` containing ``"final"`` writes the records to::
-
-        /<network_name>/transient/final
+    Passing an :class:`HDF5Target` uses the target ``group_path`` exactly as a
+    network-relative run path.
     """
     if isinstance(target, HDF5Target):
         path = hdf5_path(target.filename)
-        section = target.group_path.strip("/") or _section_from_group_path(group_path)
+        section = target.group_path.strip("/") or group_path.strip("/")
     else:
         path = hdf5_path(target)
-        section = _section_from_group_path(group_path)
+        section = group_path.strip("/") or "steady_state/runs/base"
 
     if network_name is None:
         network_name = "network"
@@ -519,10 +566,15 @@ def write_solution(
         network_group = _require_object_group(h5, network_name, "network")
 
         section_group = network_group.require_group(section)
+        _delete_children(section_group, ["metadata", "components", "tracks", "table", "model_configuration"])
         section_group.attrs["kind"] = section.rsplit("/", 1)[-1]
         section_group.attrs["updated_utc"] = _now()
 
-        _delete_children(section_group, ["components", "tracks", "table", "model_configuration"])
+        metadata = {} if metadata is None else dict(metadata)
+        metadata.setdefault("solve_type", section.split("/", 1)[0] if "/" in section else "steady_state")
+        metadata.setdefault("run_path", section)
+        _write_metadata(section_group, metadata)
+
         _write_component_values(section_group, rows)
         _write_static_tracks(section_group, rows)
         _write_table(section_group, "table", rows)
@@ -532,7 +584,6 @@ def write_solution(
             _write_table(section_group, "model_configuration", model_rows)
 
     return path
-
 
 def write_transient_solution(
     filename: str | Path,
@@ -544,11 +595,18 @@ def write_transient_solution(
     final_records: list[dict[str, Any]],
     models: list[Any] | None = None,
     output_times: list[float] | None = None,
+    group_path: str = "transient/runs/base",
+    metadata: dict[str, Any] | None = None,
 ) -> Path:
-    """Write current transient data for a network.
+    """Write one transient run for a network.
 
-    This overwrites only ``/<network_name>/transient`` and keeps other top-level
-    objects, maps, and other networks in the same file untouched.
+    Transient results are always written inside a run group::
+
+        /<network_name>/transient/runs/base
+        /<network_name>/transient/runs/<model_name>/<option_name>
+
+    Existing sibling runs are preserved.  Re-running the same run path replaces
+    only that run group.
     """
     path = hdf5_path(filename)
     history_rows = solution_records(history_records)
@@ -559,33 +617,48 @@ def write_transient_solution(
     else:
         time_values = np.asarray(output_times, dtype=float)
 
+    group_path = group_path.strip("/") or "transient/runs/base"
+    if not group_path.startswith("transient/runs/"):
+        group_path = f"transient/runs/{group_path}"
+
     with h5py.File(path, "a") as h5:
         _initialize_file(h5)
         network_group = _require_object_group(h5, network_name, "network")
-        if "transient" in network_group:
-            del network_group["transient"]
-        transient_group = network_group.create_group("transient")
+        transient_group = network_group.require_group("transient")
         transient_group.attrs["kind"] = "transient"
         transient_group.attrs["updated_utc"] = _now()
+        transient_group.require_group("runs")
 
-        _write_dataset(transient_group, "time", time_values, attrs={"name": "time"})
-        _write_component_history(transient_group, history_rows, time_values)
-        _write_tracks(transient_group, track_rows, time_values)
-        _write_table(transient_group, "table", history_rows)
-        _write_table(transient_group, "diagnostics", step_rows)
+        if group_path in network_group:
+            del network_group[group_path]
+        run_group = network_group.create_group(group_path)
+        run_group.attrs["kind"] = "run"
+        run_group.attrs["updated_utc"] = _now()
 
-        final_group = transient_group.create_group("final")
+        metadata = {} if metadata is None else dict(metadata)
+        metadata.setdefault("solve_type", "transient")
+        metadata.setdefault("run_path", group_path)
+        _write_metadata(run_group, metadata)
+
+        _write_dataset(run_group, "time", time_values, attrs={"name": "time"})
+        _write_component_history(run_group, history_rows, time_values)
+        _write_tracks(run_group, track_rows, time_values)
+        _write_table(run_group, "table", history_rows)
+        _write_table(run_group, "diagnostics", step_rows)
+
+        final_group = run_group.create_group("final")
         final_group.attrs["kind"] = "final"
+        _write_metadata(final_group, {"solve_type": "transient_final", "run_path": f"{group_path}/final"})
         _write_component_values(final_group, final_rows)
         _write_static_tracks(final_group, final_rows)
         _write_table(final_group, "table", final_rows)
 
         model_rows = model_configuration(models)
         if model_rows:
+            _write_table(run_group, "model_configuration", model_rows)
             _write_table(final_group, "model_configuration", model_rows)
 
     return path
-
 
 def write_tables(
     target: str | Path | HDF5Target,
@@ -624,25 +697,26 @@ def write_model_option_results(
     model_name: str,
     network_name: str | None = None,
 ) -> Path:
-    """Write every successful model-option solution into one HDF5 file."""
+    """Write steady-state model-option results using the canonical run layout."""
     path = hdf5_path(filename)
     network_name = network_name or "network"
 
-    with h5py.File(path, "a") as h5:
-        _initialize_file(h5)
-        network_group = _require_object_group(h5, network_name, "network")
-        model_group = network_group.require_group("model_options").require_group(safe_group_name(model_name))
-        model_group.attrs["name"] = model_name
-
-        for option_name, records in results.items():
-            option_group = _replace_group(model_group, option_name)
-            option_group.attrs["name"] = str(option_name)
-            rows = solution_records(records)
-            _write_component_values(option_group, rows)
-            _write_table(option_group, "table", rows)
+    for option_name, records in results.items():
+        write_solution(
+            path,
+            records,
+            network_name=network_name,
+            group_path=run_group_path("steady_state", model_name=model_name, option_name=option_name),
+            metadata={
+                "solve_type": "steady_state",
+                "run_type": "model_option",
+                "model_name": model_name,
+                "option_name": option_name,
+                "evaluate_all_model_options": True,
+            },
+        )
 
     return path
-
 
 def write_failures(
     filename: str | Path,

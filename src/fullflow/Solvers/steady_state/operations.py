@@ -26,7 +26,7 @@ from scipy.optimize import Bounds, least_squares
 
 from .settings import LeastSquaresSettings, StateEvaluationSettings
 from .statistics import SolverStatistics, statistics_path
-from fullflow.Exports.HDF5 import HDF5Target, safe_group_name, write_tables
+from fullflow.Exports.HDF5 import HDF5Target, run_group_path, safe_group_name, write_tables
 
 
 @dataclass(slots=True)
@@ -66,6 +66,8 @@ class StaticEvaluation:
         filename: str | None = None,
         return_type: str = "dict",
         state_settings: StateEvaluationSettings | None = None,
+        group_path: str = "steady_state/runs/base",
+        metadata: dict[str, Any] | None = None,
     ):
         """Run pre-evaluation, settle derived states, and export results."""
         state_settings = state_settings or StateEvaluationSettings()
@@ -85,11 +87,11 @@ class StaticEvaluation:
         )
         elapsed_time = time.perf_counter() - start_time
 
-        records = self.network.save(filename=filename, return_type=return_type)
+        records = self.network.save(filename=filename, return_type=return_type, group_path=group_path, metadata=metadata)
 
         if filename is not None:
             write_tables(
-                HDF5Target(filename, f"{safe_group_name(self.network.name)}/steady_state"),
+                HDF5Target(filename, f"{safe_group_name(self.network.name)}/{group_path}"),
                 {
                     "diagnostics": [
                         {
@@ -128,6 +130,8 @@ class NonlinearSolve:
         state_settings: StateEvaluationSettings | None = None,
         statistics: SolverStatistics | None = None,
         statistics_filename: str | None = None,
+        group_path: str = "steady_state/runs/base",
+        metadata: dict[str, Any] | None = None,
     ):
         """Run one steady-state solve on the current concrete network.
 
@@ -181,6 +185,8 @@ class NonlinearSolve:
                 filename=filename,
                 return_type=return_type,
                 state_settings=state_settings,
+                group_path=group_path,
+                metadata=metadata,
             )
 
         if len(r0) < len(x0):
@@ -222,11 +228,11 @@ class NonlinearSolve:
             max_passes=state_settings.max_passes,
             tolerance=state_settings.tolerance,
         )
-        records = self.network.save(filename=filename, return_type=return_type)
+        records = self.network.save(filename=filename, return_type=return_type, group_path=group_path, metadata=metadata)
 
         if filename is not None:
             write_tables(
-                HDF5Target(filename, f"{safe_group_name(self.network.name)}/steady_state"),
+                HDF5Target(filename, f"{safe_group_name(self.network.name)}/{group_path}"),
                 {
                     "diagnostics": [
                         {

@@ -51,7 +51,15 @@ class TransientHistory:
             row.update(record)
             self.track_records.append(row)
 
-    def save(self, filename: str | None, network, step_rows: list[dict[str, Any]]) -> None:
+    def save(
+        self,
+        filename: str | None,
+        network,
+        step_rows: list[dict[str, Any]],
+        *,
+        group_path: str = "transient/runs/base",
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
         """Write transient history, diagnostics, and final state to HDF5."""
         if filename is None:
             return
@@ -65,4 +73,6 @@ class TransientHistory:
             final_records=network.save(filename=None, return_type="dict"),
             models=network.model_list,
             output_times=self.output_times,
+            group_path=group_path,
+            metadata=metadata,
         )

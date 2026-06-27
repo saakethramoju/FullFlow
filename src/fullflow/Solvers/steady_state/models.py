@@ -14,7 +14,7 @@ from typing import Any
 
 from .results import format_records, save_model_option_results
 from .statistics import model_option_statistics_path, statistics_path
-from fullflow.Exports.HDF5 import HDF5Target, safe_group_name, write_failures, write_solution
+from fullflow.Exports.HDF5 import HDF5Target, run_group_path, safe_group_name, write_failures, write_solution
 
 
 @dataclass(slots=True)
@@ -102,16 +102,10 @@ class ModelManager:
 class ModelOptionRunner:
     """Run static/solve operations through optional model selection.
 
-    The solver has two layers of execution:
+    Model-option runs are exported as complete independent run groups under::
 
-    1. A ``run_once`` callable that assumes the network already contains the
-       desired concrete components.
-    2. This wrapper, which builds model options, retries failures, optionally
-       evaluates every option, and then delegates to ``run_once``.
-
-    Keeping this policy here lets ``SteadyState.solve()`` stay focused on API
-    arguments while keeping model fallback behavior shared by ``solve`` and
-    ``static_evaluate``.
+        /<network>/steady_state/runs/base
+        /<network>/steady_state/runs/<model>/<option>
     """
 
     def __init__(
@@ -125,6 +119,16 @@ class ModelOptionRunner:
         self.model_manager = model_manager
         self.printer = printer
         self.success_printer = success_printer
+
+    @staticmethod
+    def _metadata(*, model_name: str | None = None, option_name: str | None = None, evaluate_all: bool = False) -> dict[str, Any]:
+        return {
+            "solve_type": "steady_state",
+            "run_type": "base" if model_name is None else "model_option",
+            "model_name": "" if model_name is None else model_name,
+            "option_name": "" if option_name is None else option_name,
+            "evaluate_all_model_options": bool(evaluate_all),
+        }
 
     def run(
         self,
@@ -181,10 +185,13 @@ class ModelOptionRunner:
     ):
         """Build default model options and run the operation once."""
         self.model_manager.build_unbuilt()
+        group_path = run_group_path("steady_state")
         solution = run_once(
             filename=filename,
             return_type=return_type,
             statistics_filename=(statistics_path(filename, self.network.name) if statistics and filename is not None else None),
+            group_path=group_path,
+            metadata=self._metadata(),
         )
         self.success_printer(verbose)
         return solution
@@ -204,6 +211,11 @@ class ModelOptionRunner:
 
         for option_name in selected_model.order:
             selected_model.replace(option_name)
+            group_path = run_group_path(
+                "steady_state",
+                model_name=selected_model.name,
+                option_name=option_name,
+            )
             try:
                 statistics_target = (
                     model_option_statistics_path(filename, selected_model.name, option_name, self.network.name)
@@ -211,38 +223,29 @@ class ModelOptionRunner:
                     else None
                 )
                 solution = run_once(
-                    filename=None,
+                    filename=filename,
                     return_type=return_type,
                     statistics_filename=statistics_target,
+                    group_path=group_path,
+                    metadata=self._metadata(
+                        model_name=selected_model.name,
+                        option_name=option_name,
+                        evaluate_all=False,
+                    ),
                 )
             except Exception as error:
                 failures.append(ModelFailure.from_error(self.network, error, selected_model))
                 continue
 
-            if filename is not None:
-                records = self.network.save(filename=None, return_type="dict")
-                option_group = (
-                    f"models/{safe_group_name(selected_model.name)}/"
-                    f"{safe_group_name(option_name)}/solution"
-                )
-                write_solution(
-                    HDF5Target(filename, option_group),
-                    records,
-                    network_name=self.network.name,
-                    models=self.network.model_list,
-                )
-                write_solution(
+            if filename is not None and failures:
+                write_failures(
                     filename,
-                    records,
-                    network_name=self.network.name,
-                    models=self.network.model_list,
+                    failures,
+                    group_path=(
+                        f"{safe_group_name(self.network.name)}/steady_state/runs/"
+                        f"{safe_group_name(selected_model.name)}/failures"
+                    ),
                 )
-                if failures:
-                    write_failures(
-                        filename,
-                        failures,
-                        group_path=f"{safe_group_name(self.network.name)}/model_options/{safe_group_name(selected_model.name)}/failures",
-                    )
 
             self.printer.print_model_failures(failures)
             self.success_printer(verbose)
@@ -261,35 +264,38 @@ class ModelOptionRunner:
         statistics: bool,
         run_once: Callable[..., Any],
     ):
-        """Evaluate every model option and return a dict keyed by option name.
-
-        The network is left on the last successful option so subsequent
-        ``network.save()`` calls show a valid concrete model rather than a
-        failed/skipped option.
-        """
+        """Evaluate every model option and return a dict keyed by option name."""
         results: dict[str, Any] = {}
-        raw_results: dict[str, list[dict[str, Any]]] = {}
         failures: list[ModelFailure] = []
         last_success_option = None
 
         for option_name in selected_model.order:
             selected_model.replace(option_name)
+            group_path = run_group_path(
+                "steady_state",
+                model_name=selected_model.name,
+                option_name=option_name,
+            )
             try:
-                run_once(
-                    filename=None,
+                records = run_once(
+                    filename=filename,
                     return_type="dict",
                     statistics_filename=(
-                        model_option_statistics_path(filename, selected_model.name, option_name)
+                        model_option_statistics_path(filename, selected_model.name, option_name, self.network.name)
                         if statistics and filename is not None
                         else None
+                    ),
+                    group_path=group_path,
+                    metadata=self._metadata(
+                        model_name=selected_model.name,
+                        option_name=option_name,
+                        evaluate_all=True,
                     ),
                 )
             except Exception as error:
                 failures.append(ModelFailure.from_error(self.network, error, selected_model))
                 continue
 
-            records = self.network.save(filename=None, return_type="dict")
-            raw_results[option_name] = records
             results[option_name] = format_records(records, return_type)
             last_success_option = option_name
 
@@ -297,31 +303,20 @@ class ModelOptionRunner:
             self.printer.print_model_failures(failures)
             raise RuntimeError(f"All options failed for model {selected_model.name!r}.")
 
-        # Re-run the last successful option so the live network values match the
-        # option left active after this method returns.
+        # Re-run the last successful option without exporting so the live network
+        # values match the option left active after this method returns.
         selected_model.replace(last_success_option)
         run_once(filename=None, return_type="dict", statistics_filename=None)
 
-        if filename is not None:
-            save_model_option_results(
-                raw_results,
+        if filename is not None and failures:
+            write_failures(
                 filename,
-                model_name=selected_model.name,
-                network_name=self.network.name,
+                failures,
+                group_path=(
+                    f"{safe_group_name(self.network.name)}/steady_state/runs/"
+                    f"{safe_group_name(selected_model.name)}/failures"
+                ),
             )
-            records = self.network.save(filename=None, return_type="dict")
-            write_solution(
-                filename,
-                records,
-                network_name=self.network.name,
-                models=self.network.model_list,
-            )
-            if failures:
-                write_failures(
-                    filename,
-                    failures,
-                    group_path=f"{safe_group_name(self.network.name)}/model_options/{safe_group_name(selected_model.name)}/failures",
-                )
 
         self.printer.print_model_failures(failures)
         self.success_printer(verbose)

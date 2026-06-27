@@ -26,6 +26,7 @@ import time
 
 from rich.console import Console
 
+from fullflow.Solvers.steady_state.models import ModelManager
 from fullflow.Solvers.steady_state.settings import LeastSquaresSettings, StateEvaluationSettings
 
 from .diagnostics import TransientPrinter
@@ -33,6 +34,7 @@ from .evaluation import TransientStateEvaluator
 from .operations import StepDiagnostics, TransientStepSolve
 from .results import TransientHistory, format_records
 from .runtime import TransientRuntimeCache
+from .models import TransientModelOptionRunner
 from .settings import TransientSettings
 
 
@@ -220,6 +222,8 @@ class Transient:
         self,
         dt: float,
         t_final: float,
+        model: str | Any | None = None,
+        evaluate_all_model_options: bool = False,
         filename: str | None = None,
         return_type: str = "dict",
         verbose: bool = False,
@@ -236,6 +240,82 @@ class Transient:
         minimum_dt: float | None = None,
         save_dt: float | None = None,
         ignore_balances=None,
+    ):
+        """Advance the network with optional model-option selection.
+
+        Model behavior mirrors steady-state solving: if ``model`` is omitted,
+        unbuilt models are built with their first options and one ``base`` run is
+        executed.  If ``model`` is supplied, options are tried in model order;
+        setting ``evaluate_all_model_options=True`` runs every option as an
+        independent transient from the same initial state.
+        """
+
+        def run_once(
+            filename: str | None = None,
+            return_type: str = "dict",
+            group_path: str = "transient/runs/base",
+            metadata: dict[str, Any] | None = None,
+            verbose_override: bool | None = None,
+        ):
+            return self._solve_no_model(
+                dt=dt,
+                t_final=t_final,
+                filename=filename,
+                return_type=return_type,
+                verbose=verbose if verbose_override is None else bool(verbose_override),
+                statistics=statistics,
+                solver_method=solver_method,
+                jacobian_method=jacobian_method,
+                ftol=ftol,
+                xtol=xtol,
+                gtol=gtol,
+                rtol=rtol,
+                state_max_passes=state_max_passes,
+                state_tolerance=state_tolerance,
+                max_step_retries=max_step_retries,
+                minimum_dt=minimum_dt,
+                save_dt=save_dt,
+                ignore_balances=ignore_balances,
+                group_path=group_path,
+                metadata=metadata,
+            )
+
+        runner = TransientModelOptionRunner(
+            self.network,
+            ModelManager(self.network),
+            self.printer,
+        )
+        return runner.run(
+            model=model,
+            evaluate_all_model_options=evaluate_all_model_options,
+            filename=filename,
+            return_type=return_type,
+            verbose=verbose,
+            run_once=run_once,
+        )
+
+    def _solve_no_model(
+        self,
+        dt: float,
+        t_final: float,
+        filename: str | None = None,
+        return_type: str = "dict",
+        verbose: bool = False,
+        statistics: bool = False,
+        solver_method: str = "trf",
+        jacobian_method: str = "3-point",
+        ftol: float = 1e-12,
+        xtol: float = 1e-12,
+        gtol: float | None = None,
+        rtol: float = 1e-8,
+        state_max_passes: int = 5,
+        state_tolerance: float = 1e-10,
+        max_step_retries: int = 8,
+        minimum_dt: float | None = None,
+        save_dt: float | None = None,
+        ignore_balances=None,
+        group_path: str = "transient/runs/base",
+        metadata: dict[str, Any] | None = None,
     ):
         """Advance the network from its current time to ``t_final``.
 
@@ -466,7 +546,7 @@ class Transient:
 
         elapsed_time = time.perf_counter() - solve_start_time
         step_rows = self._diagnostic_rows(self.step_diagnostics)
-        self.history.save(filename, self.network, step_rows)
+        self.history.save(filename, self.network, step_rows, group_path=group_path, metadata=metadata)
 
         if verbose:
             self.printer.print_summary(
