@@ -91,7 +91,6 @@ class GasTurbine(Component):
 
 
 
-
 class ConstantDensityPump(Component):
     def __init__(self,
                  name: str, 
@@ -100,9 +99,9 @@ class ConstantDensityPump(Component):
                  rotor_speed: State,
                  head_rise: State,
                  density: State,
-                 torque: State,
                  upstream_pressure: State,
                  discharge_pressure: State,
+                 torque: State | None = None,
                  upstream_total_enthalpy: State | None = None,
                  discharge_total_enthalpy: State | None = None,
                  gravitational_acceleration: float = 9.80665,
@@ -115,41 +114,44 @@ class ConstantDensityPump(Component):
         mdot = self.mass_flow.value
         H = self.head_rise.value 
         g = self.gravitational_acceleration.value
-        T = self.torque.value
         rho = self.density.value
-        Q = mdot / rho
         po_in = self.upstream_pressure.value
-        N = self.rotor_speed.value
 
-        omega = (math.pi / 30.0) * N
-
-        shaft_power = T * omega
-        hydraulic_power = rho * g * H * Q
-
-        if abs(shaft_power) > 1e-12:
-            eta = hydraulic_power / shaft_power
-        else:
-            eta = 0.0
+        Q = mdot / rho
 
         self.po_out = po_in + rho * g * H
         self.discharge_pressure_error = self.po_out - self.discharge_pressure.value
 
-        self.efficiency.value = eta
-        self.shaft_power.value = shaft_power
         self.volumetric_flow.value = Q
 
-        if self.upstream_total_enthalpy.is_assigned and abs(mdot) > 1e-12:
-            ho_in = self.upstream_total_enthalpy.value
-            dho = shaft_power / mdot
-            ho_out = ho_in + dho
-            self.discharge_total_enthalpy.value = ho_out
+        if self.torque.is_assigned:
+            T = self.torque.value
+            N = self.rotor_speed.value
+
+            omega = (math.pi / 30.0) * N
+
+            shaft_power = T * omega
+            hydraulic_power = rho * g * H * Q
+
+            if abs(shaft_power) > 1e-12:
+                eta = hydraulic_power / shaft_power
+            else:
+                eta = 0.0
+
+            self.efficiency.value = eta
+            self.shaft_power.value = shaft_power
+
+            if self.upstream_total_enthalpy.is_assigned and abs(mdot) > 1e-12:
+                ho_in = self.upstream_total_enthalpy.value
+                dho = shaft_power / mdot
+                ho_out = ho_in + dho
+                self.discharge_total_enthalpy.value = ho_out
 
     @property
     def balances(self):
-        # This pump has no storage of its own.  The solver varies mass_flow until
+        # This pump has no storage of its own. The solver varies mass_flow until
         # the pump curve predicts the connected discharge pressure.
         return [(self.mass_flow, self.discharge_pressure_error)]
-
 
 
 
@@ -165,14 +167,13 @@ class PolytropicPump(Component):
                  mass_flow: State,
                  rotor_speed: State,
                  head_rise: State, 
-                 torque: State,
                  upstream_pressure: State,
                  discharge_pressure: State,
                  upstream_density: State,
                  discharge_density: State,
-                 upstream_total_enthalpy: State,
+                 torque: State | None = None,
+                 upstream_total_enthalpy: State | None = None,
                  gravitational_acceleration: float = 9.80665,
-
                  discharge_total_enthalpy: State | None = None,
                  efficiency: State | None = None,
                  shaft_power: State | None = None):
@@ -182,23 +183,14 @@ class PolytropicPump(Component):
         H = self.head_rise.value
         mdot = self.mass_flow.value
         g = self.gravitational_acceleration.value
-        T = self.torque.value
         rho1 = self.upstream_density.value
         rho2 = self.discharge_density.value
         p_in = self.upstream_pressure.value
         p_out = self.discharge_pressure.value
-        ho_in = self.upstream_total_enthalpy.value
-        N = self.rotor_speed.value
-
-        omega = (math.pi / 30.0) * N
-        shaft_power = T * omega
 
         # Pump maps usually report head in distance units.
         # ROCETS polytropic headrise uses specific work units.
         H_specific = g * H
-
-        hydraulic_power = mdot * H_specific
-        eta = hydraulic_power / shaft_power
 
         pressure_ratio = p_out / p_in
         density_ratio = rho2 / rho1
@@ -218,14 +210,28 @@ class PolytropicPump(Component):
         self.predicted_discharge_pressure = rho2 * (H_specific / beta + p_in / rho1)
         self.discharge_pressure_error = self.predicted_discharge_pressure - self.discharge_pressure.value
 
-        if self.upstream_total_enthalpy.is_assigned:
-            ho_in = self.upstream_total_enthalpy.value
-            dho = H_specific / eta
-            ho_out = ho_in + dho
-            self.discharge_total_enthalpy.value = ho_out
-        
-        self.efficiency.value = eta
-        self.shaft_power.value = shaft_power
+        if self.torque.is_assigned:
+            N = self.rotor_speed.value
+            T = self.torque.value
+
+            omega = (math.pi / 30.0) * N
+            shaft_power = T * omega
+
+            hydraulic_power = mdot * H_specific
+
+            if abs(shaft_power) > 1e-12:
+                eta = hydraulic_power / shaft_power
+            else:
+                eta = 0.0
+
+            self.efficiency.value = eta
+            self.shaft_power.value = shaft_power
+
+            if self.upstream_total_enthalpy.is_assigned and abs(eta) > 1e-12:
+                ho_in = self.upstream_total_enthalpy.value
+                dho = H_specific / eta
+                ho_out = ho_in + dho
+                self.discharge_total_enthalpy.value = ho_out
 
     @property
     def balances(self):
