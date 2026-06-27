@@ -123,7 +123,7 @@ filename = "RP1_LOX"
 #
 # The map is intentionally low-resolution here because it is only a user example.
 # Increase the axis counts for production-quality interpolation.
-'''
+
 fuel = Propellant("rp-1", temperature=298.15)
 ox = Propellant("LOX", temperature=90.17)
 
@@ -159,7 +159,7 @@ generate_map(
     overwrite=True,
     raise_errors=True,
 )
-'''
+
 
 
 # -----------------------------------------------------------------------------
@@ -506,5 +506,5 @@ SteadyState(CavNetwork).solve(
     statistics=True,
     model=OxInletModel,
     evaluate_all_model_options=True,
-    # filename="cavitating_venturi",
+    filename=filename,
 )
