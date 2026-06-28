@@ -90,57 +90,85 @@ def _interpolation_point_value(component_name: str, input_name: str, value: floa
 
 
 class Map(Component):
-    """Generic N-dimensional map lookup.
+    """Generic N-dimensional interpolation component.
 
-    ``inputs`` defines the independent variables and their order. ``axes`` gives
-    the tabulated grid values for each input. ``outputs`` maps output names to
-    N-dimensional scalar arrays whose shapes follow the input order.
-
-    Axis values are stored in physical units. If an axis has ``spacing='log'``,
-    interpolation is performed in log(axis) space while inputs and stored axis
-    values remain in physical units.
-
-    If ``extrapolate`` is False, all input values must remain inside their map
-    axis ranges. If an input goes outside the tabulated range, the map raises an
-    error instead of clipping silently.
+    ``Map`` turns tabulated data into one or more FullFlow output ``State``
+    objects. It is useful for property tables, pump/turbine maps, combustion
+    products maps, lookup tables, and any scalar output that can be represented
+    on a rectangular grid.
 
     Manual maps
     -----------
+    Construct a manual map by passing dictionaries for ``inputs``, ``axes``,
+    and ``outputs``::
 
-    For manually supplied maps, ``outputs`` maps created State names to NumPy
-    arrays:
+        Products = Map(
+            "Products",
+            network,
+            inputs={
+                "pressure": ChamberPressure,
+                "temperature": ChamberTemperature,
+            },
+            axes={
+                "pressure": pressure_values,
+                "temperature": temperature_values,
+            },
+            outputs={
+                "density": density_table,
+                "enthalpy": enthalpy_table,
+            },
+        )
 
-        outputs={
-            "flow_parameter": flow_parameter_map,
-            "torque": torque_map,
-        }
-
-    This creates:
-
-        Map.flow_parameter
-        Map.torque
+    Input names are the keys in ``inputs``. Every input key must have a matching
+    key in ``axes``. Output state names are the keys in ``outputs``. The example
+    above creates ``Products.density`` and ``Products.enthalpy``.
 
     HDF5 maps
     ---------
+    ``Map.from_hdf5`` loads maps written by ``generate_map``. The required
+    input names come from the HDF5 map axes. For a generated map with axes
+    ``pressure`` and ``temperature``, load it with::
 
-    ``Map.from_hdf5(..., outputs=None)`` loads every output dataset and uses the
-    dataset names as the created State names.
+        Products = Map.from_hdf5(
+            "Products",
+            network,
+            "equilibrium_nozzle",
+            group="products_tp",
+            inputs={
+                "pressure": ChamberPressure,
+                "temperature": ChamberTemperature,
+            },
+        )
 
-    ``Map.from_hdf5(..., outputs=["torque"])`` loads selected datasets and uses
-    the dataset names as the created State names.
+    Output naming for HDF5 maps is controlled by the ``outputs`` argument:
 
-    ``Map.from_hdf5(..., outputs={"torque": "Torque [N*m]"})`` loads a dataset
-    with a non-Python-friendly HDF5 name and creates a Python-friendly Map output
-    State name.
+    ``outputs=None``
+        Load every dataset in ``/outputs`` and create state names matching the
+        HDF5 dataset names.
 
-    For both manual and HDF5 maps, the public rule is:
+    ``outputs=["density", "enthalpy"]``
+        Load only the listed datasets and use those same names for the created
+        states.
 
-        outputs={
-            "created_state_name": data_source,
-        }
+    ``outputs={"rho": "density", "h": "enthalpy"}``
+        Create Python-friendly state names from different HDF5 dataset names.
+        The dictionary rule is ``created_state_name: hdf5_dataset_name``. This
+        example creates ``Products.rho`` from dataset ``density`` and
+        ``Products.h`` from dataset ``enthalpy``.
 
-    where ``data_source`` is a NumPy array for manual maps and an HDF5 dataset
-    name for file maps.
+    Axis spacing
+    ------------
+    Axis values are always stored and supplied in physical units. For an axis
+    with ``spacing="log"``, ``Map`` applies ``log`` to both the stored axis
+    values and the runtime input value before interpolation. Users should still
+    pass the physical value, not its logarithm.
+
+    Extrapolation
+    -------------
+    If ``extrapolate=False`` then every runtime input must remain inside the
+    tabulated range. If an input is outside its range, the map raises an error.
+    Set ``extrapolate=True`` to allow SciPy's ``RegularGridInterpolator`` to
+    extrapolate beyond the tabulated bounds.
     """
 
     _reserved_output_names = {
