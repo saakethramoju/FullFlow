@@ -14,7 +14,7 @@ Physical layout
     |               Ullage GN2              |
     |        pressure controlled near       |
     |              450 psia                 |
-    |                                       |
+    |                                       |----> Relief valve to ambient
     |  P_ullage = P_liquid_surface          |
     |  V_ullage = V_tank - V_liquid         |
     |                                       |
@@ -83,6 +83,14 @@ initial_copv_temperature = 300
 
 tank_set_pressure = 450 * psi_to_pa
 
+# Relief valve command settings.
+# The relief valve is independent of the bang-bang pressurization valve.
+# It opens only if ullage pressure rises above the relief band.
+relief_valve_open_pressure = 475 * psi_to_pa
+relief_valve_close_pressure = 465 * psi_to_pa
+relief_valve_area = 0.005 / 1550
+relief_valve_open_cd = 0.6
+
 tank_volume = 125 / 1000
 initial_liquid_volume = 110 / 1000
 
@@ -97,6 +105,12 @@ g = 9.80665
 
 # Bang-bang valve coefficient. This is changed by the bang-bang Sequence.
 bang_bang_cda = State(0.0)
+
+# Relief valve coefficient. This is changed by the relief valve Sequence.
+relief_valve_cd = State(0.0)
+
+# Relief valve mass flow from the ullage to ambient.
+relief_valve_mass_flow = State(0.0)
 
 # Ullage pressure is the pressure of the gaseous nitrogen above the liquid.
 ullage_pressure = State(101325)
@@ -228,6 +242,57 @@ BangBangValve = CompressibleOrifice(
 
 
 # ---------------------------------------------------------------------------
+# Relief valve schedule
+# ---------------------------------------------------------------------------
+
+def relief_valve_condition(t, pressure):
+    """
+    Simple relief valve schedule.
+
+    If the ullage pressure rises above the opening pressure, the relief valve
+    opens. If the ullage pressure falls below the closing pressure, it closes.
+    Inside the band, it keeps its previous value.
+    """
+
+    if pressure > relief_valve_open_pressure:
+        return relief_valve_open_cd
+
+    if pressure < relief_valve_close_pressure:
+        return 0.0
+
+    return relief_valve_cd.value
+
+
+ReliefValveSequence = Sequence(
+    "Relief Valve Cd",
+    BangBangSim,
+    target=relief_valve_cd,
+    function=relief_valve_condition,
+    inputs=[ullage_pressure],
+)
+
+
+# ---------------------------------------------------------------------------
+# Relief valve from ullage to ambient
+# ---------------------------------------------------------------------------
+
+ReliefValve = CompressibleOrifice(
+    "Relief Valve",
+    BangBangSim,
+    upstream_total_pressure=UllageGas.pressure,
+    upstream_total_temperature=UllageGas.temperature,
+    downstream_pressure=101325,
+    discharge_coefficient=relief_valve_cd,
+    cross_sectional_area=relief_valve_area,
+    gas_constant=UllageGas.gas_constant,
+    specific_heat_ratio=UllageGas.gamma,
+    upstream_static_enthalpy=UllageGas.enthalpy,
+    upstream_static_temperature=UllageGas.temperature,
+    mass_flow=relief_valve_mass_flow,
+)
+
+
+# ---------------------------------------------------------------------------
 # Ullage gas control volume
 # ---------------------------------------------------------------------------
 
@@ -240,9 +305,11 @@ Ullage = Volume(
     pressure=UllageGas.pressure,
     temperature=UllageGas.temperature,
     density=UllageGas.density,
+    enthalpy=UllageGas.enthalpy,
     internal_energy=UllageGas.internal_energy,
     energy_variable="T",
     mass_flow_in=BangBangValve.mass_flow,
+    mass_flow_out=ReliefValve.mass_flow,
     total_enthalpy_in=BangBangValve.total_enthalpy,
 )
 
@@ -398,6 +465,19 @@ MainValve = DischargeCoefficient(
     cross_sectional_area=MainLine.cross_sectional_area,
     mass_flow=Node.mass_flow_out,
 )
+
+
+# ---------------------------------------------------------------------------
+# Tracks
+# ---------------------------------------------------------------------------
+
+BangBangSim.track("Ullage Pressure [Pa]", UllageGas.pressure)
+BangBangSim.track("Bang Bang Valve Cd [-]", bang_bang_cda)
+BangBangSim.track("Relief Valve Cd [-]", relief_valve_cd)
+BangBangSim.track("Relief Valve Mass Flow [kg/s]", ReliefValve.mass_flow)
+BangBangSim.track("COPV Pressure [Pa]", COPV.pressure)
+BangBangSim.track("Main Valve Cd [-]", main_valve_cd)
+BangBangSim.track("Main Valve Mass Flow [kg/s]", MainValve.mass_flow)
 
 
 # ---------------------------------------------------------------------------
