@@ -489,20 +489,6 @@ class Lookup(Component, Generic[T]):
         network: Network,
         callable_: Callable[..., T],
         *args: Any,
-        output: State | None = None,
-        evaluate_on_set: bool = False,
-        strict_inputs: bool = False,
-        strict_outputs: bool = False,
-        wrap_errors: bool = False,
-        evaluate_in_pre_evaluation: bool = True,
-        lazy: bool | None = None,
-        defer_until_inputs_available: bool = True,
-        cache: bool = True,
-        cache_tol: float = 0.0,
-        reuse_existing: bool = True,
-        memo_size: int = 1,
-        output_guesses: dict[str, Any] | None = None,
-        input_guesses: dict[str, Any] | None = None,
         priority: (
             tuple[str, ...]
             | list[tuple[str, ...]]
@@ -511,6 +497,26 @@ class Lookup(Component, Generic[T]):
         ) = None,
         **kwargs: Any,
     ):
+        # User-facing Lookup construction is intentionally simple:
+        #
+        #     Lookup("Coolant", network, Fluid, "water", pressure=P, temperature=T)
+        #
+        # The remaining settings are internal defaults.  They keep the existing
+        # caching, deferred-evaluation, update/reuse, and fallback behavior
+        # without exposing those implementation details in every example.
+        output: State | None = None
+        evaluate_on_set = False
+        strict_inputs = False
+        strict_outputs = False
+        wrap_errors = False
+        evaluate_in_pre_evaluation = True
+        defer_until_inputs_available = True
+        cache = True
+        cache_tol = 0.0
+        reuse_existing = True
+        memo_size = 1
+        output_guesses: dict[str, Any] = {}
+        input_guesses: dict[str, Any] = {}
         object.__setattr__(self, "name", name)
         object.__setattr__(self, "network", network)
         object.__setattr__(self, "callable", callable_)
@@ -528,8 +534,6 @@ class Lookup(Component, Generic[T]):
         for key, value in self.kwargs.items():
             label_state_refs(value, f"{self.name}:{key}")
 
-        if lazy is not None:
-            evaluate_in_pre_evaluation = not bool(lazy)
 
         object.__setattr__(self, "dirty", True)
         object.__setattr__(self, "evaluate_on_set", bool(evaluate_on_set))
