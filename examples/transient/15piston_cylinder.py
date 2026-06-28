@@ -34,7 +34,6 @@ to the gas.
 """
 
 import math
-import matplotlib.pyplot as plt
 
 from fullflow import *
 from thermoprop import *
