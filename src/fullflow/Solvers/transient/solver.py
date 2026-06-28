@@ -59,6 +59,8 @@ class Transient:
         self.console = Console()
         self._runtime_cache: TransientRuntimeCache | None = None
         self._ignore_balances = None
+        self._force_steady = None
+        self._force_steady_exceptions = None
         self.evaluator = TransientStateEvaluator(self._cache)
         self.step_solver = TransientStepSolve(
             network,
@@ -82,6 +84,8 @@ class Transient:
         self._runtime_cache = TransientRuntimeCache(
             self.network,
             ignore_balances=self._ignore_balances,
+            force_steady=self._force_steady,
+            force_steady_exceptions=self._force_steady_exceptions,
         )
         return self._runtime_cache
 
@@ -240,6 +244,8 @@ class Transient:
         minimum_dt: float | None = None,
         save_dt: float | None = None,
         ignore_balances=None,
+        force_steady=None,
+        force_steady_exceptions=None,
     ):
         """Advance the network with optional model-option selection.
 
@@ -276,6 +282,8 @@ class Transient:
                 minimum_dt=minimum_dt,
                 save_dt=save_dt,
                 ignore_balances=ignore_balances,
+                force_steady=force_steady,
+                force_steady_exceptions=force_steady_exceptions,
                 group_path=group_path,
                 metadata=metadata,
             )
@@ -314,6 +322,8 @@ class Transient:
         minimum_dt: float | None = None,
         save_dt: float | None = None,
         ignore_balances=None,
+        force_steady=None,
+        force_steady_exceptions=None,
         group_path: str = "transient/runs/base",
         metadata: dict[str, Any] | None = None,
     ):
@@ -348,6 +358,17 @@ class Transient:
             User ``Balance`` objects to exclude from this transient solve.
             Ignoring a balance removes both its residual and its associated
             iteration variable. Component balances are not affected.
+
+        force_steady : None, "all", or iterable of Component, optional
+            Components whose dynamic equations should be forced to steady state
+            during the transient.  ``None`` preserves normal transient integration.
+            ``"all"`` forces every dynamic component to satisfy derivative = 0.
+            An iterable forces only the listed components.
+
+        force_steady_exceptions : iterable of Component, optional
+            Components excluded from ``force_steady="all"``.  This is useful for
+            reduced-order runs such as forcing all components steady except rotor
+            or wall thermal components.
 
         return_type : {"dict"}, default="dict"
             Return format.  ``"dict"`` returns a list of time-stamped full-network
@@ -410,6 +431,8 @@ class Transient:
             including the evaluated initial state.
         """
         self._ignore_balances = ignore_balances
+        self._force_steady = force_steady
+        self._force_steady_exceptions = force_steady_exceptions
         self._runtime_cache = None
 
         self._validate_output_settings(save_dt)
@@ -448,7 +471,10 @@ class Transient:
 
         self.history = TransientHistory()
         self.step_diagnostics = []
-        self._refresh_runtime_cache()
+        cache = self._refresh_runtime_cache()
+
+        run_metadata = dict(metadata or {})
+        run_metadata.update(cache.dynamic_mode_summary())
 
         solve_start_time = time.perf_counter()
 
@@ -546,7 +572,7 @@ class Transient:
 
         elapsed_time = time.perf_counter() - solve_start_time
         step_rows = self._diagnostic_rows(self.step_diagnostics)
-        self.history.save(filename, self.network, step_rows, group_path=group_path, metadata=metadata)
+        self.history.save(filename, self.network, step_rows, group_path=group_path, metadata=run_metadata)
 
         if verbose:
             self.printer.print_summary(

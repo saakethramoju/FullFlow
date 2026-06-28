@@ -26,6 +26,7 @@ from typing import Any
 
 import numpy as np
 
+from fullflow.System.Component import Component
 from fullflow.System.State import (
     State,
     is_assignable_state_like,
@@ -68,6 +69,7 @@ class TransientItem:
     state_label: str
     derivative_label: str
     owner: Any
+    force_steady: bool = False
 
     @property
     def label(self) -> str:
@@ -95,9 +97,17 @@ class TransientRuntimeCache:
     class.
     """
 
-    def __init__(self, network, ignore_balances=None) -> None:
+    def __init__(
+        self,
+        network,
+        ignore_balances=None,
+        force_steady=None,
+        force_steady_exceptions=None,
+    ) -> None:
         self.network = network
         self.ignore_balances = ignore_balances
+        self.force_steady = force_steady
+        self.force_steady_exceptions = force_steady_exceptions
         self.version = -1
         self.refresh()
 
@@ -229,6 +239,116 @@ class TransientRuntimeCache:
             return list(value)
         raise TypeError("dynamics and balances must return a list or tuple.")
 
+    @staticmethod
+    def _component_label(component: Any) -> str:
+        """Return a compact component diagnostic label."""
+        return f"{component.name} ({type(component).__name__})"
+
+    @staticmethod
+    def _normalize_force_steady_string(value: str) -> str:
+        """Normalize string controls and reject unsupported strings."""
+        normalized = value.strip().lower()
+        if normalized == "all":
+            return normalized
+        raise ValueError(
+            "force_steady must be None, 'all', or an iterable of Component objects. "
+            f"Got string {value!r}."
+        )
+
+    @staticmethod
+    def _is_component_iterable(value: Any) -> bool:
+        """Return True for iterable selector containers, excluding strings."""
+        return isinstance(value, Iterable) and not isinstance(value, (str, bytes))
+
+    def _normalize_component_iterable(self, value: Any, *, argument_name: str) -> tuple[Any, ...]:
+        """Return a tuple of Component objects from a user selector."""
+        if value is None:
+            return ()
+
+        if isinstance(value, (str, bytes)) or not self._is_component_iterable(value):
+            raise TypeError(
+                f"{argument_name} must be an iterable of Component objects. "
+                f"Got {type(value).__name__}."
+            )
+
+        components = tuple(value)
+        for item in components:
+            if not isinstance(item, Component):
+                raise TypeError(
+                    f"{argument_name} must contain only Component objects. "
+                    f"Got {type(item).__name__}: {item!r}."
+                )
+
+        return components
+
+    def _validate_selected_components(self, components: tuple[Any, ...], *, argument_name: str) -> None:
+        """Reject components that are not in the network or have no dynamics."""
+        if not components:
+            return
+
+        network_component_ids = {id(component) for component in self.component_list}
+        missing = [component for component in components if id(component) not in network_component_ids]
+        if missing:
+            lines = [
+                f"{argument_name} contains components that are not registered with network {self.network.name!r}:",
+            ]
+            lines.extend(f"  - {self._component_label(component)}" for component in missing)
+            raise ValueError("\n".join(lines))
+
+        nondynamic = [component for component in components if not self._component_is_dynamic(component)]
+        if nondynamic:
+            lines = [
+                f"{argument_name} contains components with no dynamic equations:",
+            ]
+            lines.extend(f"  - {self._component_label(component)}" for component in nondynamic)
+            raise ValueError("\n".join(lines))
+
+    def _force_steady_component_ids(self) -> set[int]:
+        """Return component IDs whose dynamics should use derivative = 0."""
+        force_steady = self.force_steady
+        exceptions = self.force_steady_exceptions
+
+        if isinstance(force_steady, str):
+            force_steady = self._normalize_force_steady_string(force_steady)
+
+        if force_steady is None:
+            if exceptions is not None:
+                raise ValueError(
+                    "force_steady_exceptions can only be used when force_steady='all'."
+                )
+            return set()
+
+        if force_steady == "all":
+            exception_components = self._normalize_component_iterable(
+                exceptions,
+                argument_name="force_steady_exceptions",
+            )
+            self._validate_selected_components(
+                exception_components,
+                argument_name="force_steady_exceptions",
+            )
+            exception_ids = {id(component) for component in exception_components}
+            return {
+                id(component)
+                for component in self.component_list
+                if self._component_is_dynamic(component) and id(component) not in exception_ids
+            }
+
+        if exceptions is not None:
+            raise ValueError(
+                "force_steady_exceptions can only be used when force_steady='all'."
+            )
+
+        selected_components = self._normalize_component_iterable(
+            force_steady,
+            argument_name="force_steady",
+        )
+        self._validate_selected_components(
+            selected_components,
+            argument_name="force_steady",
+        )
+        return {id(component) for component in selected_components}
+
     def _component_transient_variables(self, component: Any) -> list[Any]:
         return self._transient_variable_lists[id(component)]
 
@@ -276,6 +396,7 @@ class TransientRuntimeCache:
         integrating a conservative quantity such as mass.
         """
         items: list[TransientItem] = []
+        force_steady_ids = self._force_steady_component_ids()
 
         for component in self.component_list:
             variables = self._component_transient_variables(component)
@@ -330,6 +451,7 @@ class TransientRuntimeCache:
                         state_label=state_label,
                         derivative_label=f"{component.name}:dynamics[{index}]",
                         owner=component,
+                        force_steady=id(component) in force_steady_ids,
                     )
                 )
 
@@ -524,7 +646,9 @@ class TransientRuntimeCache:
         """Build labels matching the current transient residual vector order."""
         labels: list[str] = []
 
-        labels.extend(f"{item.state_label}.integration" for item in self.transient_items)
+        for item in self.transient_items:
+            suffix = "steady" if item.force_steady else "integration"
+            labels.append(f"{item.state_label}.{suffix}")
 
         for owner in self.algebraic_residual_owners:
             equations = component_balances(owner)
@@ -539,6 +663,32 @@ class TransientRuntimeCache:
             )
 
         return labels
+
+    def dynamic_mode_rows(self) -> list[dict[str, Any]]:
+        """Return dynamic-equation mode rows for diagnostics or metadata."""
+        return [
+            {
+                "component": item.owner.name,
+                "component_type": type(item.owner).__name__,
+                "index": item.derivative_index,
+                "variable": item.variable_label,
+                "state": item.state_label,
+                "mode": "steady" if item.force_steady else "dynamic",
+            }
+            for item in self.transient_items
+        ]
+
+    def dynamic_mode_summary(self) -> dict[str, Any]:
+        """Return a compact HDF5-friendly summary of dynamic equation modes."""
+        rows = self.dynamic_mode_rows()
+        return {
+            "force_steady_count": sum(row["mode"] == "steady" for row in rows),
+            "dynamic_count": sum(row["mode"] == "dynamic" for row in rows),
+            "dynamic_modes": "\n".join(
+                f"{row['component']}.dynamic[{row['index']}]: {row['mode']}"
+                for row in rows
+            ),
+        }
 
     @property
     def iteration_values(self) -> list[float]:
@@ -809,19 +959,27 @@ class TransientRuntimeCache:
         """Collect transient, algebraic, and balance residuals.
 
         Dynamic residuals are implicit backward-Euler residuals evaluated at the
-        current guessed new-time state:
+        current guessed new-time state unless a component has been forced steady:
 
-            state.value - state.previous - dt * derivative = 0
+            dynamic mode:       state.value - state.previous - dt * derivative = 0
+            force-steady mode:  derivative = 0
 
-        The residual is divided by a simple state scale so ``rtol`` has a useful
-        per-timestep meaning across different state units.
+        Integration residuals are divided by a simple state scale so ``rtol`` has
+        a useful per-timestep meaning across different state units.  Force-steady
+        derivative residuals are left in their physical units, matching the
+        steady-state solver's dynamic trim equations.
         """
         residuals: list[float] = []
 
         for item in self.transient_items:
+            derivative = self._derivative_value(item)
+
+            if item.force_steady:
+                residuals.append(derivative)
+                continue
+
             state = float(item.state.value)
             previous = float(item.state.previous)
-            derivative = self._derivative_value(item)
             scale = self._transient_scale(item, dt=dt, derivative=derivative)
             residuals.append((state - previous - dt * derivative) / scale)
 
