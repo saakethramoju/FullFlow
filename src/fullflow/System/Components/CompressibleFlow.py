@@ -132,6 +132,9 @@ class IsentropicDiffuser(Component):
 
 
 
+
+
+
 class IsentropicNozzle(Component):
 
     def __init__(
@@ -145,11 +148,15 @@ class IsentropicNozzle(Component):
         gas_constant: float,
         throat_area: float,
         expansion_ratio: float,
+        upstream_total_enthalpy: State | None = None,
+        upstream_static_enthalpy: State | None = None,
+        upstream_static_temperature: State | None = None,
+        total_enthalpy: State | None = None,
         mass_flow: State | None = None,
         exit_mach_number: State | None = None,
         exit_static_pressure: State | None = None,
-        normal_shock: bool | None = None,
-        shock_mach_number: State | None = 2.0,
+        normal_shock: State | bool | None = False,
+        shock_mach_number: State | None = 0.0,
     ):
         self.setup()
 
@@ -162,6 +169,16 @@ class IsentropicNozzle(Component):
         At = self.throat_area.value
         eps = self.expansion_ratio.value
 
+        cp = g * R / (g - 1.0)
+
+        if self.upstream_total_enthalpy.is_assigned:
+            self.total_enthalpy.value = self.upstream_total_enthalpy.value
+
+        elif self.upstream_static_enthalpy.is_assigned and self.upstream_static_temperature.is_assigned:
+            h_static = self.upstream_static_enthalpy.value
+            T_static = self.upstream_static_temperature.value
+            self.total_enthalpy.value = h_static + cp * (To - T_static)
+
         PR = Po / Pamb
         PR_choked = ((g + 1.0) / 2.0) ** (g / (g - 1.0))
         choked_check1 = PR > PR_choked
@@ -172,6 +189,7 @@ class IsentropicNozzle(Component):
         choked_check2 = FP_throat > FP_choked
 
         choked = choked_check1 or choked_check2
+        normal_shock = False
 
         if not choked:
             mdot = FP_throat * Po * At / (R * To) ** 0.5
@@ -188,7 +206,13 @@ class IsentropicNozzle(Component):
                 Ms = 0.0
 
             else:
-                Me_test = self._mach_from_flow_parameter(FP_choked / eps, g, 1.0 + 1.0e-12, 50.0)
+                Me_test = self._mach_from_flow_parameter(
+                    FP_choked / eps,
+                    g,
+                    1.0 + 1.0e-12,
+                    50.0,
+                )
+
                 Po_over_Ps_exit = self._pressure_ratio_from_mach(Me_test, g)
                 Pe_test = Po / Po_over_Ps_exit
                 RPR = PR / Po_over_Ps_exit
@@ -202,23 +226,39 @@ class IsentropicNozzle(Component):
                     Ps2_Ps1 = self._normal_shock_static_pressure_ratio(Me_test, g)
                     RPRS = Ps2_Ps1 * RPR
 
-                    shock = RPRS < 1.0
+                    normal_shock = RPRS < 1.0
 
-                    if not shock:
+                    if not normal_shock:
                         Me = Me_test
                         Pe = Pe_test
                         Ms = 0.0
 
                     else:
-                        Ms = self._shock_mach_from_internal_shock_condition(FP_choked, PR, eps, g, 1.0 + 1.0e-12, Me_test - 1.0e-12)
+                        Ms = self._shock_mach_from_internal_shock_condition(
+                            FP_choked,
+                            PR,
+                            eps,
+                            g,
+                            1.0 + 1.0e-12,
+                            Me_test - 1.0e-12,
+                        )
+
                         Pt2_Pt1 = self._normal_shock_total_pressure_ratio(Ms, g)
                         FP_exit = FP_choked / (Pt2_Pt1 * eps)
-                        Me = self._mach_from_flow_parameter(FP_exit, g, 1.0e-12, 1.0 - 1.0e-12)
+
+                        Me = self._mach_from_flow_parameter(
+                            FP_exit,
+                            g,
+                            1.0e-12,
+                            1.0 - 1.0e-12,
+                        )
+
                         Pe = Po * Pt2_Pt1 / self._pressure_ratio_from_mach(Me, g)
 
         self.mass_flow.value = mdot
         self.exit_mach_number.value = Me
         self.exit_static_pressure.value = Pe
+        self.normal_shock.value = normal_shock
         self.shock_mach_number.value = Ms
 
     @staticmethod
@@ -238,8 +278,10 @@ class IsentropicNozzle(Component):
 
         if low_error == 0.0:
             return low
+
         if high_error == 0.0:
             return high
+
         if low_error * high_error > 0.0:
             raise ValueError("Internal normal shock Mach solve is not bracketed.")
 
@@ -263,7 +305,14 @@ class IsentropicNozzle(Component):
     def _internal_shock_pressure_error(Ms: float, FP_throat: float, PR: float, eps: float, g: float) -> float:
         Pt2_Pt1 = IsentropicNozzle._normal_shock_total_pressure_ratio(Ms, g)
         FP_exit = FP_throat / (Pt2_Pt1 * eps)
-        Me = IsentropicNozzle._mach_from_flow_parameter(FP_exit, g, 1.0e-12, 1.0 - 1.0e-12)
+
+        Me = IsentropicNozzle._mach_from_flow_parameter(
+            FP_exit,
+            g,
+            1.0e-12,
+            1.0 - 1.0e-12,
+        )
+
         Po_over_Ps_exit = IsentropicNozzle._pressure_ratio_from_mach(Me, g)
         return Po_over_Ps_exit - PR * Pt2_Pt1
 
@@ -271,12 +320,14 @@ class IsentropicNozzle(Component):
     def _mach_from_pressure_ratio(PR: float, g: float) -> float:
         if PR <= 1.0:
             return 0.0
+
         return math.sqrt(2.0 / (g - 1.0) * (PR ** ((g - 1.0) / g) - 1.0))
 
     @staticmethod
     def _flow_parameter_from_pressure_ratio(PR: float, g: float) -> float:
         if PR <= 1.0:
             return 0.0
+
         return ((2.0 * g / (g - 1.0) * (PR ** ((g - 1.0) / g) - 1.0)) / (PR ** ((g + 1.0) / g))) ** 0.5
 
     @staticmethod
@@ -284,6 +335,7 @@ class IsentropicNozzle(Component):
         for _ in range(80):
             mid = 0.5 * (low + high)
             value = IsentropicNozzle._flow_parameter_from_mach(mid, g)
+
             if value < FP:
                 if high <= 1.0:
                     low = mid
@@ -294,6 +346,7 @@ class IsentropicNozzle(Component):
                     high = mid
                 else:
                     low = mid
+
         return 0.5 * (low + high)
 
     @staticmethod
