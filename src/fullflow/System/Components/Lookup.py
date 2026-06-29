@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+from collections.abc import Mapping
 import inspect
 import math
 import operator
@@ -354,11 +355,13 @@ class Lookup(Component, Generic[T]):
 
     ## Examples
 
-    A normal Python function can be solved through `Lookup`:
+    A normal Python function can be solved through `Lookup`. The function
+    can return a dictionary, so users do not need to define a wrapper class
+    just to expose named outputs:
 
     ```
     def LinearModel(x, slope, intercept):
-        return SimpleNamespace(y=slope * x + intercept)
+        return {"y": slope * x + intercept}
 
     Model = Lookup(
         "Model",
@@ -374,6 +377,24 @@ class Lookup(Component, Generic[T]):
         network,
         variable=Model.x,
         function=Model.y - 9.0,
+    )
+    ```
+
+    Ordered tuple/list returns are also supported when output names are given
+    once at construction:
+
+    ```
+    def LinearModelTuple(x, slope, intercept):
+        return slope * x + intercept
+
+    Model = Lookup(
+        "Model",
+        network,
+        LinearModelTuple,
+        x=0.0,
+        slope=2.0,
+        intercept=1.0,
+        outputs=("y",),
     )
     ```
 
@@ -468,6 +489,7 @@ class Lookup(Component, Generic[T]):
         "_accepted_keywords",
         "_accepts_var_keyword",
         "_output_states",
+        "_declared_output_names",
         "_input_fallback_states",
         "_last_input_key",
         "_last_structure_key",
@@ -495,6 +517,7 @@ class Lookup(Component, Generic[T]):
             | tuple[tuple[str, ...], ...]
             | None
         ) = None,
+        outputs: tuple[str, ...] | list[str] | None = None,
         **kwargs: Any,
     ):
         # User-facing Lookup construction is intentionally simple:
@@ -574,6 +597,11 @@ class Lookup(Component, Generic[T]):
             output_states[key] = state
 
         object.__setattr__(self, "_output_states", output_states)
+        object.__setattr__(
+            self,
+            "_declared_output_names",
+            tuple(str(name) for name in (outputs or ())),
+        )
 
         input_fallback_states = {}
 
@@ -723,7 +751,7 @@ class Lookup(Component, Generic[T]):
 
         if self.output.is_assigned:
             try:
-                return getattr(self.output.value, name)
+                return self._extract_output_value(self.output.value, name)
             except Exception:
                 pass
 
@@ -762,7 +790,7 @@ class Lookup(Component, Generic[T]):
                 continue
 
             try:
-                value = getattr(obj, preferred)
+                value = self._extract_output_value(obj, preferred)
             except Exception:
                 continue
 
@@ -1157,6 +1185,9 @@ class Lookup(Component, Generic[T]):
         return self._input_fallback_states[name]
 
     def output_state(self, name: str, default: Any = _MISSING) -> State:
+        # Backward-compatible helper for internal fallback states. New user
+        # examples should prefer named mapping/object returns, or `outputs=(...)`
+        # for ordered tuple/list returns.
         if name not in self._output_states:
             if default is _MISSING:
                 self._output_states[name] = State()
@@ -1174,10 +1205,76 @@ class Lookup(Component, Generic[T]):
 
         self.output_state(name).value = value
 
+    def _sequence_output_names(self) -> tuple[str, ...]:
+        """Return the declared output order used for tuple/list results."""
+        names: list[str] = []
+
+        for name in self._declared_output_names:
+            if name not in names:
+                names.append(name)
+
+        for name in self._output_states.keys():
+            if name not in names:
+                names.append(name)
+
+        return tuple(names)
+
+    def _extract_output_value(self, obj: Any, name: str) -> Any:
+        """Read one named output from any common callable return type.
+
+        Supported return shapes are intentionally broad:
+
+        * objects with attributes, including classes, dataclasses, namedtuples,
+          and ``SimpleNamespace``
+        * dictionaries and other mapping objects
+        * objects that support string indexing, such as pandas Series
+        * tuples/lists, using the optional ``outputs=(...)`` order
+        * scalar outputs as ``value``, ``result``, or ``output``
+
+        Mapping/object returns are preferred for user examples because the
+        output names travel with the result.  Tuple/list returns can be used
+        with ``outputs=("name1", "name2", ...)`` when an ordered return is
+        convenient.
+        """
+        try:
+            return getattr(obj, name)
+        except Exception:
+            pass
+
+        if isinstance(obj, Mapping):
+            try:
+                return obj[name]
+            except Exception:
+                pass
+
+        try:
+            return obj[name]
+        except Exception:
+            pass
+
+        if isinstance(obj, (tuple, list)):
+            names = self._sequence_output_names()
+
+            if name in names:
+                index = names.index(name)
+
+                if index < len(obj):
+                    return obj[index]
+
+        sequence_names = self._sequence_output_names()
+
+        if len(sequence_names) == 1 and name == sequence_names[0]:
+            return obj
+
+        if name in {"value", "result", "output"}:
+            return obj
+
+        raise AttributeError(name)
+
     def output_is_assigned(self, name: str) -> bool:
         try:
             obj = self.output.value
-            getattr(obj, name)
+            self._extract_output_value(obj, name)
             return True
         except Exception:
             pass
@@ -1188,7 +1285,7 @@ class Lookup(Component, Generic[T]):
     def get_output(self, name: str) -> Any:
         try:
             obj = self.output.value
-            value = getattr(obj, name)
+            value = self._extract_output_value(obj, name)
         except Exception as exc:
             state = self._output_states.get(name)
 
@@ -1199,23 +1296,21 @@ class Lookup(Component, Generic[T]):
                 try:
                     self.evaluate_states()
                     obj = self.output.value
-                    value = getattr(obj, name)
+                    value = self._extract_output_value(obj, name)
                 except Exception as eval_exc:
                     self._last_error = eval_exc
                     raise ValueError(
                         f"{self.name!r}.{name} is not available yet. "
                         "Evaluate the lookup first, place it earlier in the network, "
-                        "or provide an output guess with "
-                        f"{self.name}.output_state({name!r}, guess) or "
-                        f"{self.name}.{name}.value = guess."
+                        "return a mapping/object with that output name, "
+                        "or use outputs=(...) for tuple/list returns."
                     ) from eval_exc
             else:
                 raise ValueError(
                     f"{self.name!r}.{name} is not available yet. "
                     "Evaluate the lookup first, place it earlier in the network, "
-                    "or provide an output guess with "
-                    f"{self.name}.output_state({name!r}, guess) or "
-                    f"{self.name}.{name}.value = guess."
+                    "return a mapping/object with that output name, "
+                    "or use outputs=(...) for tuple/list returns."
                 ) from exc
 
         if name in self._output_states:
@@ -1622,7 +1717,7 @@ class Lookup(Component, Generic[T]):
 
         for name, state in self._output_states.items():
             try:
-                state.value = getattr(obj, name)
+                state.value = self._extract_output_value(obj, name)
             except Exception:
                 pass
 
@@ -1652,8 +1747,8 @@ class Lookup(Component, Generic[T]):
         if self.strict_inputs:
             raise AttributeError(
                 f"{self.name!r} has no input named {name!r}. "
-                "Use strict_inputs=False or assign an output guess with "
-                f"{self.name}.output_state({name!r}, guess)."
+                "Use strict_inputs=False or return a mapping/object with "
+                "that output name."
             )
 
         self.set_output_guess(name, value)
@@ -1662,10 +1757,16 @@ class Lookup(Component, Generic[T]):
         names = set(super().__dir__())
         names.update(self.kwargs.keys())
         names.update(self._output_states.keys())
+        names.update(self._declared_output_names)
         names.update(self._input_fallback_states.keys())
 
         try:
-            names.update(dir(self.output.value))
+            output_value = self.output.value
+            names.update(dir(output_value))
+
+            if isinstance(output_value, Mapping):
+                names.update(str(key) for key in output_value.keys())
+
         except Exception:
             pass
 
@@ -1720,6 +1821,7 @@ class Lookup(Component, Generic[T]):
             "_accepted_keywords",
             "_accepts_var_keyword",
             "_output_states",
+            "_declared_output_names",
             "_input_fallback_states",
             "_last_input_key",
             "_last_structure_key",

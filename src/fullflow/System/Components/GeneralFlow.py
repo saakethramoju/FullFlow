@@ -25,10 +25,14 @@ class FlowTube(Component):
         upstream_density: State | None = None,
         downstream_density: State | None = None,
         friction_factor: float | None = None,
+        upstream_speed_of_sound: float | None = None,
+        downstream_speed_of_sound: float | None = None,
         gravitational_acceleration: float = 9.80665,
         height_change: float | None = None,
         upstream_static_enthalpy: State | None = None,
         total_enthalpy: State | None = None,
+        normal_shock: State | bool | None = False,
+        shock_mach_number: State | None = 0.0,
     ):
         self.setup()
 
@@ -53,6 +57,9 @@ class FlowTube(Component):
         inertia = 0.0
         gravity = 0.0
 
+        self.normal_shock.value = False
+        self.shock_mach_number.value = 0.0
+
         if self.upstream_density.is_assigned:
             rho1 = self.upstream_density.value
             u1 = mdot / (rho1 * A)
@@ -75,6 +82,61 @@ class FlowTube(Component):
                 u2 = mdot / (rho2 * A)
                 inertia = max(mdot, 0.0) * (u2 - u1) - max(-mdot, 0.0) * (u1 - u2)
 
+                if (
+                    friction == 0.0
+                    and gravity == 0.0
+                    and self.upstream_speed_of_sound.is_assigned
+                    and self.downstream_speed_of_sound.is_assigned
+                ):
+                    a1 = self.upstream_speed_of_sound.value
+                    a2 = self.downstream_speed_of_sound.value
+
+                    if mdot > 0.0:
+                        p_pre = p1
+                        rho_pre = rho1
+                        u_pre = abs(u1)
+                        a_pre = a1
+
+                        p_post = p2
+                        rho_post = rho2
+                        u_post = abs(u2)
+                        a_post = a2
+
+                    elif mdot < 0.0:
+                        p_pre = p2
+                        rho_pre = rho2
+                        u_pre = abs(u2)
+                        a_pre = a2
+
+                        p_post = p1
+                        rho_post = rho1
+                        u_post = abs(u1)
+                        a_post = a1
+
+                    else:
+                        p_pre = p1
+                        rho_pre = rho1
+                        u_pre = 0.0
+                        a_pre = a1
+
+                        p_post = p2
+                        rho_post = rho2
+                        u_post = 0.0
+                        a_post = a2
+
+                    if a_pre > 0.0 and a_post > 0.0:
+                        M_pre = u_pre / a_pre
+                        M_post = u_post / a_post
+
+                        if (
+                            p_post > p_pre
+                            and rho_post > rho_pre
+                            and M_pre > 1.0
+                            and M_post < 1.0
+                        ):
+                            self.normal_shock.value = True
+                            self.shock_mach_number.value = M_pre
+
         self.momentum_error = pressure - friction - inertia - gravity
         self.mass_flow_dot = self.momentum_error / L
 
@@ -83,6 +145,8 @@ class FlowTube(Component):
         # Flow inertia is a real dynamic equation.  SteadyState drives
         # mass_flow_dot to zero; Transient integrates mass_flow.
         return [(self.mass_flow, self.mass_flow_dot)]
+
+
 
 
 
