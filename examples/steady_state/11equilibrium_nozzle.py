@@ -1,198 +1,135 @@
-from concurrent.futures import ProcessPoolExecutor
-import os
+"""
+Shock-free equilibrium nozzle example using an SP combustion-products map.
 
-import numpy as np
+Physical layout
+---------------
+
+    RP-1 / LOX chamber equilibrium state
+    Pc, MR, h0, s0
+          |
+          v
+
+    +-------------------------+
+    |      Injector Face      |
+    |  HP equilibrium state   |
+    |  Pc = fixed in example  |
+    +-------------------------+
+          |
+          |  Converging Section
+          |  AdiabaticFlow:
+          |      h0 = h_chamber
+          |      mdot = rho_t * A_t * u_t
+          v
+
+    +-------------------------+
+    |        Throat Node      |
+    |  SP(Pt, s0, MR) lookup  |
+    |  Pt solved by mass      |
+    |  conservation           |
+    +-------------------------+
+          |
+          |  Diverging Section
+          |  AdiabaticFlow:
+          |      h_t + 0.5*u_t^2 = h_e + 0.5*u_e^2
+          |      mdot_t = mdot_e
+          v
+
+    +-------------------------+
+    |        Exit Plane       |
+    |  SP(Pe, s0, MR) lookup  |
+    |  Pe solved by choked    |
+    |  nozzle closure         |
+    +-------------------------+
+          |
+          v
+
+    Ambient pressure, Pamb
+    Pamb is not forced onto Pe for this choked no-shock example.
+    Pamb only appears in the pressure-thrust term.
+
+Model notes
+-----------
+This example assumes the nozzle is shock-free and isentropic inside the gas path.
+
+The chamber state is generated with HP equilibrium. The nozzle stations use
+SP lookups with the chamber entropy.
+
+For the current 400 psia chamber / 1 atm ambient setup, the nozzle is choked.
+The internal nozzle closure is therefore:
+
+    throat_mach = 1
+
+The exit pressure is solved internally. It is not set equal to ambient pressure.
+If Pe and Pamb do not match, that mismatch is handled outside the nozzle as
+plume expansion/compression, or by a shock model in a more advanced example.
+"""
+
 
 from fullflow import *
 from thermoprop import *
 
 
+# ---------------------------------------------------------------------------
+# Constants and options
+# ---------------------------------------------------------------------------
+
 psia_to_pa = 6894.76
+g0 = 9.80665
 
 filename = "equilibrium_nozzle"
 
-use_multiprocessing = True
-map_workers = min(4, os.cpu_count() or 1)
-map_chunksize = 25
+# Set to True only when the SP map needs to be regenerated.
+# Normal example runs should use the existing HDF5 map.
+make_map = False
 
 
 # ---------------------------------------------------------------------------
-# Map helper functions
+# Thermochemistry map function
 # ---------------------------------------------------------------------------
-
-def _inputs_from_index(axes, index, constants):
-    inputs = dict(constants)
-
-    for axis, i in zip(axes, index):
-        inputs[axis.name] = float(axis.values[i])
-
-    return inputs
-
-
-def _map_key(inputs, input_names):
-    return tuple(inputs[name] for name in input_names)
-
-
-def _evaluate_map_point(job):
-    evaluate, axes, constants, input_names, index = job
-
-    inputs = _inputs_from_index(axes, index, constants)
-    values = evaluate(**inputs)
-
-    return _map_key(inputs, input_names), values
-
-
-def generate_map_optional_multiprocessing(
-    filename,
-    axes,
-    evaluate,
-    group="map",
-    outputs=None,
-    constants=None,
-    metadata=None,
-    resume=True,
-    overwrite=False,
-    fill_value=np.nan,
-    compression="gzip",
-    compression_opts=None,
-    flush_every=25,
-    raise_errors=False,
-    use_multiprocessing=False,
-    workers=None,
-    chunksize=25,
-):
-    """
-    Generate a FullFlow map using normal generate_map(), with optional
-    script-level multiprocessing.
-
-    When use_multiprocessing=False, this is exactly a normal generate_map()
-    call.
-
-    When use_multiprocessing=True, worker processes evaluate the expensive
-    map points first. The main process then writes the HDF5 file using the
-    normal FullFlow generate_map() function. This avoids multiple processes
-    writing to the same HDF5 file.
-
-    Notes
-    -----
-    Cross-platform multiprocessing requires the call site to be inside:
-
-        if __name__ == "__main__":
-
-    This is required on Windows and macOS and is harmless on Linux.
-    """
-
-    axes = list(axes)
-    constants = {} if constants is None else dict(constants)
-
-    if not use_multiprocessing or workers is None or workers <= 1:
-        return generate_map(
-            filename=filename,
-            group=group,
-            axes=axes,
-            evaluate=evaluate,
-            outputs=outputs,
-            constants=constants,
-            metadata=metadata,
-            resume=resume,
-            overwrite=overwrite,
-            fill_value=fill_value,
-            compression=compression,
-            compression_opts=compression_opts,
-            flush_every=flush_every,
-            raise_errors=raise_errors,
-        )
-
-    input_names = tuple(list(constants.keys()) + [axis.name for axis in axes])
-    shape = tuple(len(axis.values) for axis in axes)
-    indices = list(np.ndindex(shape))
-
-    jobs = [
-        (evaluate, axes, constants, input_names, index)
-        for index in indices
-    ]
-
-    print(f"{group}: evaluating {len(jobs)} map points with {workers} processes...")
-
-    precomputed = {}
-
-    with ProcessPoolExecutor(max_workers=workers) as pool:
-        for counter, (key, values) in enumerate(
-            pool.map(_evaluate_map_point, jobs, chunksize=chunksize),
-            start=1,
-        ):
-            precomputed[key] = values
-
-            if counter % 100 == 0 or counter == len(jobs):
-                print(f"{group}: completed {counter} / {len(jobs)}")
-
-    def precomputed_map(**inputs):
-        key = _map_key(inputs, input_names)
-        return precomputed[key]
-
-    return generate_map(
-        filename=filename,
-        group=group,
-        axes=axes,
-        evaluate=precomputed_map,
-        outputs=outputs,
-        constants=constants,
-        metadata=metadata,
-        resume=resume,
-        overwrite=overwrite,
-        fill_value=fill_value,
-        compression=compression,
-        compression_opts=compression_opts,
-        flush_every=flush_every,
-        raise_errors=raise_errors,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Thermochemistry map functions
-# ---------------------------------------------------------------------------
-
-def rp1_lox_tp_map(pressure, temperature, mixture_ratio):
-
-    fuel = Propellant("rp-1", temperature=298.15)
-    oxidizer = Propellant("lox", temperature=90.17)
-
-    r = Reactants(
-        fuels=fuel,
-        oxidizers=oxidizer,
-        mixture_ratio=mixture_ratio,
-    )
-
-    eq = Equilibrium(
-        reactants=r,
-        mode="tp",
-        pressure=pressure,
-        temperature=temperature,
-    )
-
-    return {
-        "specific_heat_ratio": eq.gamma,
-        "gas_constant": eq.gas_constant,
-        "density": eq.density,
-        "enthalpy": eq.enthalpy,
-        "entropy": eq.entropy,
-        "speed_of_sound": eq.speed_of_sound,
-    }
-
 
 def rp1_lox_sp_map(pressure, entropy, mixture_ratio, guess_temperature):
+    """
+    Equilibrium combustion-products SP map for RP-1 / LOX.
+
+    Inputs
+    ------
+    pressure:
+        Static pressure at the nozzle station.
+
+    entropy:
+        Static entropy at the nozzle station. For this shock-free isentropic
+        example, this is the chamber entropy.
+
+    mixture_ratio:
+        Oxidizer-to-fuel mixture ratio.
+
+    guess_temperature:
+        Temperature guess used by the SP equilibrium solve.
+
+    Returns
+    -------
+    dict
+        Properties needed by the nozzle model:
+            gamma
+            gas constant
+            density
+            enthalpy
+            entropy
+            speed of sound
+            temperature
+    """
 
     fuel = Propellant("rp-1", temperature=298.15)
     oxidizer = Propellant("lox", temperature=90.17)
 
-    r = Reactants(
+    reactants = Reactants(
         fuels=fuel,
         oxidizers=oxidizer,
         mixture_ratio=mixture_ratio,
     )
 
     eq = Equilibrium(
-        reactants=r,
+        reactants=reactants,
         mode="sp",
         pressure=pressure,
         entropy=entropy,
@@ -206,241 +143,280 @@ def rp1_lox_sp_map(pressure, entropy, mixture_ratio, guess_temperature):
         "enthalpy": eq.enthalpy,
         "entropy": eq.entropy,
         "speed_of_sound": eq.speed_of_sound,
-        "temperature": eq.temperature
+        "temperature": eq.temperature,
     }
 
 
+# ---------------------------------------------------------------------------
+# Chamber / injector-face state
+# ---------------------------------------------------------------------------
 
+# Mixture ratio and chamber pressure are fixed in this standalone nozzle
+# example. In a full engine network, chamber pressure would usually be solved
+# by injector, chamber, and feed-system balances.
+mixture_ratio = State(2.3)
+chamber_pressure = State(400 * psia_to_pa)
 
+# Ambient pressure is not used to force the internal exit pressure for the
+# choked no-shock solution. It is used later in the pressure-thrust term.
+ambient_pressure = State(101325.0)
 
+fuel = Propellant("rp-1", temperature=298.15)
+oxidizer = Propellant("lox", temperature=90.17)
 
+Props = Reactants(
+    fuels=fuel,
+    oxidizers=oxidizer,
+    mixture_ratio=mixture_ratio.value,
+)
+
+# HP equilibrium gives the injector-face / chamber stagnation-like state.
+# For this simplified nozzle model, chamber velocity is assumed negligible, so
+# chamber static enthalpy is used as the nozzle total enthalpy.
+InjectorFace = Equilibrium(
+    reactants=Props,
+    mode="hp",
+    pressure=chamber_pressure.value,
+)
 
 
 # ---------------------------------------------------------------------------
-# Map generation
+# Optional SP map generation
+# ---------------------------------------------------------------------------
+
+if make_map:
+    generate_map(
+        filename=filename,
+        group="products_sp",
+        axes=[
+            Axis.log(
+                "pressure",
+                start=1 * psia_to_pa,
+                stop=500 * psia_to_pa,
+                count=18,
+                units="Pa",
+            ),
+            Axis.linear(
+                "entropy",
+                start=0.90 * InjectorFace.entropy,
+                stop=1.10 * InjectorFace.entropy,
+                count=10,
+                units="J/kg-K",
+            ),
+            Axis.linear(
+                "mixture_ratio",
+                start=1,
+                stop=4,
+                count=9,
+                units="",
+            ),
+        ],
+        constants={
+            "guess_temperature": InjectorFace.temperature,
+        },
+        evaluate=rp1_lox_sp_map,
+        overwrite=True,
+        raise_errors=True,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Network setup
+# ---------------------------------------------------------------------------
+
+EquilibriumNozzle = Network("Equilibrium Nozzle")
+
+
+# ---------------------------------------------------------------------------
+# Nozzle geometry and station guesses
+# ---------------------------------------------------------------------------
+
+# These are solver guesses, not prescribed final answers.
+throat_pressure = State(300 * psia_to_pa)
+exit_pressure = State(10 * psia_to_pa)
+
+# The shock-free isentropic nozzle uses chamber entropy at every station.
+throat_entropy = State(InjectorFace.entropy)
+
+# Nozzle geometry.
+# Areas are in m^2. The conversion 1550 approximately converts in^2 to m^2.
+throat_area = 6 / 1550
+expansion_ratio = 6
+exit_area = throat_area * expansion_ratio
+
+
+# ---------------------------------------------------------------------------
+# Thermodynamic station maps
+# ---------------------------------------------------------------------------
+
+# Throat state from SP(Pt, s0, MR).
+ThroatMap = Map.from_hdf5(
+    "Throat Map",
+    EquilibriumNozzle,
+    filename=filename,
+    group="products_sp",
+    inputs={
+        "pressure": throat_pressure,
+        "entropy": throat_entropy,
+        "mixture_ratio": mixture_ratio,
+    },
+)
+
+# Exit state from SP(Pe, s0, MR).
+ExitMap = Map.from_hdf5(
+    "Exit Map",
+    EquilibriumNozzle,
+    filename=filename,
+    group="products_sp",
+    inputs={
+        "pressure": exit_pressure,
+        "entropy": throat_entropy,
+        "mixture_ratio": mixture_ratio,
+    },
+)
+
+
+# ---------------------------------------------------------------------------
+# Converging section: chamber to throat
+# ---------------------------------------------------------------------------
+
+# The upstream density and upstream area are intentionally omitted here.
+# That tells AdiabaticFlow to treat InjectorFace.enthalpy as total enthalpy:
 #
-# The __main__ guard is required for optional multiprocessing on Windows and
-# macOS. It is harmless on Linux. If use_multiprocessing=False, the script still
-# works normally.
+#     h0 = h_chamber
+#
+# Then the branch computes:
+#
+#     u_t = sqrt(2*(h0 - h_t))
+#     mdot = rho_t * A_t * u_t
+Conv = AdiabaticFlow(
+    "Converging Section",
+    EquilibriumNozzle,
+    upstream_static_enthalpy=InjectorFace.enthalpy,
+    downstream_static_enthalpy=ThroatMap.enthalpy,
+    downstream_density=ThroatMap.density,
+    downstream_cross_sectional_area=throat_area,
+)
+
+
+# ---------------------------------------------------------------------------
+# Throat mass-conservation node
 # ---------------------------------------------------------------------------
 
-if __name__ == "__main__":
-
-    mixture_ratio = State(2.3)
-    chamber_pressure = State(400 * psia_to_pa)
-    make_maps = False
-
-
-
-
-    fuel = Propellant("rp-1", temperature=298.15)
-    oxidizer = Propellant("lox", temperature=90.17)
-
-    Props = Reactants(
-        fuels=fuel,
-        oxidizers=oxidizer,
-        mixture_ratio=mixture_ratio.value,
-    )
-
-    InjectorFace = Equilibrium(
-        reactants=Props,
-        mode="hp",
-        pressure=chamber_pressure.value,
-    )
+# This algebraic Volume supplies the unknown outflow state Throat.mass_flow_out.
+# Its balance is:
+#
+#     Conv.mass_flow - Throat.mass_flow_out = 0
+#
+# That balance solves throat_pressure.
+Throat = Volume(
+    "Throat",
+    EquilibriumNozzle,
+    pressure=throat_pressure,
+    mass_flow_in=Conv.mass_flow,
+)
 
 
+# ---------------------------------------------------------------------------
+# Diverging section: throat to exit
+# ---------------------------------------------------------------------------
+
+# This section uses both station areas and densities, so AdiabaticFlow applies:
+#
+#     h_t + 0.5*u_t^2 = h_e + 0.5*u_e^2
+#     rho_t*u_t*A_t = rho_e*u_e*A_e
+#
+# The mass flow is tied to Throat.mass_flow_out, so the throat Volume and
+# diverging branch must agree on the same nozzle flow rate.
+Div = AdiabaticFlow(
+    "Diverging Section",
+    EquilibriumNozzle,
+    upstream_static_enthalpy=ThroatMap.enthalpy,
+    downstream_static_enthalpy=ExitMap.enthalpy,
+    upstream_density=ThroatMap.density,
+    downstream_density=ExitMap.density,
+    upstream_cross_sectional_area=throat_area,
+    downstream_cross_sectional_area=exit_area,
+    mass_flow=Throat.mass_flow_out,
+)
 
 
+# ---------------------------------------------------------------------------
+# Derived velocities and Mach numbers
+# ---------------------------------------------------------------------------
+
+throat_velocity = Conv.mass_flow / (ThroatMap.density * throat_area)
+exit_velocity = Div.mass_flow / (ExitMap.density * exit_area)
+
+throat_mach = abs(throat_velocity) / ThroatMap.speed_of_sound
+exit_mach = abs(exit_velocity) / ExitMap.speed_of_sound
 
 
-    if make_maps:
+# ---------------------------------------------------------------------------
+# Jet boundary / nozzle closure
+# ---------------------------------------------------------------------------
 
-        # Use the ideal chamber entropy only to choose a reasonable entropy-axis
-        # range. The SP map itself is still a general SP(P, s, MR) map.
-        reference_entropy = InjectorFace.entropy
-        reference_temperature = InjectorFace.temperature
-
-        generate_map_optional_multiprocessing(
-            filename=filename,
-            group="products_tp",
-            axes=[
-                Axis.log(
-                    "pressure",
-                    start=1 * psia_to_pa,
-                    stop=500 * psia_to_pa,
-                    count=16,
-                    units="Pa",
-                ),
-                Axis.linear(
-                    "temperature",
-                    start=500,
-                    stop=4500,
-                    count=25,
-                    units="K",
-                ),
-                Axis.linear(
-                    "mixture_ratio",
-                    start=1,
-                    stop=4,
-                    count=11,
-                    units="",
-                ),
-            ],
-            evaluate=rp1_lox_tp_map,
-            overwrite=True,
-            raise_errors=True,
-            use_multiprocessing=use_multiprocessing,
-            workers=map_workers,
-            chunksize=map_chunksize,
-        )
-
-        generate_map_optional_multiprocessing(
-            filename=filename,
-            group="products_sp",
-            axes=[
-                Axis.log(
-                    "pressure",
-                    start=1 * psia_to_pa,
-                    stop=500 * psia_to_pa,
-                    count=18,
-                    units="Pa",
-                ),
-                Axis.linear(
-                    "entropy",
-                    start=0.90 * reference_entropy,
-                    stop=1.10 * reference_entropy,
-                    count=10,
-                    units="J/kg-K",
-                ),
-                Axis.linear(
-                    "mixture_ratio",
-                    start=1,
-                    stop=4,
-                    count=9,
-                    units="",
-                ),
-            ],
-            constants={
-                "guess_temperature": reference_temperature,
-            },
-            evaluate=rp1_lox_sp_map,
-            overwrite=True,
-            raise_errors=True,
-            use_multiprocessing=use_multiprocessing,
-            workers=4,
-            chunksize=10,
-        )
+# For this specific example, the chamber-to-ambient pressure ratio is low enough
+# that the nozzle is choked. The no-shock choked closure is:
+#
+#     throat_mach = 1
+#
+# This closure solves exit_pressure. Ambient pressure is not forced onto the
+# internal exit pressure in the choked no-shock branch.
+JetBoundary = Balance(
+    "Jet Boundary",
+    EquilibriumNozzle,
+    variable=exit_pressure,
+    function=throat_mach - 1.0,
+)
 
 
+# ---------------------------------------------------------------------------
+# Thrust and performance
+# ---------------------------------------------------------------------------
+
+# Ideal one-dimensional thrust:
+#
+#     F = mdot*ue + (Pe - Pamb)*Ae
+#
+# The pressure term can be positive or negative depending on whether the nozzle
+# is underexpanded or overexpanded relative to ambient.
+thrust = Conv.mass_flow * exit_velocity + (exit_pressure - ambient_pressure) * exit_area
+
+# Specific impulse:
+#
+#     Isp = F/(mdot*g0)
+specific_impulse = thrust / (Conv.mass_flow * g0)
 
 
+# ---------------------------------------------------------------------------
+# Tracked outputs
+# ---------------------------------------------------------------------------
 
-    EquilibriumNozzle = Network("Equilibrium Nozzle")
+EquilibriumNozzle.track("Chamber Pressure [psia]", InjectorFace.pressure / psia_to_pa)
+EquilibriumNozzle.track("Throat Pressure [psia]", throat_pressure / psia_to_pa)
+EquilibriumNozzle.track("Exit Pressure [psia]", exit_pressure / psia_to_pa)
+EquilibriumNozzle.track("Ambient Pressure [psia]", ambient_pressure / psia_to_pa)
 
-    throat_pressure = State(chamber_pressure.value)
-    throat_entropy = State(InjectorFace.entropy)
+EquilibriumNozzle.track("Chamber Temperature [K]", InjectorFace.temperature)
+EquilibriumNozzle.track("Throat Temperature [K]", ThroatMap.temperature)
+EquilibriumNozzle.track("Exit Temperature [K]", ExitMap.temperature)
 
-    exit_pressure = State(200 * psia_to_pa)
+EquilibriumNozzle.track("Chamber Gamma", InjectorFace.gamma)
+EquilibriumNozzle.track("Throat Gamma", ThroatMap.specific_heat_ratio)
+EquilibriumNozzle.track("Exit Gamma", ExitMap.specific_heat_ratio)
 
-    expansion_ratio = State(5)
+EquilibriumNozzle.track("Throat Mach", throat_mach)
+EquilibriumNozzle.track("Exit Mach", exit_mach)
 
-    ThroatMap = Map.from_hdf5(
-        "Throat Map",
-        EquilibriumNozzle,
-        filename=filename,
-        group="products_sp",
-        inputs={
-            "pressure": throat_pressure,
-            "entropy": throat_entropy,
-            "mixture_ratio": mixture_ratio
-        }
-    )
+EquilibriumNozzle.track("Mass Flow [kg/s]", Conv.mass_flow)
 
-
-    ExitMap = Map.from_hdf5(
-        "Exit Map",
-        EquilibriumNozzle,
-        filename=filename,
-        group="products_sp",
-        inputs={
-            "pressure": exit_pressure,
-            "entropy": throat_entropy,
-            "mixture_ratio": mixture_ratio
-        }
-    )
+EquilibriumNozzle.track("Thrust [lbf]", thrust / 4.448)
+EquilibriumNozzle.track("Specific Impulse [s]", specific_impulse)
 
 
-    Conv = AreaChange(
-        "Converging Section",
-        EquilibriumNozzle,
-        mass_flow=7,
-        upstream_static_pressure=InjectorFace.pressure,
-        downstream_static_pressure=throat_pressure,
-        length=4 / 39.37,
-        upstream_cross_sectional_area=25 / 1550,
-        downstream_cross_sectional_area=5.75/1550,
-        upstream_density=InjectorFace.density,
-        downstream_density=ThroatMap.density,
-        upstream_speed_of_sound=InjectorFace.speed_of_sound,
-        downstream_speed_of_sound=ThroatMap.speed_of_sound,
-    )
+# ---------------------------------------------------------------------------
+# Solve
+# ---------------------------------------------------------------------------
 
-
-    Throat = Volume(
-        "Throat Node",
-        EquilibriumNozzle,
-        pressure=throat_pressure,
-        mass_flow_in=Conv.mass_flow,
-        mass_flow_out=10
-    )
-
-
-    Div = AreaChange(
-        "Diverging Section",
-        EquilibriumNozzle,
-        mass_flow=Throat.mass_flow_out,
-        upstream_static_pressure=Throat.pressure,
-        downstream_static_pressure=exit_pressure,
-        length=10 / 39.37,
-        upstream_cross_sectional_area=Conv.downstream_cross_sectional_area,
-        downstream_cross_sectional_area=Conv.downstream_cross_sectional_area * expansion_ratio,
-        upstream_density=ThroatMap.density,
-        downstream_density=ExitMap.density,
-        upstream_speed_of_sound=ThroatMap.speed_of_sound,
-        downstream_speed_of_sound=ExitMap.speed_of_sound,
-    )
-
-    
-    '''  
-    ChokingBalance = Balance(
-        "Choked Flow",
-        EquilibriumNozzle,
-        variable=Conv.downstream_cross_sectional_area,
-        function=Throat.mass_flow_out - ThroatMap.density * ThroatMap.speed_of_sound * Conv.downstream_cross_sectional_area
-    )
-    '''
-
-
-    EquilibriumNozzle.track("Chamber Pressure [psia]", InjectorFace.pressure / psia_to_pa)
-    EquilibriumNozzle.track("Throat Pressure [psia]", Throat.pressure / psia_to_pa)
-    EquilibriumNozzle.track("Exit Pressure [psia]", exit_pressure / psia_to_pa)
-
-    EquilibriumNozzle.track("Chamber Temperature [K]", InjectorFace.temperature)
-    EquilibriumNozzle.track("Throat Temperature [K]", ThroatMap.temperature)
-    EquilibriumNozzle.track("Exit Temperature [K]", ExitMap.temperature)
-
-    EquilibriumNozzle.track("Chamber Gamma", InjectorFace.gamma)
-    EquilibriumNozzle.track("Throat Gamma", ThroatMap.specific_heat_ratio)
-    EquilibriumNozzle.track("Exit Gamma", ExitMap.specific_heat_ratio)
-
-    chamber_mach = Conv.mass_flow / (InjectorFace.density * InjectorFace.speed_of_sound * Conv.upstream_cross_sectional_area)
-    throat_mach = Conv.mass_flow / (ThroatMap.density * ThroatMap.speed_of_sound * Conv.downstream_cross_sectional_area)
-    exit_mach = Div.mass_flow / (ExitMap.density * ExitMap.speed_of_sound * Div.downstream_cross_sectional_area)
-
-    EquilibriumNozzle.track("Chamber Mach", chamber_mach)
-    EquilibriumNozzle.track("Throat Mach", throat_mach)
-    EquilibriumNozzle.track("Exit Mach", exit_mach)
-
-    
-
-    SteadyState(EquilibriumNozzle).solve(verbose=True)
+SteadyState(EquilibriumNozzle).solve(verbose=True)

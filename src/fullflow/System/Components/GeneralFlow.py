@@ -151,6 +151,97 @@ class FlowTube(Component):
 
 
 
+
+
+class AdiabaticFlow(Component):
+    """
+    One-directional adiabatic gas branch.
+
+    This branch calculates mass flow from continuity and total enthalpy
+    conservation.
+
+    If upstream_density and upstream_cross_sectional_area are provided, the
+    upstream state is treated as a finite-area static state:
+
+        h0 = h1 + 0.5*v1**2
+
+    If upstream_density or upstream_cross_sectional_area is omitted, the
+    upstream enthalpy is treated as stagnation enthalpy:
+
+        h0 = h1
+
+    This keeps the user from needing to pass h0 directly.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        network: Network,
+        upstream_static_enthalpy: State,
+        downstream_static_enthalpy: State,
+        downstream_density: State,
+        downstream_cross_sectional_area: State | float,
+        upstream_density: State | None = None,
+        upstream_cross_sectional_area: State | float | None = None,
+        mass_flow: State | None = 0.0,
+        total_enthalpy: State | None = 0.0,
+    ):
+        self.setup()
+
+    def evaluate_states(self):
+        h1 = self.upstream_static_enthalpy.value
+        h2 = self.downstream_static_enthalpy.value
+        rho2 = self.downstream_density.value
+        A2 = self.downstream_cross_sectional_area.value
+
+        self.mass_flow.value = 0.0
+        self.total_enthalpy.value = h1
+
+        if rho2 <= 0.0 or A2 <= 0.0:
+            return
+
+        upstream_finite_area = (
+            self.upstream_density.is_assigned
+            and self.upstream_cross_sectional_area.is_assigned
+        )
+
+        if upstream_finite_area:
+            rho1 = self.upstream_density.value
+            A1 = self.upstream_cross_sectional_area.value
+
+            if rho1 <= 0.0 or A1 <= 0.0:
+                return
+
+            denominator = 1.0/(rho2*A2)**2 - 1.0/(rho1*A1)**2
+
+            if denominator == 0.0:
+                return
+
+            mass_flow_squared = 2.0*(h1 - h2)/denominator
+
+            if mass_flow_squared <= 0.0:
+                return
+
+            self.mass_flow.value = mass_flow_squared**0.5
+
+            upstream_velocity = self.mass_flow.value/(rho1*A1)
+            self.total_enthalpy.value = h1 + 0.5*upstream_velocity**2
+
+        else:
+            velocity_squared = 2.0*(h1 - h2)
+
+            if velocity_squared <= 0.0:
+                return
+
+            downstream_velocity = velocity_squared**0.5
+
+            self.mass_flow.value = rho2*A2*downstream_velocity
+            self.total_enthalpy.value = h1
+
+
+
+
+
 class DarcyWeisbach(Component):
     def __init__(
         self,
