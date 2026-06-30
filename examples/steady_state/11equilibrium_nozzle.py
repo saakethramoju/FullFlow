@@ -340,6 +340,9 @@ if __name__ == "__main__":
     throat_pressure = State(chamber_pressure.value)
     throat_entropy = State(InjectorFace.entropy)
 
+    exit_pressure = State(200 * psia_to_pa)
+
+    expansion_ratio = State(5)
 
     ThroatMap = Map.from_hdf5(
         "Throat Map",
@@ -354,16 +357,32 @@ if __name__ == "__main__":
     )
 
 
-    Conv = CompressibleOrifice(
+    ExitMap = Map.from_hdf5(
+        "Exit Map",
+        EquilibriumNozzle,
+        filename=filename,
+        group="products_sp",
+        inputs={
+            "pressure": exit_pressure,
+            "entropy": throat_entropy,
+            "mixture_ratio": mixture_ratio
+        }
+    )
+
+
+    Conv = AreaChange(
         "Converging Section",
         EquilibriumNozzle,
-        upstream_total_pressure=InjectorFace.pressure,
-        upstream_total_temperature=InjectorFace.temperature,
-        downstream_pressure=throat_pressure,
-        discharge_coefficient=1,
-        cross_sectional_area=5.75/1550,
-        gas_constant=InjectorFace.gas_constant,
-        specific_heat_ratio=InjectorFace.gamma,
+        mass_flow=7,
+        upstream_static_pressure=InjectorFace.pressure,
+        downstream_static_pressure=throat_pressure,
+        length=4 / 39.37,
+        upstream_cross_sectional_area=25 / 1550,
+        downstream_cross_sectional_area=5.75/1550,
+        upstream_density=InjectorFace.density,
+        downstream_density=ThroatMap.density,
+        upstream_speed_of_sound=InjectorFace.speed_of_sound,
+        downstream_speed_of_sound=ThroatMap.speed_of_sound,
     )
 
 
@@ -372,7 +391,55 @@ if __name__ == "__main__":
         EquilibriumNozzle,
         pressure=throat_pressure,
         mass_flow_in=Conv.mass_flow,
+        mass_flow_out=10
     )
+
+
+    Div = AreaChange(
+        "Diverging Section",
+        EquilibriumNozzle,
+        mass_flow=Throat.mass_flow_out,
+        upstream_static_pressure=Throat.pressure,
+        downstream_static_pressure=exit_pressure,
+        length=10 / 39.37,
+        upstream_cross_sectional_area=Conv.downstream_cross_sectional_area,
+        downstream_cross_sectional_area=Conv.downstream_cross_sectional_area * expansion_ratio,
+        upstream_density=ThroatMap.density,
+        downstream_density=ExitMap.density,
+        upstream_speed_of_sound=ThroatMap.speed_of_sound,
+        downstream_speed_of_sound=ExitMap.speed_of_sound,
+    )
+
+    
+    '''  
+    ChokingBalance = Balance(
+        "Choked Flow",
+        EquilibriumNozzle,
+        variable=Conv.downstream_cross_sectional_area,
+        function=Throat.mass_flow_out - ThroatMap.density * ThroatMap.speed_of_sound * Conv.downstream_cross_sectional_area
+    )
+    '''
+
+
+    EquilibriumNozzle.track("Chamber Pressure [psia]", InjectorFace.pressure / psia_to_pa)
+    EquilibriumNozzle.track("Throat Pressure [psia]", Throat.pressure / psia_to_pa)
+    EquilibriumNozzle.track("Exit Pressure [psia]", exit_pressure / psia_to_pa)
+
+    EquilibriumNozzle.track("Chamber Temperature [K]", InjectorFace.temperature)
+    EquilibriumNozzle.track("Throat Temperature [K]", ThroatMap.temperature)
+    EquilibriumNozzle.track("Exit Temperature [K]", ExitMap.temperature)
+
+    EquilibriumNozzle.track("Chamber Gamma", InjectorFace.gamma)
+    EquilibriumNozzle.track("Throat Gamma", ThroatMap.specific_heat_ratio)
+    EquilibriumNozzle.track("Exit Gamma", ExitMap.specific_heat_ratio)
+
+    chamber_mach = Conv.mass_flow / (InjectorFace.density * InjectorFace.speed_of_sound * Conv.upstream_cross_sectional_area)
+    throat_mach = Conv.mass_flow / (ThroatMap.density * ThroatMap.speed_of_sound * Conv.downstream_cross_sectional_area)
+    exit_mach = Div.mass_flow / (ExitMap.density * ExitMap.speed_of_sound * Div.downstream_cross_sectional_area)
+
+    EquilibriumNozzle.track("Chamber Mach", chamber_mach)
+    EquilibriumNozzle.track("Throat Mach", throat_mach)
+    EquilibriumNozzle.track("Exit Mach", exit_mach)
 
     
 
