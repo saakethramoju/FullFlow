@@ -23,6 +23,7 @@ from typing import Any
 
 from fullflow.System.Component import Component
 from fullflow.System.State import State, is_assignable_state_like, is_state_like
+from fullflow.Exceptions import FullFlowConfigurationError, UnassignedStateError
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,7 +65,7 @@ def _as_list(value: Any, *, property_name: str) -> list[Any]:
         return value
     if isinstance(value, tuple):
         return list(value)
-    raise TypeError(f"{property_name} must return a list or tuple, not {type(value).__name__}.")
+    raise FullFlowConfigurationError(f"{property_name} must return a list or tuple, not {type(value).__name__}.")
 
 
 
@@ -82,7 +83,7 @@ def _is_unassigned_state_error(error: BaseException) -> bool:
 
     while current is not None and id(current) not in seen:
         seen.add(id(current))
-        if "has no assigned value" in str(current):
+        if isinstance(current, UnassignedStateError):
             return True
         current = current.__cause__ or current.__context__
 
@@ -159,7 +160,7 @@ def evaluate_components_for_equation_discovery(components: list[Any] | tuple[Any
             "  - Connect it to a component that computes it",
             "  - Make it a dynamics or balances solve variable with an initial guess",
         ])
-        raise RuntimeError("\n".join(lines)) from None
+        raise FullFlowConfigurationError("\n".join(lines)) from None
 
 def component_dynamics(owner: Any) -> list[DynamicEquation]:
     """Return normalized dynamic equations for a component."""
@@ -168,7 +169,7 @@ def component_dynamics(owner: Any) -> list[DynamicEquation]:
     equations: list[DynamicEquation] = []
     for index, entry in enumerate(raw_equations):
         if not isinstance(entry, tuple):
-            raise TypeError(f"{owner.name}: dynamics[{index}] must be a tuple.")
+            raise FullFlowConfigurationError(f"{owner.name}: dynamics[{index}] must be a tuple.")
 
         if len(entry) == 2:
             variable, derivative = entry
@@ -176,15 +177,15 @@ def component_dynamics(owner: Any) -> list[DynamicEquation]:
         elif len(entry) == 3:
             variable, state, derivative = entry
         else:
-            raise ValueError(
+            raise FullFlowConfigurationError(
                 f"{owner.name}: dynamics[{index}] must be either "
                 "(variable, derivative) or (variable, state, derivative)."
             )
 
         if not is_assignable_state_like(variable):
-            raise TypeError(f"{owner.name}: dynamics[{index}] variable must be an assignable State.")
+            raise FullFlowConfigurationError(f"{owner.name}: dynamics[{index}] variable must be an assignable State.")
         if not is_state_like(state):
-            raise TypeError(f"{owner.name}: dynamics[{index}] integrated state must be a State.")
+            raise FullFlowConfigurationError(f"{owner.name}: dynamics[{index}] integrated state must be a State.")
 
         equations.append(DynamicEquation(owner=owner, variable=variable, state=state, derivative=derivative, index=index))
 
@@ -198,11 +199,11 @@ def component_balances(owner: Any) -> list[BalanceEquation]:
     equations: list[BalanceEquation] = []
     for index, entry in enumerate(raw_equations):
         if not isinstance(entry, tuple) or len(entry) != 2:
-            raise ValueError(f"{owner.name}: balances[{index}] must be (variable, residual).")
+            raise FullFlowConfigurationError(f"{owner.name}: balances[{index}] must be (variable, residual).")
 
         variable, residual = entry
         if not is_assignable_state_like(variable):
-            raise TypeError(f"{owner.name}: balances[{index}] variable must be an assignable State.")
+            raise FullFlowConfigurationError(f"{owner.name}: balances[{index}] variable must be an assignable State.")
 
         equations.append(BalanceEquation(owner=owner, variable=variable, residual=residual, index=index))
 

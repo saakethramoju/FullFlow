@@ -23,6 +23,7 @@ import numpy as np
 from scipy.optimize import Bounds, least_squares
 
 from fullflow.Solvers.steady_state.settings import LeastSquaresSettings, StateEvaluationSettings
+from fullflow.Exceptions import SolverSetupError, TransientStepError
 
 
 @dataclass(slots=True)
@@ -121,7 +122,7 @@ class TransientStepSolve:
             except Exception:
                 self._last_debug_residual = None
 
-            raise RuntimeError(
+            raise TransientStepError(
                 "Transient solver encountered an error while evaluating the network "
                 "inside a timestep residual call.\n\n"
                 f"time = {self._active_time:.9g}\n"
@@ -314,7 +315,7 @@ class TransientStepSolve:
 
         if settings.solver_method == "lm":
             if any(state.has_bounds for state in cache.iteration_variables):
-                raise ValueError("solver_method='lm' does not support bounded States.")
+                raise SolverSetupError("solver_method='lm' does not support bounded States.")
             return kwargs
 
         # This is the same bound pattern used by the steady-state solver.  There
@@ -388,4 +389,4 @@ class TransientStepSolve:
                 for label, value in worst_rows
             )
 
-        raise RuntimeError("\n".join(lines))
+        raise TransientStepError("\n".join(lines))

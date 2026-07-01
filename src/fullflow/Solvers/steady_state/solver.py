@@ -27,6 +27,7 @@ from .operations import NonlinearSolve, StaticDiagnostics, StaticEvaluation, Sol
 from .runtime import RuntimeCache
 from .settings import LeastSquaresSettings, StateEvaluationSettings
 from .statistics import SolverStatistics
+from fullflow.Exceptions import SolverSetupError
 
 if TYPE_CHECKING:
     from fullflow.System import Network
@@ -158,7 +159,7 @@ class SteadyState:
             except Exception:
                 self._last_debug_residual = None
 
-            raise RuntimeError(
+            raise SolverSetupError(
                 "Solver encountered an error while evaluating the network "
                 "inside evaluate_network_states().\n\n"
                 f"Original error:\n{type(error).__name__}: {error}"

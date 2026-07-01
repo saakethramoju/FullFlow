@@ -9,6 +9,7 @@ from typing import Any
 from fullflow.System.State import is_state_like
 
 from fullflow.Exports.HDF5 import run_group_path, safe_group_name, write_failures
+from fullflow.Exceptions import SolverConvergenceError
 from fullflow.System.State import State
 from fullflow.Solvers.steady_state.models import ModelFailure, ModelManager
 from .results import format_records
@@ -215,7 +216,7 @@ class TransientModelOptionRunner:
             return records
 
         self.printer.print_model_failures(failures)
-        raise RuntimeError(f"All options failed for model {selected_model.name!r}.")
+        raise SolverConvergenceError(f"All options failed for model {selected_model.name!r}.")
 
     def _run_all_options(
         self,
@@ -256,7 +257,7 @@ class TransientModelOptionRunner:
 
         if last_success_option is None:
             self.printer.print_model_failures(failures)
-            raise RuntimeError(f"All options failed for model {selected_model.name!r}.")
+            raise SolverConvergenceError(f"All options failed for model {selected_model.name!r}.")
 
         selected_model.replace(last_success_option)
         snapshot.restore()

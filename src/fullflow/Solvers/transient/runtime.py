@@ -34,6 +34,7 @@ from fullflow.System.State import (
     resolve_numeric,
 )
 from fullflow.Solvers.balance_filtering import filter_user_balances
+from fullflow.Exceptions import SolverSetupError
 from fullflow.Solvers.equations import (
     balance_object_equations,
     component_balances,
@@ -237,7 +238,7 @@ class TransientRuntimeCache:
             return value
         if isinstance(value, tuple):
             return list(value)
-        raise TypeError("dynamics and balances must return a list or tuple.")
+        raise SolverSetupError("dynamics and balances must return a list or tuple.")
 
     @staticmethod
     def _component_label(component: Any) -> str:
@@ -250,7 +251,7 @@ class TransientRuntimeCache:
         normalized = value.strip().lower()
         if normalized == "all":
             return normalized
-        raise ValueError(
+        raise SolverSetupError(
             "force_steady must be None, 'all', or an iterable of Component objects. "
             f"Got string {value!r}."
         )
@@ -266,7 +267,7 @@ class TransientRuntimeCache:
             return ()
 
         if isinstance(value, (str, bytes)) or not self._is_component_iterable(value):
-            raise TypeError(
+            raise SolverSetupError(
                 f"{argument_name} must be an iterable of Component objects. "
                 f"Got {type(value).__name__}."
             )
@@ -274,7 +275,7 @@ class TransientRuntimeCache:
         components = tuple(value)
         for item in components:
             if not isinstance(item, Component):
-                raise TypeError(
+                raise SolverSetupError(
                     f"{argument_name} must contain only Component objects. "
                     f"Got {type(item).__name__}: {item!r}."
                 )
@@ -293,7 +294,7 @@ class TransientRuntimeCache:
                 f"{argument_name} contains components that are not registered with network {self.network.name!r}:",
             ]
             lines.extend(f"  - {self._component_label(component)}" for component in missing)
-            raise ValueError("\n".join(lines))
+            raise SolverSetupError("\n".join(lines))
 
         nondynamic = [component for component in components if not self._component_is_dynamic(component)]
         if nondynamic:
@@ -301,7 +302,7 @@ class TransientRuntimeCache:
                 f"{argument_name} contains components with no dynamic equations:",
             ]
             lines.extend(f"  - {self._component_label(component)}" for component in nondynamic)
-            raise ValueError("\n".join(lines))
+            raise SolverSetupError("\n".join(lines))
 
     def _force_steady_component_ids(self) -> set[int]:
         """Return component IDs whose dynamics should use derivative = 0."""
@@ -313,7 +314,7 @@ class TransientRuntimeCache:
 
         if force_steady is None:
             if exceptions is not None:
-                raise ValueError(
+                raise SolverSetupError(
                     "force_steady_exceptions can only be used when force_steady='all'."
                 )
             return set()
@@ -335,7 +336,7 @@ class TransientRuntimeCache:
             }
 
         if exceptions is not None:
-            raise ValueError(
+            raise SolverSetupError(
                 "force_steady_exceptions can only be used when force_steady='all'."
             )
 
@@ -381,7 +382,7 @@ class TransientRuntimeCache:
     def _validate_derivative(self, component: Any, derivative: Any, index: int) -> None:
         if self._is_valid_derivative(derivative):
             return
-        raise TypeError(
+        raise SolverSetupError(
             f"{component.name}: dynamics derivative[{index}] must be a State "
             f"or a numeric value. Got {type(derivative).__name__}."
         )
@@ -403,13 +404,13 @@ class TransientRuntimeCache:
             states = self._component_transient_states(component)
 
             if not variables and states:
-                raise ValueError(
+                raise SolverSetupError(
                     f"{component.name}: dynamic integrated states were provided, but "
                     "dynamic variables is empty."
                 )
 
             if len(variables) != len(states):
-                raise ValueError(
+                raise SolverSetupError(
                     f"{component.name}: dynamic variables and dynamic integrated states "
                     "must have the same length. Got "
                     f"{len(variables)} variables and {len(states)} states."
@@ -417,24 +418,24 @@ class TransientRuntimeCache:
 
             for index, (variable, state) in enumerate(zip(variables, states)):
                 if not is_assignable_state_like(variable):
-                    raise TypeError(
+                    raise SolverSetupError(
                         f"{component.name}: dynamic variable {index} must be an "
                         "assignable, non-derived State."
                     )
 
                 if not is_state_like(state):
-                    raise TypeError(
+                    raise SolverSetupError(
                         f"{component.name}: dynamic integrated state {index} must be a State."
                     )
 
                 if not callable(getattr(state, "store_previous", None)):
-                    raise TypeError(
+                    raise SolverSetupError(
                         f"{component.name}: dynamic integrated state {index} must support "
                         "store_previous(). Use a State for dynamic integrated states."
                     )
 
                 if not callable(getattr(state, "clear_previous", None)):
-                    raise TypeError(
+                    raise SolverSetupError(
                         f"{component.name}: dynamic integrated state {index} must support "
                         "clear_previous(). Use a State for dynamic integrated states."
                     )
@@ -464,9 +465,9 @@ class TransientRuntimeCache:
 
         def add(state: Any, owner: Any) -> None:
             if not is_state_like(state):
-                raise TypeError(f"{owner.name}: dynamic integrated state must be State-like.")
+                raise SolverSetupError(f"{owner.name}: dynamic integrated state must be State-like.")
             if not callable(getattr(state, "store_previous", None)):
-                raise TypeError(f"{owner.name}: dynamic integrated state must support store_previous().")
+                raise SolverSetupError(f"{owner.name}: dynamic integrated state must support store_previous().")
             state_id = id(state)
             if state_id in seen:
                 return
@@ -564,7 +565,7 @@ class TransientRuntimeCache:
         for labels in conflicts:
             lines.extend(f"  - {label}" for label in labels)
             lines.append("")
-        raise ValueError("\n".join(lines).rstrip())
+        raise SolverSetupError("\n".join(lines).rstrip())
 
     @staticmethod
     def _state_paths(value: Any, target: Any, prefix: str) -> list[str]:
@@ -633,7 +634,7 @@ class TransientRuntimeCache:
         derivatives = self._component_transient_derivatives(item.owner)
 
         if len(derivatives) <= item.derivative_index:
-            raise ValueError(
+            raise SolverSetupError(
                 f"{item.owner.name}: dynamics derivative changed length during the solve. "
                 f"Expected at least {item.derivative_index + 1} entries."
             )
@@ -751,7 +752,7 @@ class TransientRuntimeCache:
             value_count = len(values)
 
         if value_count != self.iteration_count:
-            raise ValueError(
+            raise SolverSetupError(
                 f"Length mismatch: got {value_count} iteration values "
                 f"but expected {self.iteration_count}."
             )
@@ -1001,7 +1002,7 @@ class TransientRuntimeCache:
         missing component residuals, a balance, or a transient derivative.
         """
         if len(residuals) < len(self.iteration_variables):
-            raise ValueError(
+            raise SolverSetupError(
                 "Transient solve requires at least as many residuals as solver variables. "
                 f"Got {len(self.iteration_variables)} solver variables and "
                 f"{len(residuals)} residuals.\n\n"

@@ -10,6 +10,7 @@ import numpy as np
 from scipy.interpolate import RegularGridInterpolator
 
 from fullflow.Exports.HDF5 import dataset_names, hdf5_filename, safe_group_name
+from fullflow.Exceptions import MapLoadError, MapRangeError
 from fullflow.System import Component, State
 
 if TYPE_CHECKING:
@@ -349,13 +350,13 @@ class Map(Component):
                 dataset_name = str(_decode_string(dataset_name))
 
                 if output_name in used_output_names:
-                    raise ValueError(
+                    raise MapLoadError(
                         f"{component_name}: duplicate mapped output name "
                         f"{output_name!r} is not allowed."
                     )
 
                 if dataset_name in used_dataset_names:
-                    raise ValueError(
+                    raise MapLoadError(
                         f"{component_name}: multiple output names cannot point "
                         f"to the same HDF5 dataset {dataset_name!r}."
                     )
@@ -374,7 +375,7 @@ class Map(Component):
     @staticmethod
     def _validate_hdf5_output_name_map(component_name: str, output_name_map: dict[str, str]) -> None:
         if not output_name_map:
-            raise ValueError(f"{component_name}: HDF5 map does not contain any output datasets.")
+            raise MapLoadError(f"{component_name}: HDF5 map does not contain any output datasets.")
 
         output_names = list(output_name_map.values())
         duplicate_output_names = sorted(
@@ -386,17 +387,17 @@ class Map(Component):
         )
 
         if duplicate_output_names:
-            raise ValueError(
+            raise MapLoadError(
                 f"{component_name}: duplicate mapped output names are not allowed: "
                 f"{duplicate_output_names}"
             )
 
         for dataset_name, output_name in output_name_map.items():
             if not dataset_name:
-                raise ValueError(f"{component_name}: HDF5 output dataset names must be non-empty.")
+                raise MapLoadError(f"{component_name}: HDF5 output dataset names must be non-empty.")
 
             if not output_name:
-                raise ValueError(f"{component_name}: mapped output names must be non-empty.")
+                raise MapLoadError(f"{component_name}: mapped output names must be non-empty.")
 
     @classmethod
     def from_hdf5(
@@ -418,7 +419,7 @@ class Map(Component):
                 map_group = file[safe_group_name(group)]
             else:
                 available = [name for name, item in file.items() if isinstance(item, h5py.Group)]
-                raise KeyError(
+                raise MapLoadError(
                     f"{name}: could not find HDF5 map group {group!r}. "
                     f"Available top-level groups: {available}"
                 )
@@ -467,17 +468,17 @@ class Map(Component):
         missing_inputs = [axis_name for axis_name in axis_order if axis_name not in inputs]
 
         if missing_inputs:
-            raise ValueError(f"{name}: missing inputs for map axes: {missing_inputs}")
+            raise MapLoadError(f"{name}: missing inputs for map axes: {missing_inputs}")
 
         extra_inputs = [input_name for input_name in inputs if input_name not in axis_order]
 
         if extra_inputs:
-            raise ValueError(f"{name}: inputs were provided for unknown map axes: {extra_inputs}")
+            raise MapLoadError(f"{name}: inputs were provided for unknown map axes: {extra_inputs}")
 
         missing_axes = [axis_name for axis_name in axis_order if axis_name not in axes_group]
 
         if missing_axes:
-            raise ValueError(f"{name}: HDF5 map is missing axes: {missing_axes}")
+            raise MapLoadError(f"{name}: HDF5 map is missing axes: {missing_axes}")
 
         axes = {}
 
@@ -504,7 +505,7 @@ class Map(Component):
         ]
 
         if missing_outputs:
-            raise ValueError(f"{name}: HDF5 map is missing output datasets: {missing_outputs}")
+            raise MapLoadError(f"{name}: HDF5 map is missing output datasets: {missing_outputs}")
 
         output_maps = {
             output_name: np.asarray(output_group[dataset_name][()], dtype=float)
@@ -548,17 +549,17 @@ class Map(Component):
             legacy_axis_datasets.append("y")
 
         if not axes:
-            raise ValueError(f"{name}: HDF5 group does not contain map axes.")
+            raise MapLoadError(f"{name}: HDF5 group does not contain map axes.")
 
         missing_inputs = [axis_name for axis_name in axis_order if axis_name not in inputs]
 
         if missing_inputs:
-            raise ValueError(f"{name}: missing inputs for map axes: {missing_inputs}")
+            raise MapLoadError(f"{name}: missing inputs for map axes: {missing_inputs}")
 
         extra_inputs = [input_name for input_name in inputs if input_name not in axis_order]
 
         if extra_inputs:
-            raise ValueError(f"{name}: inputs were provided for unknown map axes: {extra_inputs}")
+            raise MapLoadError(f"{name}: inputs were provided for unknown map axes: {extra_inputs}")
 
         ordered_inputs = {
             axis_name: inputs[axis_name]
@@ -576,7 +577,7 @@ class Map(Component):
         ]
 
         if missing_outputs:
-            raise ValueError(f"{name}: HDF5 map is missing output datasets: {missing_outputs}")
+            raise MapLoadError(f"{name}: HDF5 map is missing output datasets: {missing_outputs}")
 
         output_maps = {}
 
@@ -597,13 +598,13 @@ class Map(Component):
             value = float(self.inputs.value[input_name].value)
 
             if not np.isfinite(value):
-                raise ValueError(f"{self.name}: input '{input_name}' must be finite.")
+                raise MapRangeError(f"{self.name}: input '{input_name}' must be finite.")
 
             lower = self.axis_values[input_name][0]
             upper = self.axis_values[input_name][-1]
 
             if not self.extrapolate.value and (value < lower or value > upper):
-                raise ValueError(
+                raise MapRangeError(
                     f"{self.name}: input '{input_name}'={value} is outside the map range "
                     f"[{lower}, {upper}]. Set extrapolate=True to allow extrapolation."
                 )

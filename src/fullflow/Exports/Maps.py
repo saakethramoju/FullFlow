@@ -11,14 +11,11 @@ import h5py
 import numpy as np
 
 from fullflow.Exports.HDF5 import dataset_names, hdf5_filename, safe_group_name
+from fullflow.Exceptions import MapGenerationError, MapOutputError
 
 
 _STRING_DTYPE = h5py.string_dtype(encoding="utf-8")
 _RESERVED_GROUP_NAMES = {"axes", "outputs", "status"}
-
-
-class MapOutputError(TypeError):
-    """Raised when evaluate() returns outputs that are not scalar map values."""
 
 
 @dataclass(frozen=True)
@@ -185,6 +182,25 @@ def _json_default(value):
     return repr(value)
 
 
+def _json_roundtrip(value):
+    return json.loads(json.dumps(value, default=_json_default))
+
+
+def _json_attr(attrs, name: str, default):
+    if name not in attrs:
+        return default
+
+    value = attrs[name]
+
+    if isinstance(value, bytes):
+        value = value.decode("utf-8")
+
+    if isinstance(value, str):
+        return json.loads(value)
+
+    return value
+
+
 
 def _validate_scalar_outputs(
     values: dict,
@@ -325,17 +341,19 @@ def _check_existing_group(
     map_group: h5py.Group,
     axes: list[Axis],
     outputs: list[str] | tuple[str, ...] | None,
+    constants: dict,
+    metadata: dict,
 ) -> list[str]:
     shape = _shape_from_axes(axes)
 
     if "axes" not in map_group or not isinstance(map_group["axes"], h5py.Group):
-        raise ValueError("Existing map group is not a fullflow-map-v2 group and cannot be resumed.")
+        raise MapGenerationError("Existing map group is not a fullflow-map-v3 group and cannot be resumed.")
 
     if "outputs" not in map_group or not isinstance(map_group["outputs"], h5py.Group):
-        raise ValueError("Existing map group is missing required group 'outputs'.")
+        raise MapGenerationError("Existing map group is missing required group 'outputs'.")
 
     if "status" not in map_group or not isinstance(map_group["status"], h5py.Group):
-        raise ValueError("Existing map group is missing required group 'status'.")
+        raise MapGenerationError("Existing map group is missing required group 'status'.")
 
     axes_group = map_group["axes"]
     outputs_group = map_group["outputs"]
@@ -343,22 +361,48 @@ def _check_existing_group(
 
     for axis in axes:
         if axis.name not in axes_group:
-            raise ValueError(f"Existing map group is missing axis '{axis.name}'.")
+            raise MapGenerationError(f"Existing map group is missing axis '{axis.name}'.")
 
         axis_values = np.asarray(axes_group[axis.name][()], dtype=float)
 
         if not np.array_equal(axis_values, np.asarray(axis.values, dtype=float)):
-            raise ValueError(f"Existing map axis '{axis.name}' does not match requested axis.")
+            raise MapGenerationError(f"Existing map axis '{axis.name}' does not match requested axis.")
 
     axis_order = json.loads(map_group.attrs.get("axis_order", "[]"))
 
     if axis_order and axis_order != [axis.name for axis in axes]:
-        raise ValueError("Existing map axis order does not match requested axis order.")
+        raise MapGenerationError("Existing map axis order does not match requested axis order.")
+
+    for axis in axes:
+        existing_spacing = axes_group[axis.name].attrs.get("spacing", "values")
+        if isinstance(existing_spacing, bytes):
+            existing_spacing = existing_spacing.decode("utf-8")
+        if str(existing_spacing).lower() != str(axis.spacing).lower():
+            raise MapGenerationError(
+                f"Existing map axis '{axis.name}' has spacing {existing_spacing!r}; "
+                f"requested spacing {axis.spacing!r}."
+            )
+
+    existing_constants = _json_attr(map_group.attrs, "constants", {})
+    requested_constants = _json_roundtrip(constants)
+    if existing_constants != requested_constants:
+        raise MapGenerationError(
+            "Existing map constants do not match requested constants. "
+            "Use overwrite=True to regenerate the map with different constants."
+        )
+
+    existing_metadata = _json_attr(map_group.attrs, "metadata", {})
+    requested_metadata = _json_roundtrip(metadata)
+    if existing_metadata != requested_metadata:
+        raise MapGenerationError(
+            "Existing map metadata does not match requested metadata. "
+            "Use overwrite=True to regenerate the map with different metadata."
+        )
 
     output_names = list(outputs) if outputs is not None else dataset_names(outputs_group, set())
 
     if not output_names:
-        raise ValueError("Existing map group does not contain any output datasets.")
+        raise MapGenerationError("Existing map group does not contain any output datasets.")
 
     missing = [
         output_name
@@ -367,23 +411,23 @@ def _check_existing_group(
     ]
 
     if missing:
-        raise ValueError(f"Existing map group is missing requested outputs: {missing}")
+        raise MapGenerationError(f"Existing map group is missing requested outputs: {missing}")
 
     for output_name in output_names:
         if outputs_group[output_name].shape != shape:
-            raise ValueError(
+            raise MapGenerationError(
                 f"Existing output '{output_name}' has shape {outputs_group[output_name].shape}; "
                 f"expected {shape}."
             )
 
     if "success" not in status_group:
-        raise ValueError("Existing map group is missing required dataset 'status/success'.")
+        raise MapGenerationError("Existing map group is missing required dataset 'status/success'.")
 
     if "message" not in status_group:
-        raise ValueError("Existing map group is missing required dataset 'status/message'.")
+        raise MapGenerationError("Existing map group is missing required dataset 'status/message'.")
 
     if status_group["success"].shape != shape:
-        raise ValueError("Existing status/success shape does not match requested map axes.")
+        raise MapGenerationError("Existing status/success shape does not match requested map axes.")
 
     return output_names
 
@@ -412,7 +456,7 @@ def _discover_outputs(
 
             failures.append((index, f"{type(exc).__name__}: {exc}"))
 
-    raise RuntimeError("Could not discover map outputs because every evaluated point failed.")
+    raise MapGenerationError("Could not discover map outputs because every evaluated point failed.")
 
 
 def _write_failure(
@@ -571,7 +615,7 @@ def generate_map(
 
         if group_path in file:
             map_group = file[group_path]
-            output_names = _check_existing_group(map_group, axes, outputs)
+            output_names = _check_existing_group(map_group, axes, outputs, constants, metadata)
 
         else:
             if outputs is None:

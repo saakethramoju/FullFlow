@@ -22,6 +22,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from .runtime import RuntimeCache
+from fullflow.Exceptions import FullFlowConfigurationError, UnassignedStateError
 
 
 def _is_unassigned_state_error(error: BaseException) -> bool:
@@ -37,7 +38,7 @@ def _is_unassigned_state_error(error: BaseException) -> bool:
 
     while current is not None and id(current) not in seen:
         seen.add(id(current))
-        if "has no assigned value" in str(current):
+        if isinstance(current, UnassignedStateError):
             return True
         current = current.__cause__ or current.__context__
 
@@ -137,4 +138,4 @@ class StateEvaluator:
                     "  - Check for an accidental circular dependency with no initial guess",
                 ]
             )
-            raise RuntimeError("\n".join(lines)) from None
+            raise FullFlowConfigurationError("\n".join(lines)) from None

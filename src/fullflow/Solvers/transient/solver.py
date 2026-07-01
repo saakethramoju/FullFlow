@@ -28,6 +28,7 @@ from rich.console import Console
 
 from fullflow.Solvers.steady_state.models import ModelManager
 from fullflow.Solvers.steady_state.settings import LeastSquaresSettings, StateEvaluationSettings
+from fullflow.Exceptions import TransientStepError
 
 from .diagnostics import TransientPrinter
 from .evaluation import TransientStateEvaluator
@@ -518,7 +519,7 @@ class Transient:
 
                 except Exception as error:
                     if retries >= transient_settings.max_step_retries:
-                        raise RuntimeError(
+                        raise TransientStepError(
                             "Transient timestep failed after automatic retry.\n"
                             f"time = {current_time:.9g}\n"
                             f"requested dt = {dt_step:.9g}\n"
@@ -531,7 +532,7 @@ class Transient:
 
                     next_dt = 0.5 * trial_dt
                     if next_dt < transient_settings.retry_floor:
-                        raise RuntimeError(
+                        raise TransientStepError(
                             "Transient timestep failed before reaching an acceptable residual, "
                             "and the next retry would be below minimum_dt.\n"
                             f"time = {current_time:.9g}\n"

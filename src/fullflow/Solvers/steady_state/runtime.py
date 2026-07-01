@@ -25,6 +25,7 @@ from fullflow.System.State import (
     resolve_value,
 )
 from fullflow.Solvers.balance_filtering import filter_user_balances
+from fullflow.Exceptions import SolverSetupError
 from fullflow.Solvers.equations import (
     balance_object_equations,
     component_balances,
@@ -201,7 +202,7 @@ class RuntimeCache:
             "Conflicting balance variables:",
             *[f"  - {name}" for name in sorted(balance_names)],
         ]
-        raise ValueError("\n".join(lines))
+        raise SolverSetupError("\n".join(lines))
 
     @staticmethod
     def _state_paths(value: Any, target: Any, prefix: str) -> list[str]:
@@ -306,7 +307,7 @@ class RuntimeCache:
         """Write a solver vector back into the iteration States."""
         values = list(values)
         if len(values) != len(self.iteration_variables):
-            raise ValueError(
+            raise SolverSetupError(
                 f"Length mismatch: got {len(values)} iteration values "
                 f"but expected {len(self.iteration_variables)}."
             )
@@ -447,7 +448,7 @@ class RuntimeCache:
                     residuals.extend(self.flatten_residuals(equation.residual))
             except Exception as error:
                 original = str(error).splitlines()[0]
-                raise RuntimeError(
+                raise SolverSetupError(
                     f"Failed while evaluating equations for component `{component.name}` "
                     f"of type `{type(component).__name__}`.\n\n"
                     "A State used inside this component's dynamics or balances is probably unassigned.\n\n"

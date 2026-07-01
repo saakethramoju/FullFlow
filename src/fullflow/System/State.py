@@ -6,6 +6,8 @@ from numbers import Real
 from typing import Any, Callable, Protocol, runtime_checkable
 from collections.abc import Iterable, Mapping
 
+from fullflow.Exceptions import UnassignedStateError
+
 
 __all__ = [
     "State",
@@ -329,7 +331,7 @@ class State:
                 raise
 
         if self._value is None:
-            raise ValueError(f"State {self._diagnostic_name()} has no assigned value.")
+            raise UnassignedStateError(f"State {self._diagnostic_name()} has no assigned value.")
 
         return self._value
 

@@ -15,6 +15,7 @@ from typing import Any
 from .results import format_records, save_model_option_results
 from .statistics import model_option_statistics_path, statistics_path
 from fullflow.Exports.HDF5 import HDF5Target, run_group_path, safe_group_name, write_failures, write_solution
+from fullflow.Exceptions import SolverConvergenceError, SolverSetupError
 
 
 @dataclass(slots=True)
@@ -76,7 +77,7 @@ class ModelManager:
             if candidate.name == model:
                 return candidate
 
-        raise ValueError(
+        raise SolverSetupError(
             f"Unknown model {model!r}. Available models are "
             f"{[m.name for m in self.network.model_list]}."
         )
@@ -252,7 +253,7 @@ class ModelOptionRunner:
             return solution
 
         self.printer.print_model_failures(failures)
-        raise RuntimeError(f"All options failed for model {selected_model.name!r}.")
+        raise SolverConvergenceError(f"All options failed for model {selected_model.name!r}.")
 
     def _run_all_options(
         self,
@@ -301,7 +302,7 @@ class ModelOptionRunner:
 
         if last_success_option is None:
             self.printer.print_model_failures(failures)
-            raise RuntimeError(f"All options failed for model {selected_model.name!r}.")
+            raise SolverConvergenceError(f"All options failed for model {selected_model.name!r}.")
 
         # Re-run the last successful option without exporting so the live network
         # values match the option left active after this method returns.

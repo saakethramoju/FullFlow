@@ -14,7 +14,7 @@ def format_records(records: list[dict[str, Any]], return_type: str):
     if return_type in {"dict", "records"}:
         return records
 
-    raise ValueError("return_type must be 'dict'.")
+    raise ValueError("return_type must be 'dict' or 'records'.")
 
 
 def save_model_option_results(

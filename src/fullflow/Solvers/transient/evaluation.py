@@ -13,6 +13,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from .runtime import TransientRuntimeCache
+from fullflow.Exceptions import FullFlowConfigurationError, UnassignedStateError
 
 
 def _is_unassigned_state_error(error: BaseException) -> bool:
@@ -21,7 +22,7 @@ def _is_unassigned_state_error(error: BaseException) -> bool:
 
     while current is not None and id(current) not in seen:
         seen.add(id(current))
-        if "has no assigned value" in str(current):
+        if isinstance(current, UnassignedStateError):
             return True
         current = current.__cause__ or current.__context__
 
@@ -97,4 +98,4 @@ class TransientStateEvaluator:
             ]
             for evaluate_states, error in last_deferred_errors.items():
                 lines.append(f"  - {_callable_name(evaluate_states)}: {str(error).splitlines()[0]}")
-            raise RuntimeError("\n".join(lines)) from None
+            raise FullFlowConfigurationError("\n".join(lines)) from None

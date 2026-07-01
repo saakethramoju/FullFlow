@@ -360,7 +360,7 @@ class Network:
         records.extend(self.tracked_records())
 
         if return_type not in {"dict", "records"}:
-            raise ValueError("return_type must be 'dict'.")
+            raise ValueError("return_type must be 'dict' or 'records'.")
 
         if filename is not None:
             write_solution(

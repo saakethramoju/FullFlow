@@ -27,6 +27,7 @@ from scipy.optimize import Bounds, least_squares
 from .settings import LeastSquaresSettings, StateEvaluationSettings
 from .statistics import SolverStatistics, statistics_path
 from fullflow.Exports.HDF5 import HDF5Target, run_group_path, safe_group_name, write_tables
+from fullflow.Exceptions import SolverConvergenceError, SolverSetupError
 
 
 @dataclass(slots=True)
@@ -190,7 +191,7 @@ class NonlinearSolve:
             )
 
         if len(r0) < len(x0):
-            raise ValueError(
+            raise SolverSetupError(
                 "SteadyState solve requires at least as many residuals as iteration variables. "
                 f"Got {len(x0)} iteration variables and {len(r0)} residuals."
             )
@@ -284,7 +285,7 @@ class NonlinearSolve:
 
         if settings.solver_method == "lm":
             if any(state.has_bounds for state in cache.iteration_variables):
-                raise ValueError("solver_method='lm' does not support bounded States.")
+                raise SolverSetupError("solver_method='lm' does not support bounded States.")
             return kwargs
 
         kwargs["bounds"] = Bounds(
@@ -341,4 +342,4 @@ class NonlinearSolve:
             )
 
         statistics.print_failure_report(residual=final_residual, residual_labels=residual_labels)
-        raise RuntimeError("\n".join(lines))
+        raise SolverConvergenceError("\n".join(lines))
