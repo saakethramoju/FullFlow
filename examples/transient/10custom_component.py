@@ -161,6 +161,6 @@ TankNetwork.track("Outlet Flow", outlet_flow)
 Transient(TankNetwork).solve(
     dt=0.05,
     t_final=20.0,
-    filename="simple_tank_valve_transient",
+    filename="10custom_component",
     verbose=True,
 )

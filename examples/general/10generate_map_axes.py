@@ -32,7 +32,7 @@ from fullflow import *
 # ---------------------------------------------------------------------------
 
 # The .h5 extension is added automatically if it is not included.
-map_filename = "general_axis_example"
+map_filename = "10generate_map_axes"
 
 
 # ---------------------------------------------------------------------------

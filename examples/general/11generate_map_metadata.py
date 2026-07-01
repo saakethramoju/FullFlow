@@ -49,7 +49,7 @@ from fullflow import *
 # Map filename
 # ---------------------------------------------------------------------------
 
-map_filename = "general_metadata_example"
+map_filename = "11generate_map_metadata"
 
 
 # ---------------------------------------------------------------------------

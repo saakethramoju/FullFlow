@@ -252,7 +252,7 @@ OxRichTurbineDesignMassFlow = LOXPumpDesignShaftPower / (OxRichTurbineDesignEffi
 # Shared turbopump map file
 # -----------------------------------------------------------------------------
 
-turbopump_map_filename = "turbopump"
+turbopump_map_filename = "8turbopump"
 
 
 '''

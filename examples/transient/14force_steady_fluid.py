@@ -231,14 +231,14 @@ ForceSteadyNetwork, ForceSteadyNode1, ForceSteadyNode2, ForceSteadyPipe1, ForceS
     "Force-Steady Pipe Fluid Network"
 )
 
-SteadyState(ForceSteadyNetwork).solve(filename="force_steady_pipes_only")
+SteadyState(ForceSteadyNetwork).solve(filename="14force_steady_fluid")
 
 ForceSteadySolver = Transient(ForceSteadyNetwork)
 ForceSteadySolver.solve(
     dt=0.01,
     t_final=2.0,
     save_dt=0.01,
-    filename="force_steady_pipes_only",
+    filename="14force_steady_fluid",
     force_steady="all",
     force_steady_exceptions=[
         ForceSteadyNode1,

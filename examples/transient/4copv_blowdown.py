@@ -157,6 +157,6 @@ Valve = CompressibleOrifice(
 Transient(COPVBlowdown).solve(
     dt=0.01,
     t_final=30.0,
-    filename="COPVBlowdown",
+    filename="4copv_blowdown",
     verbose=True,
 )

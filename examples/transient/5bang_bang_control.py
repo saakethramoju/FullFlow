@@ -484,7 +484,7 @@ BangBangSim.track("Main Valve Mass Flow [kg/s]", MainValve.mass_flow)
 # Solve
 # ---------------------------------------------------------------------------
 
-filename = "BangBang"
+filename = "5bang_bang_control"
 
 # The interface pressure balance is ignored only during steady initialization.
 # This keeps liquid_volume at its user-provided initial fill level instead of

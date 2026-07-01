@@ -172,14 +172,14 @@ ForceSteadyNetwork, ForceSteadyMetalNode = build_network("Force Steady Solid Exa
 
 SteadyState(ForceSteadyNetwork).solve(
     verbose=True,
-    filename="force_steady_solid_example",
+    filename="13force_steady_heat_transfer",
 )
 
 Transient(ForceSteadyNetwork).solve(
     dt=0.1,
     t_final=20.0,
     save_dt=0.1,
-    filename="force_steady_solid_example",
+    filename="13force_steady_heat_transfer",
     verbose=True,
     force_steady=[ForceSteadyMetalNode],
 )

@@ -64,7 +64,7 @@ from thermoprop import *
 # ---------------------------------------------------------------------------
 HeatTransferNetwork = Network("Solid Heat Transfer Transient")
 
-filename = "solid_heat_transfer_transient"
+filename = "11heat_transfer"
 
 
 # ---------------------------------------------------------------------------

@@ -105,8 +105,8 @@ from thermoprop import *
 psi_to_pa = 6894.76
 pa_to_psi = 1.0 / psi_to_pa
 
-map_filename = "RP1_LOX"
-results_filename = "cavitating_feed_system_transient"
+map_filename = "19cavitating_venturi"
+results_filename = "19cavitating_venturi"
 
 ambient_pressure = 14.7 * psi_to_pa
 

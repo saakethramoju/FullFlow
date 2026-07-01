@@ -112,7 +112,7 @@ MixerNetwork = Network("Transient Composition Mixer")
 # Output file
 # ---------------------------------------------------------------------------
 
-filename = "transient_composition_mixer"
+filename = "7flow_mixer"
 
 
 # ---------------------------------------------------------------------------

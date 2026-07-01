@@ -91,7 +91,7 @@ SplitterNetwork = Network("Transient Particulate Splitter")
 # Output file
 # ---------------------------------------------------------------------------
 
-filename = "transient_particulate_splitter"
+filename = "8flow_splitter"
 
 
 # ---------------------------------------------------------------------------

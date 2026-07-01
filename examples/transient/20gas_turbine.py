@@ -130,7 +130,7 @@ RotorPolarMomentOfInertia = 1.0             # kg*m^2, demonstration shaft inerti
 #
 # Set force_regenerate_maps=True when changing the map definitions.
 
-filename = "turbopump_example"
+filename = "20gas_turbine"
 
 # Keep this True while developing/changing the map definitions. After the map
 # exists and the definitions are stable, set it to False to skip regeneration.

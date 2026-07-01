@@ -109,7 +109,7 @@ from thermoprop import *
 psia_to_pa = 6894.76
 
 # All generated map groups are stored in this one HDF5 file.
-filename = "equilibrium_nozzle_test"
+filename = "9equilibrium_nozzle"
 
 # Set to True only when the maps need to be regenerated.
 # Normal example runs should use the existing map file.

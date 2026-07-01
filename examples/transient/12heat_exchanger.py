@@ -146,7 +146,7 @@ from thermoprop import *
 # Output file
 # -----------------------------------------------------------------------------
 
-filename = "transient_heat_exchanger"
+filename = "12heat_exchanger"
 
 
 def harmonic_mean(a, b):

@@ -282,7 +282,7 @@ Pipe2 = DischargeCoefficient(
 # the transient solve then opens the valve according to ValveCdSequence.
 # -----------------------------------------------------------------------------
 
-filename = "node_inertia"
+filename = "2node_inertia"
 
 SteadyState(PipeNetwork).solve(
     verbose=True,

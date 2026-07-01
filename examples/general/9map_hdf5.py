@@ -16,7 +16,7 @@ script:
 from fullflow import *
 
 
-map_filename = "general_gas_map"
+map_filename = "9map_hdf5"
 
 
 def ideal_gas_map(pressure, temperature, gas_constant, specific_heat):

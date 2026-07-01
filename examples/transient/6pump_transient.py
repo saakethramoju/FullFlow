@@ -74,7 +74,7 @@ from thermoprop import *
 # Output file
 # ---------------------------------------------------------------------------
 
-filename = "pump_transient_example"
+filename = "6pump_transient"
 
 
 # ---------------------------------------------------------------------------

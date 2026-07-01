@@ -225,7 +225,7 @@ ShockTube.track("Shock Mach Number", Tube.shock_mach_number)
 # Transient solve
 # ---------------------------------------------------------------------------
 
-filename = "flow_tube_shock_decay"
+filename = "3shock_tube"
 
 Transient(ShockTube).solve(
     t_final=0.30,

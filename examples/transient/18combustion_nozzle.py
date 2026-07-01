@@ -320,7 +320,7 @@ FeedSystem.track("Total Propellant Mass Flow [kg/s]", FuelValve.mass_flow + OxVa
 # The steady-state solve finds a consistent initial chamber pressure, valve flow
 # rates, nozzle flow rate, and mixture ratio before the transient starts.
 
-filename = "feed_system"
+filename = "18combustion_nozzle"
 
 SteadyState(FeedSystem).solve(
     verbose=True,

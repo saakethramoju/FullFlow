@@ -124,7 +124,7 @@ from thermoprop import *
 psia_to_pa = 6894.76
 
 # All generated map groups are stored in this HDF5 file.
-filename = "heatsink_tca"
+filename = "21heatsink_tca"
 
 # Set this to True only when the maps need to be regenerated.
 make_map = False

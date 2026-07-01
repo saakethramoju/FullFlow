@@ -141,7 +141,7 @@ ColumnDesign.track("Applied Stress [Pa]", AppliedStress)
 # Solve
 # -----------------------------------------------------------------------------
 
-filename = "concrete_column"
+filename = "0function_lookup"
 
 SteadyState(ColumnDesign).solve(
     verbose=True,

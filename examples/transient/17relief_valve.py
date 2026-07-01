@@ -220,6 +220,6 @@ Transient(GasTankNetwork).solve(
     dt=0.01,
     t_final=25.0,
     save_dt=0.01,
-    filename="gas_tank_relief_valve",
+    filename="17relief_valve",
     verbose=True,
 )

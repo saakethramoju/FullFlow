@@ -168,6 +168,6 @@ BalloonSolver.solve(
     dt=0.001,
     t_final=1.0,
     save_dt=0.001,
-    filename="balloon_deflation",
+    filename="16balloon",
     verbose=True,
 )
