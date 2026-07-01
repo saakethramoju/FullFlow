@@ -68,22 +68,9 @@ class Radiation(Component):
 
         F12 = self.view_factor12.value
 
-        denominator = (
-            (1.0 - eps1) / (eps1 * A1)
-            + 1.0 / (A1 * F12)
-            + (1.0 - eps2) / (eps2 * A2)
-        )
+        denominator = (1.0 - eps1) / (eps1 * A1) + 1.0 / (A1 * F12) + (1.0 - eps2) / (eps2 * A2)
 
-        if denominator <= 0.0:
-            raise ValueError(
-                f"{self.name}: invalid radiation denominator ({denominator})."
-            )
-
-        self.heat_rate.value = (
-            self.SIGMA
-            * (T2**4 - T1**4)
-            / denominator
-        )
+        self.heat_rate.value = self.SIGMA * (T2**4 - T1**4) / denominator
 
 
 
@@ -115,38 +102,9 @@ class AmbientRadiation(Component):
 
         A = self.radiative_area.value
 
-        if eps_s <= 0.0 or eps_s > 1.0:
-            raise ValueError(
-                f"{self.name}: emissivity must be in (0, 1]. Got {eps_s}."
-            )
+        denominator = 1.0 / eps_s + 1.0 / eps_amb - 1.0
 
-        if eps_amb <= 0.0 or eps_amb > 1.0:
-            raise ValueError(
-                f"{self.name}: ambient_emissivity must be in (0, 1]. Got {eps_amb}."
-            )
-
-        if A <= 0.0:
-            raise ValueError(
-                f"{self.name}: radiative_area must be greater than zero. Got {A}."
-            )
-
-        denominator = (
-            1.0 / eps_s
-            + 1.0 / eps_amb
-            - 1.0
-        )
-
-        if denominator <= 0.0:
-            raise ValueError(
-                f"{self.name}: invalid radiation denominator ({denominator})."
-            )
-
-        self.heat_rate.value = (
-            self.SIGMA
-            * A
-            * (Tamb**4 - Ts**4)
-            / denominator
-        )
+        self.heat_rate.value = self.SIGMA * A * (Tamb**4 - Ts**4) / denominator
 
 
 
@@ -174,12 +132,6 @@ class Convection(Component):
         h = self.convection_coefficient.value
         A = self.convective_area.value
 
-        if h <= 0.0:
-            raise ValueError(f"{self.name}: convection_coefficient must be positive. Got {h}.")
-
-        if A <= 0.0:
-            raise ValueError(f"{self.name}: convective_area must be positive. Got {A}.")
-
         self.heat_rate.value = h * A * (Tf - Ts)
 
 
@@ -205,11 +157,6 @@ class TemperatureRecoveryFactor(Component):
             return
 
         Pr = self.prandtl_number.value
-
-        if Pr <= 0.0:
-            raise ValueError(
-                f"{self.name}: prandtl_number must be greater than zero. Got {Pr}."
-            )
 
         if self.turbulent.value:
             self.recovery_factor.value = Pr ** (1.0 / 3.0)
@@ -240,9 +187,7 @@ class AdiabaticWallTemperature(Component):
         T = self.static_temperature.value
         r = self.recovery_factor.value
 
-        self.adiabatic_wall_temperature.value = (
-            T + r * (T0 - T)
-        )
+        self.adiabatic_wall_temperature.value = T + r * (T0 - T)
 
 
 
@@ -283,8 +228,4 @@ class EckertReferenceTemperature(Component):
         T = self.static_temperature.value
         Taw = self.adiabatic_wall_temperature.value
 
-        self.reference_temperature.value = (
-            0.5 * Tw
-            + 0.28 * T
-            + 0.22 * Taw
-        )
+        self.reference_temperature.value = 0.5 * Tw + 0.28 * T + 0.22 * Taw
