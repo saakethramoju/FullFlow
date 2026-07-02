@@ -122,7 +122,7 @@ def _normalize_name(name: str) -> str:
     return name
 
 
-def _as_list(value) -> list:
+def _as_list(value) -> builtins.list:
     if value is None:
         return []
 
@@ -920,7 +920,7 @@ class H5File:
             f"Could not find group {selector!r} under {self.root!r} in {self.filename!r}."
         )
 
-    def _dataset_paths(self, h5: h5py.File, root: str | None = None) -> list[str]:
+    def _dataset_paths(self, h5: h5py.File, root: str | None = None) -> builtins.list[str]:
         if root is None:
             root = self.root
 
@@ -947,7 +947,7 @@ class H5File:
 
         return paths
 
-    def _group_paths(self, h5: h5py.File) -> list[str]:
+    def _group_paths(self, h5: h5py.File) -> builtins.list[str]:
         if self.root not in h5:
             raise DatasetNotFoundError(f"Root path {self.root!r} was not found in {self.filename!r}.")
 
@@ -970,7 +970,7 @@ class H5File:
 
         return paths
 
-    def _raise_ambiguous(self, selector: str, matches: list[str]):
+    def _raise_ambiguous(self, selector: str, matches: builtins.list[str]):
         lines = [f"Dataset/group name {selector!r} is ambiguous. Matches:"]
 
         for path in matches:
@@ -989,7 +989,7 @@ class H5File:
 
     def _append_tree_lines(
         self,
-        lines: list[str],
+        lines: builtins.list[str],
         group: h5py.Group,
         prefix: str,
         depth: int,
@@ -1019,7 +1019,7 @@ class H5File:
                     max_depth=max_depth,
                 )
 
-    def _format_dataset_rows(self, rows: list[tuple[str, Any, Any]]) -> list[str]:
+    def _format_dataset_rows(self, rows: builtins.list[tuple[str, Any, Any]]) -> builtins.list[str]:
         if not rows:
             return []
 
@@ -1037,7 +1037,7 @@ class H5File:
         selector: str,
         axis: int,
         slice_spec,
-    ) -> list[LineSeries]:
+    ) -> builtins.list[LineSeries]:
         path = self._resolve_dataset_path(h5, selector)
         base_label = _basename(path)
 
@@ -1087,7 +1087,7 @@ class H5File:
 
         return series
 
-    def _apply_user_labels(self, series: list[LineSeries], labels, label_name: str):
+    def _apply_user_labels(self, series: builtins.list[LineSeries], labels, label_name: str):
         if labels is None:
             return
 
