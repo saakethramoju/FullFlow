@@ -9,3 +9,4 @@ from .Nodes import *
 from .Lookup import *
 from .Composition import *
 from .Sequence import *
+from .Sensor import *

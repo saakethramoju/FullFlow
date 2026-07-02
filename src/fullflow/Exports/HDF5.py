@@ -17,6 +17,7 @@ Network object::
                     /metadata
                     /components/<component>/<attribute>
                     /tracks/<tracked_name>
+                    /sensors/<sensor_name>
                     /table/<column>
                     /diagnostics/<column>
                 /<model_name>/<option_name>
@@ -28,10 +29,12 @@ Network object::
                     /time
                     /components/<component>/<attribute>
                     /tracks/<tracked_name>
+                    /sensors/<sensor_name>
                     /table/<column>
                     /diagnostics/<column>
                     /final/components/<component>/<attribute>
                     /final/tracks/<tracked_name>
+                    /final/sensors/<sensor_name>
                     /final/table/<column>
                 /<model_name>/<option_name>
                     ... same as base ...
@@ -363,7 +366,11 @@ def model_configuration(models: list[Any] | None) -> list[dict[str, Any]]:
 
 
 def _records_without_tracks(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [row for row in records if row.get("component_type") != "TrackedState"]
+    return [
+        row
+        for row in records
+        if row.get("component_type") not in {"TrackedState", "Sensor"}
+    ]
 
 
 def _write_component_values(parent: h5py.Group, records: list[dict[str, Any]]) -> h5py.Group:
@@ -519,6 +526,68 @@ def _write_static_tracks(parent: h5py.Group, rows: list[dict[str, Any]]) -> h5py
     return tracks_group
 
 
+
+
+def _sensor_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [row for row in solution_records(rows) if row.get("component_type") == "Sensor"]
+
+
+def _write_static_sensors(parent: h5py.Group, rows: list[dict[str, Any]]) -> h5py.Group:
+    sensors_group = _replace_group(parent, "sensors")
+    sensors_group.attrs["kind"] = "sensor_values"
+
+    for row in _sensor_rows(rows):
+        sensor_name = str(row.get("component_name", "sensor"))
+        value = row.get("numeric_value")
+
+        if value is not None and math.isfinite(_as_float(value)):
+            dataset_value = float(value)
+        else:
+            dataset_value = row.get("value")
+
+        _write_dataset(
+            sensors_group,
+            sensor_name,
+            dataset_value,
+            attrs={"name": sensor_name},
+        )
+
+    return sensors_group
+
+
+def _write_sensors(parent: h5py.Group, rows: list[dict[str, Any]], time_values: np.ndarray) -> h5py.Group:
+    sensors_group = _replace_group(parent, "sensors")
+    sensors_group.attrs["kind"] = "sensor_histories"
+
+    time_index = {float(value): i for i, value in enumerate(time_values)}
+    grouped: dict[str, list[dict[str, Any]]] = {}
+
+    for row in _sensor_rows(rows):
+        sensor_name = str(row.get("component_name", "sensor"))
+        grouped.setdefault(sensor_name, []).append(row)
+
+    for sensor_name, items in grouped.items():
+        numeric_values = [_as_float(row.get("numeric_value")) for row in items]
+        numeric = any(math.isfinite(value) for value in numeric_values)
+
+        if numeric:
+            data = np.full(len(time_values), np.nan, dtype=float)
+            for row in items:
+                i = time_index.get(float(row["time"]))
+                if i is not None:
+                    data[i] = _as_float(row.get("numeric_value"))
+        else:
+            data = np.full(len(time_values), "", dtype=object)
+            for row in items:
+                i = time_index.get(float(row["time"]))
+                if i is not None:
+                    data[i] = _as_text(row.get("value"))
+
+        _write_dataset(sensors_group, sensor_name, data, attrs={"name": sensor_name})
+
+    return sensors_group
+
+
 def _section_from_group_path(group_path: str) -> str:
     text = str(group_path).strip("/").lower()
     if "transient" in text and "final" in text:
@@ -566,7 +635,7 @@ def write_solution(
         network_group = _require_object_group(h5, network_name, "network")
 
         section_group = network_group.require_group(section)
-        _delete_children(section_group, ["metadata", "components", "tracks", "table", "model_configuration"])
+        _delete_children(section_group, ["metadata", "components", "tracks", "sensors", "table", "model_configuration"])
         section_group.attrs["kind"] = section.rsplit("/", 1)[-1]
         section_group.attrs["updated_utc"] = _now()
 
@@ -577,6 +646,7 @@ def write_solution(
 
         _write_component_values(section_group, rows)
         _write_static_tracks(section_group, rows)
+        _write_static_sensors(section_group, rows)
         _write_table(section_group, "table", rows)
 
         model_rows = model_configuration(models)
@@ -643,6 +713,7 @@ def write_transient_solution(
         _write_dataset(run_group, "time", time_values, attrs={"name": "time"})
         _write_component_history(run_group, history_rows, time_values)
         _write_tracks(run_group, track_rows, time_values)
+        _write_sensors(run_group, history_rows, time_values)
         _write_table(run_group, "table", history_rows)
         _write_table(run_group, "diagnostics", step_rows)
 
@@ -651,6 +722,7 @@ def write_transient_solution(
         _write_metadata(final_group, {"solve_type": "transient_final", "run_path": f"{group_path}/final"})
         _write_component_values(final_group, final_rows)
         _write_static_tracks(final_group, final_rows)
+        _write_static_sensors(final_group, final_rows)
         _write_table(final_group, "table", final_rows)
 
         model_rows = model_configuration(models)
