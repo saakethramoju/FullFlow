@@ -5,7 +5,7 @@ These exceptions keep user-facing errors clear without creating a different
 exception class for every component or every possible invalid value.
 
 These classes are intended for high-level FullFlow categories
-such as unassigned States, map loading/generation, solver setup, and solver
+such as unassigned States, map loading, solver setup, and solver
 convergence.
 """
 
@@ -27,15 +27,7 @@ class UnassignedStateError(FullFlowStateError):
 
 
 class FullFlowMapError(FullFlowError):
-    """Base class for map generation, loading, and interpolation errors."""
-
-
-class MapGenerationError(FullFlowMapError, RuntimeError):
-    """A generated map failed during evaluation, output discovery, or resume."""
-
-
-class MapOutputError(FullFlowMapError, TypeError):
-    """A map evaluate() function returned invalid outputs."""
+    """Base class for map loading and interpolation errors."""
 
 
 class MapLoadError(FullFlowMapError, ValueError):
@@ -68,8 +60,6 @@ __all__ = [
     "FullFlowStateError",
     "UnassignedStateError",
     "FullFlowMapError",
-    "MapGenerationError",
-    "MapOutputError",
     "MapLoadError",
     "MapRangeError",
     "FullFlowSolverError",

@@ -95,6 +95,7 @@ venturi is cavitating.
 import math
 
 from fullflow import *
+from fullplot import Axis, generate_map
 from thermoprop import *
 
 

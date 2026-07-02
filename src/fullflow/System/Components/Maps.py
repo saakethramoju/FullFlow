@@ -126,7 +126,7 @@ class Map(Component):
 
     HDF5 maps
     ---------
-    ``Map.from_hdf5`` loads maps written by ``generate_map``. The required
+    ``Map.from_hdf5`` loads maps written by ``fullplot.generate_map`` or by any file that follows the same HDF5 map layout. The required
     input names come from the HDF5 map axes. For a generated map with axes
     ``pressure`` and ``temperature``, load it with::
 

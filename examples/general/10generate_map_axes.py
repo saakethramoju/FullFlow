@@ -25,6 +25,7 @@ Map.from_hdf5().
 """
 
 from fullflow import *
+from fullplot import Axis, generate_map
 
 
 # ---------------------------------------------------------------------------

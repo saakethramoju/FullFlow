@@ -2,7 +2,7 @@
 HDF5 Map example.
 
 Large maps should usually be stored in an HDF5 file instead of written by hand
-inside a script. FullFlow uses generate_map() to create those files and
+inside a script. FullPlot uses generate_map() to create those files and
 Map.from_hdf5() to read them back into a network.
 
 This example creates a small ideal-gas property map with pressure and
@@ -14,6 +14,7 @@ script:
 """
 
 from fullflow import *
+from fullplot import Axis, generate_map
 
 
 map_filename = "9map_hdf5"

@@ -79,6 +79,7 @@ are intended to be smooth, finite, and startup-safe.
 import numpy as np
 
 from fullflow import *
+from fullplot import Axis, generate_map
 from thermoprop import *
 
 

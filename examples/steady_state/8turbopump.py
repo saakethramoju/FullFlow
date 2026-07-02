@@ -117,6 +117,7 @@ user-generated performance maps rather than detailed hardware-calibrated maps.
 import numpy as np
 
 from fullflow import *
+from fullplot import Axis, generate_map
 from thermoprop import *
 
 

@@ -43,6 +43,7 @@ import json
 import h5py
 
 from fullflow import *
+from fullplot import Axis, generate_map
 
 
 # ---------------------------------------------------------------------------

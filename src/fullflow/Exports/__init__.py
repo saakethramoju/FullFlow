@@ -13,13 +13,8 @@ from fullflow.Exports.HDF5 import (
     write_tables,
     write_transient_solution,
 )
-from fullflow.Exports.Maps import Axis, generate_map
-from fullflow.Exceptions import MapOutputError
 
 __all__ = [
-    "Axis",
-    "MapOutputError",
-    "generate_map",
     "HDF5Target",
     "dataset_names",
     "hdf5_filename",

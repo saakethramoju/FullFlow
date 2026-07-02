@@ -67,6 +67,7 @@ not intended to be a one-to-one reproduction of the GFSSP model.
 import numpy as np
 
 from fullflow import *
+from fullplot import Axis, generate_map
 from thermoprop import *
 
 

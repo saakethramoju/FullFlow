@@ -116,146 +116,41 @@ Model-option runs use deeper paths:
 
 This lets a single file store a base run, several model-option runs, diagnostics, and failure information without overwriting unrelated data.
 
-## Maps.py
+## Map generation moved to FullPlot
 
-`Maps.py` contains `Axis`, `MapOutputError`, and `generate_map()`.
+FullFlow no longer contains plotting utilities or map-generation utilities.
+Those live in the independent `fullplot` package.
 
-`generate_map()` evaluates a Python function on a grid and writes the result to HDF5. The generated map can later be loaded into a network with `Map.from_hdf5()`.
-
-A generated map group has this layout:
-
-```text
-/<map_group>
-    attrs:
-        kind="map"
-        name="original map group name"
-        map_format="fullflow-map-v3"
-        axis_order=[...]
-        output_names=[...]
-        constants={...}
-        metadata={...}
-        created_utc="..."
-    /axes/<axis_name>
-        data: axis values
-        attrs: name, units, spacing
-    /outputs/<output_name>
-        data: N-dimensional output array
-    /status/success
-        data: Boolean success array
-    /status/message
-        data: text messages for failed map points
-```
-
-## Axis
-
-An `Axis` describes one input direction of a generated map. The axis name is important because it becomes the keyword passed into the `evaluate()` function and the input name expected by `Map.from_hdf5()`.
-
-The three common constructors are:
+Use FullPlot to generate rectangular HDF5 map files:
 
 ```python
-Axis.linear("temperature", start=250.0, stop=500.0, count=10, units="K")
-Axis.log("pressure", start=1e5, stop=1e7, count=20, units="Pa")
-Axis.values("mixture_ratio", values=[1.5, 2.0, 2.3, 2.6], units="")
-```
+import fullplot as fplt
 
-Use `Axis.linear()` when equal physical spacing makes sense. Use `Axis.log()` for positive variables that span a large range. Use `Axis.values()` for measured points or hand-picked breakpoints.
-
-## generate_map()
-
-A minimal generated map looks like this:
-
-```python
-def evaluate(pressure, temperature):
-    density = pressure / (287.0 * temperature)
-    return {"density": density}
-
-generate_map(
-    filename="gas_map",
-    group="air",
+fplt.generate_map(
+    "property_map.h5",
+    group="properties",
     axes=[
-        Axis.linear("pressure", 100000.0, 500000.0, 5, units="Pa"),
-        Axis.linear("temperature", 250.0, 500.0, 6, units="K"),
+        fplt.Axis.linear("pressure", 100000.0, 500000.0, 5),
+        fplt.Axis.linear("temperature", 250.0, 500.0, 6),
     ],
-    evaluate=evaluate,
-    overwrite=True,
+    evaluate=lambda pressure, temperature: {
+        "density": pressure / (287.0 * temperature),
+    },
 )
 ```
 
-The map function must return a flat dictionary of scalar numeric outputs. Nested dictionaries, arrays, lists, strings, and booleans are intentionally rejected. If a model produces many values, return each one under a separate scalar key.
-
-## constants vs axes
-
-Use an axis for a value that should vary across the table:
-
-```python
-Axis.linear("pressure", ...)
-```
-
-Use `constants` for values that should be passed to every evaluation but are fixed for that map:
-
-```python
-constants={"gas_constant": 287.0}
-```
-
-Constants are stored in the map metadata. They are not stored as axis datasets and are not required as runtime inputs to `Map.from_hdf5()`.
-
-## metadata
-
-The `metadata` argument stores user notes as JSON. It is useful for information like:
-
-```text
-source of data
-validity range notes
-propellant names
-map generation date
-script version
-transport model assumptions
-warnings about extrapolation
-```
-
-Metadata is not used by the interpolator. It is there so the file can explain itself later.
-
-## resume, overwrite, and failures
-
-`generate_map()` can resume an interrupted map. The status arrays show which points succeeded. With `resume=True`, already successful points are skipped. Failed or missing points are attempted again.
-
-Use `overwrite=True` when the axes, equations, constants, outputs, or assumptions changed and the old map should be deleted before regenerating.
-
-Use `raise_errors=True` while developing a map so mistakes fail immediately. For long production maps, `raise_errors=False` can record failed points in `status/message` and continue.
+FullFlow still contains the `Map` component. It can load compatible HDF5 maps
+with `Map.from_hdf5(...)`, but FullFlow itself does not generate those files.
 
 ## Map.from_hdf5()
 
-Generated maps are used inside a network like this:
+`Map.from_hdf5()` loads a map file that contains:
 
-```python
-GasMap = Map.from_hdf5(
-    "Gas Map",
-    network,
-    filename="gas_map",
-    group="air",
-    inputs={
-        "pressure": pressure,
-        "temperature": temperature,
-    },
-)
+```text
+/<map_group>/axes/<axis_name>
+/<map_group>/outputs/<output_name>
+/<map_group>/status/success
+/<map_group>/status/message
 ```
 
-The input names must match the axis names. The output datasets become attributes on the map component.
-
-Outputs can also be selected or renamed:
-
-```python
-GasMap = Map.from_hdf5(
-    "Gas Map",
-    network,
-    filename="gas_map",
-    group="air",
-    inputs={...},
-    outputs={
-        "rho": "density",
-        "h": "enthalpy",
-    },
-)
-```
-
-In that example, the HDF5 dataset `density` becomes `GasMap.rho`, and the dataset `enthalpy` becomes `GasMap.h`.
+The `fullplot.generate_map()` function writes this layout.
