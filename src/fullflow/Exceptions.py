@@ -1,10 +1,10 @@
-"""FullFlow-specific exception types.
+"""
+FullFlow-specific exception types.
 
 These exceptions keep user-facing errors clear without creating a different
 exception class for every component or every possible invalid value.
 
-Most component-level numeric checks should still use normal ``ValueError`` or
-``TypeError``.  These classes are intended for high-level FullFlow categories
+These classes are intended for high-level FullFlow categories
 such as unassigned States, map loading/generation, solver setup, and solver
 convergence.
 """
