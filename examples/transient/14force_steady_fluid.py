@@ -1,5 +1,5 @@
 """
-Simple force_steady fluid example.
+Simple forced-steady fluid time-sweep example.
 
 Physical layout
 ---------------
@@ -31,15 +31,15 @@ This example solves the same network two ways:
    - Node pressures are integrated through mass storage.
 
 2. Force-steady everything except the nodes
-   - force_steady="all" tells the transient solver to force every dynamic
-     component to steady state.
-   - force_steady_exceptions=[Node1, Node2] keeps the node pressure/mass
-     storage dynamics active.
+   - SteadyState.solve(dt=..., t_final=...) tells FullFlow to force every
+     dynamic component to steady state at each time point.
+   - exceptions=[Node1, Node2] keeps the node pressure/mass storage dynamics
+     active.
    - Therefore the pipe mass-flow inertia is removed, but the node pressure
      storage is still dynamic.
 
 No custom components are used. The pipe friction factors are constant to keep
-this example focused only on force_steady behavior.
+this example focused only on forced-steady behavior.
 """
 
 import math
@@ -233,14 +233,13 @@ ForceSteadyNetwork, ForceSteadyNode1, ForceSteadyNode2, ForceSteadyPipe1, ForceS
 
 SteadyState(ForceSteadyNetwork).solve(filename="14force_steady_fluid")
 
-ForceSteadySolver = Transient(ForceSteadyNetwork)
+ForceSteadySolver = SteadyState(ForceSteadyNetwork)
 ForceSteadySolver.solve(
     dt=0.01,
     t_final=2.0,
     save_dt=0.01,
     filename="14force_steady_fluid",
-    force_steady="all",
-    force_steady_exceptions=[
+    exceptions=[
         ForceSteadyNode1,
         ForceSteadyNode2,
     ],

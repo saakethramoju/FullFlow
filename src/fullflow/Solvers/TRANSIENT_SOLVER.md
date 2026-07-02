@@ -99,32 +99,18 @@ which bounds should be passed to SciPy
 
 The cache is solver-side. The `Network` remains a simple container.
 
-## Dynamic modes
+## Dynamic mode
 
-Transient solving supports normal dynamic integration and forced-steady behavior.
-
-Normal dynamic integration:
+Transient solving now exposes only normal dynamic integration through the public
+`Transient.solve()` API:
 
 ```text
 state_new - state_previous - dt * derivative_new = 0
 ```
 
-Forced steady state:
-
-```text
-derivative_new = 0
-```
-
-The public options are:
-
-```python
-force_steady=None
-force_steady="all"
-force_steady=[ComponentA, ComponentB]
-force_steady_exceptions=[ComponentC]
-```
-
-This is useful for reduced-order studies. For example, a user can force all fast fluid volumes steady while leaving rotor speed or wall temperature dynamic.
+Forced-steady time sweeps live under `SteadyState.solve(dt=..., t_final=...)`.
+That API uses the transient runtime internally and stores its HDF5 output under
+`transient/runs/...` with `run_mode = "forced_steady_time_sweep"` metadata.
 
 ## User balances during transient
 

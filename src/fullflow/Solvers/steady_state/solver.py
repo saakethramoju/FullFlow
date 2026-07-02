@@ -259,6 +259,75 @@ class SteadyState:
 
         return solution
 
+    def _solve_forced_steady_time_sweep_once(
+        self,
+        *,
+        dt: float,
+        t_final: float,
+        filename: str | None = None,
+        return_type: str = "dict",
+        verbose: bool = False,
+        statistics: bool = False,
+        solver_method: str = "trf",
+        jacobian_method: str = "3-point",
+        ftol: float = 1e-8,
+        xtol: float = 1e-8,
+        gtol: float | None = None,
+        rtol: float = 1e-2,
+        state_max_passes: int = 5,
+        state_tolerance: float = 1e-10,
+        max_step_retries: int = 8,
+        minimum_dt: float | None = None,
+        save_dt: float | None = None,
+        ignore_balances=None,
+        exceptions=None,
+        group_path: str = "transient/runs/base",
+        metadata: dict[str, Any] | None = None,
+    ):
+        """Run a quasi-steady time sweep using the transient runtime machinery.
+
+        Every dynamic component is forced to satisfy derivative = 0 at each
+        timestep unless it is listed in ``exceptions``.  Results are written
+        under the transient run path using the normal transient time-history
+        HDF5 layout.
+        """
+        from fullflow.Solvers.transient.solver import Transient
+
+        metadata = {} if metadata is None else dict(metadata)
+        metadata.setdefault("solve_type", "transient")
+        metadata.setdefault("run_mode", "forced_steady_time_sweep")
+
+        transient_solver = Transient(self.network)
+        result = transient_solver._solve_no_model(
+            dt=dt,
+            t_final=t_final,
+            filename=filename,
+            return_type=return_type,
+            verbose=verbose,
+            statistics=statistics,
+            solver_method=solver_method,
+            jacobian_method=jacobian_method,
+            ftol=ftol,
+            xtol=xtol,
+            gtol=gtol,
+            rtol=rtol,
+            state_max_passes=state_max_passes,
+            state_tolerance=state_tolerance,
+            max_step_retries=max_step_retries,
+            minimum_dt=minimum_dt,
+            save_dt=save_dt,
+            ignore_balances=ignore_balances,
+            force_steady="all",
+            force_steady_exceptions=exceptions,
+            group_path=group_path,
+            metadata=metadata,
+        )
+
+        self._last_success_kind = "forced_steady_time_sweep"
+        self._last_static_elapsed_time = None
+        self._last_solve_diagnostics = None
+        return result
+
     def static_evaluate(
         self,
         model: str | None = None,
@@ -375,11 +444,17 @@ class SteadyState:
         verbose: bool = False,
         statistics: bool = False,
         static: bool = False,
+        dt: float | None = None,
+        t_final: float | None = None,
+        save_dt: float | None = None,
+        exceptions=None,
+        max_step_retries: int = 8,
+        minimum_dt: float | None = None,
         solver_method: str = "trf",
         jacobian_method: str = "3-point",
         ftol: float = 1e-8,
         xtol: float = 1e-8,
-        gtol: float = 1e-8,
+        gtol: float | None = 1e-8,
         rtol: float = 1e-2,
         state_max_passes: int = 5,
         state_tolerance: float = 1e-10,
@@ -436,6 +511,30 @@ class SteadyState:
             Skip nonlinear solving and perform a static evaluation instead.
 
             Equivalent to calling :meth:`static_evaluate`.
+
+        dt, t_final : float, optional
+            When both are provided, ``SteadyState.solve`` performs a
+            quasi-steady time sweep instead of a single steady-state solve.  The
+            transient runtime is used to march from the current network time to
+            ``t_final``, but every dynamic component is forced to satisfy
+            derivative = 0 at each timestep unless it is listed in
+            ``exceptions``.  HDF5 output is written under ``transient/runs``
+            using the normal transient time-history layout.
+
+        save_dt : float, optional
+            Output interval for a quasi-steady time sweep.  If omitted, every
+            accepted timestep is saved.
+
+        exceptions : iterable of Component, optional
+            Dynamic components that are excluded from the forced-steady
+            treatment during a quasi-steady time sweep.  These components keep
+            their normal transient integration residuals.
+
+        max_step_retries : int, default=8
+            Maximum automatic half-step retries for quasi-steady time sweeps.
+
+        minimum_dt : float, optional
+            Smallest automatic retry timestep for quasi-steady time sweeps.
 
         solver_method : str, default="trf"
             SciPy ``least_squares`` algorithm.
@@ -498,6 +597,84 @@ class SteadyState:
         """
         self._ignore_balances = ignore_balances
         self._runtime_cache = None
+
+        time_sweep_requested = dt is not None or t_final is not None
+        if time_sweep_requested:
+            if dt is None or t_final is None:
+                raise ValueError("dt and t_final must be provided together for a SteadyState time sweep.")
+            if static:
+                raise ValueError("static=True cannot be combined with dt/t_final in SteadyState.solve().")
+
+            def run_time_sweep_once(
+                filename: str | None = None,
+                return_type: str = "dict",
+                statistics_filename: str | None = None,
+                group_path: str = "transient/runs/base",
+                metadata: dict[str, Any] | None = None,
+            ):
+                return self._solve_forced_steady_time_sweep_once(
+                    dt=float(dt),
+                    t_final=float(t_final),
+                    filename=filename,
+                    return_type=return_type,
+                    verbose=verbose,
+                    statistics=statistics,
+                    solver_method=solver_method,
+                    jacobian_method=jacobian_method,
+                    ftol=ftol,
+                    xtol=xtol,
+                    gtol=gtol,
+                    rtol=rtol,
+                    state_max_passes=state_max_passes,
+                    state_tolerance=state_tolerance,
+                    max_step_retries=max_step_retries,
+                    minimum_dt=minimum_dt,
+                    save_dt=save_dt,
+                    ignore_balances=ignore_balances,
+                    exceptions=exceptions,
+                    group_path=group_path,
+                    metadata=metadata,
+                )
+
+            from fullflow.Solvers.transient.models import TransientModelOptionRunner
+
+            runner = TransientModelOptionRunner(
+                self.network,
+                ModelManager(self.network),
+                self.printer,
+                solve_type="transient",
+                metadata_solve_type="transient",
+                metadata_extra={"run_mode": "forced_steady_time_sweep"},
+            )
+            def run_time_sweep_model_once(
+                filename: str | None = None,
+                return_type: str = "dict",
+                group_path: str = "transient/runs/base",
+                metadata: dict[str, Any] | None = None,
+                verbose_override: bool | None = None,
+            ):
+                metadata = {} if metadata is None else dict(metadata)
+                metadata.setdefault("run_mode", "forced_steady_time_sweep")
+                return run_time_sweep_once(
+                    filename=filename,
+                    return_type=return_type,
+                    group_path=group_path,
+                    metadata=metadata,
+                )
+
+            return runner.run(
+                model=model,
+                evaluate_all_model_options=evaluate_all_model_options,
+                filename=filename,
+                return_type=return_type,
+                verbose=verbose,
+                run_once=run_time_sweep_model_once,
+            )
+
+        if exceptions is not None:
+            raise ValueError("exceptions can only be used when dt and t_final are provided.")
+        if save_dt is not None:
+            raise ValueError("save_dt can only be used when dt and t_final are provided.")
 
         if static:
             return self.static_evaluate(

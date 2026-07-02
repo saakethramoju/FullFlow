@@ -668,12 +668,16 @@ def write_transient_solution(
     group_path: str = "transient/runs/base",
     metadata: dict[str, Any] | None = None,
 ) -> Path:
-    """Write one transient run for a network.
+    """Write one time-history run for a network.
 
-    Transient results are always written inside a run group::
+    Normal transient results are written under::
 
         /<network_name>/transient/runs/base
         /<network_name>/transient/runs/<model_name>/<option_name>
+
+    Quasi-steady time sweeps created by ``SteadyState.solve(dt=..., t_final=...)``
+    use this same transient history layout and are saved under
+    ``transient/runs/...``.
 
     Existing sibling runs are preserved.  Re-running the same run path replaces
     only that run group.
@@ -688,16 +692,25 @@ def write_transient_solution(
         time_values = np.asarray(output_times, dtype=float)
 
     group_path = group_path.strip("/") or "transient/runs/base"
-    if not group_path.startswith("transient/runs/"):
+
+    if group_path.startswith("transient/runs/"):
+        solve_section = "transient"
+    elif group_path.startswith("steady_state/runs/"):
+        solve_section = "steady_state"
+    elif group_path.startswith("runs/"):
+        solve_section = "transient"
+        group_path = f"transient/{group_path}"
+    else:
+        solve_section = "transient"
         group_path = f"transient/runs/{group_path}"
 
     with h5py.File(path, "a") as h5:
         _initialize_file(h5)
         network_group = _require_object_group(h5, network_name, "network")
-        transient_group = network_group.require_group("transient")
-        transient_group.attrs["kind"] = "transient"
-        transient_group.attrs["updated_utc"] = _now()
-        transient_group.require_group("runs")
+        solve_group = network_group.require_group(solve_section)
+        solve_group.attrs["kind"] = solve_section
+        solve_group.attrs["updated_utc"] = _now()
+        solve_group.require_group("runs")
 
         if group_path in network_group:
             del network_group[group_path]
@@ -706,7 +719,7 @@ def write_transient_solution(
         run_group.attrs["updated_utc"] = _now()
 
         metadata = {} if metadata is None else dict(metadata)
-        metadata.setdefault("solve_type", "transient")
+        metadata.setdefault("solve_type", solve_section)
         metadata.setdefault("run_path", group_path)
         _write_metadata(run_group, metadata)
 
@@ -719,7 +732,13 @@ def write_transient_solution(
 
         final_group = run_group.create_group("final")
         final_group.attrs["kind"] = "final"
-        _write_metadata(final_group, {"solve_type": "transient_final", "run_path": f"{group_path}/final"})
+        _write_metadata(
+            final_group,
+            {
+                "solve_type": f"{metadata.get('solve_type', solve_section)}_final",
+                "run_path": f"{group_path}/final",
+            },
+        )
         _write_component_values(final_group, final_rows)
         _write_static_tracks(final_group, final_rows)
         _write_static_sensors(final_group, final_rows)

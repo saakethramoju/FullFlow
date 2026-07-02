@@ -245,8 +245,6 @@ class Transient:
         minimum_dt: float | None = None,
         save_dt: float | None = None,
         ignore_balances=None,
-        force_steady=None,
-        force_steady_exceptions=None,
     ):
         """Advance the network with optional model-option selection.
 
@@ -283,8 +281,8 @@ class Transient:
                 minimum_dt=minimum_dt,
                 save_dt=save_dt,
                 ignore_balances=ignore_balances,
-                force_steady=force_steady,
-                force_steady_exceptions=force_steady_exceptions,
+                force_steady=None,
+                force_steady_exceptions=None,
                 group_path=group_path,
                 metadata=metadata,
             )

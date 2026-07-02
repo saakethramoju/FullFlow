@@ -48,6 +48,44 @@ A `Volume` may vary pressure or temperature until mass and energy accumulation r
 
 This is similar to the way many network solvers trim a dynamic model: the same component equations are used, but the dynamic derivatives are forced to zero instead of being integrated through time.
 
+
+## Quasi-steady time sweeps
+
+`SteadyState.solve()` can also march through time while forcing dynamic
+components to steady state at each timestep:
+
+```python
+SteadyState(network).solve(
+    dt=0.01,
+    t_final=2.0,
+    save_dt=0.01,
+)
+```
+
+This is a quasi-steady solve, not a normal transient integration. Internally,
+FullFlow uses the transient timestep runtime so time-dependent inputs such as
+`Sequence` components are sampled at each solver time. The dynamic residual for
+each forced component becomes:
+
+```text
+derivative = 0
+```
+
+Components listed in `exceptions` keep their normal transient integration
+residuals while all other dynamic components are forced steady:
+
+```python
+SteadyState(network).solve(
+    dt=0.01,
+    t_final=2.0,
+    exceptions=[Rotor, WallNode],
+)
+```
+
+HDF5 output is written under `transient/runs/...`, and the run group contains
+time-history datasets such as `time`, `components`, `tracks`, `sensors`,
+`diagnostics`, and `final`, matching normal transient history exports.
+
 ## Public files in the steady_state package
 
 The steady-state implementation is split into small files:

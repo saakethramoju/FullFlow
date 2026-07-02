@@ -1,7 +1,7 @@
 """
-Simple force_steady transient example.
+Simple forced-steady time-sweep example.
 
-This example shows how FullFlow's transient force_steady option works.
+This example shows how SteadyState.solve(dt=..., t_final=...) can run a quasi-steady time sweep.
 
 Physical model
 --------------
@@ -26,8 +26,9 @@ Two separate networks are solved:
    The Solid is integrated normally, so the metal temperature lags.
 
 2. Force-steady metal
-   The Solid component is listed in force_steady, so the transient solver
-   replaces the Solid's transient corrector equation with:
+   SteadyState.solve(dt=..., t_final=...) forces dynamic components to
+   steady at every time point by replacing the Solid's transient corrector
+   equation with:
 
        temperature_dot = 0
 
@@ -175,11 +176,10 @@ SteadyState(ForceSteadyNetwork).solve(
     filename="13force_steady_heat_transfer",
 )
 
-Transient(ForceSteadyNetwork).solve(
+SteadyState(ForceSteadyNetwork).solve(
     dt=0.1,
     t_final=20.0,
     save_dt=0.1,
     filename="13force_steady_heat_transfer",
     verbose=True,
-    force_steady=[ForceSteadyMetalNode],
 )

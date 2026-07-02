@@ -9,11 +9,6 @@ if TYPE_CHECKING:
 
 
 class Sensor(Component):
-    """Named virtual sensor reading for HDF5 export.
-
-    In this first version, a sensor is just a named view of a State, similar to
-    ``Network.track(...)``, but exported under the run's ``/sensors`` group.
-    """
 
     def __init__(
         self,

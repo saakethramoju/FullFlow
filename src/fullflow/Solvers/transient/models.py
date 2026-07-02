@@ -116,20 +116,33 @@ class TransientModelOptionRunner:
     options start from the same captured initial State values.
     """
 
-    def __init__(self, network, model_manager: ModelManager, printer) -> None:
+    def __init__(
+        self,
+        network,
+        model_manager: ModelManager,
+        printer,
+        *,
+        solve_type: str = "transient",
+        metadata_solve_type: str | None = None,
+        metadata_extra: dict[str, Any] | None = None,
+    ) -> None:
         self.network = network
         self.model_manager = model_manager
         self.printer = printer
+        self.solve_type = solve_type
+        self.metadata_solve_type = metadata_solve_type or solve_type
+        self.metadata_extra = {} if metadata_extra is None else dict(metadata_extra)
 
-    @staticmethod
-    def _metadata(*, model_name: str | None = None, option_name: str | None = None, evaluate_all: bool = False) -> dict[str, Any]:
-        return {
-            "solve_type": "transient",
+    def _metadata(self, *, model_name: str | None = None, option_name: str | None = None, evaluate_all: bool = False) -> dict[str, Any]:
+        metadata = {
+            "solve_type": self.metadata_solve_type,
             "run_type": "base" if model_name is None else "model_option",
             "model_name": "" if model_name is None else model_name,
             "option_name": "" if option_name is None else option_name,
             "evaluate_all_model_options": bool(evaluate_all),
         }
+        metadata.update(self.metadata_extra)
+        return metadata
 
     def run(
         self,
@@ -148,7 +161,7 @@ class TransientModelOptionRunner:
             return run_once(
                 filename=filename,
                 return_type=return_type,
-                group_path=run_group_path("transient"),
+                group_path=run_group_path(self.solve_type),
                 metadata=self._metadata(),
                 verbose_override=verbose,
             )
@@ -194,7 +207,7 @@ class TransientModelOptionRunner:
                 records = run_once(
                     filename=filename,
                     return_type=return_type,
-                    group_path=run_group_path("transient", model_name=selected_model.name, option_name=option_name),
+                    group_path=run_group_path(self.solve_type, model_name=selected_model.name, option_name=option_name),
                     metadata=self._metadata(model_name=selected_model.name, option_name=option_name),
                     verbose_override=verbose,
                 )
@@ -208,7 +221,7 @@ class TransientModelOptionRunner:
                     filename,
                     failures,
                     group_path=(
-                        f"{safe_group_name(self.network.name)}/transient/runs/"
+                        f"{safe_group_name(self.network.name)}/{safe_group_name(self.solve_type)}/runs/"
                         f"{safe_group_name(selected_model.name)}/failures"
                     ),
                 )
@@ -239,7 +252,7 @@ class TransientModelOptionRunner:
                 records = run_once(
                     filename=filename,
                     return_type="dict",
-                    group_path=run_group_path("transient", model_name=selected_model.name, option_name=option_name),
+                    group_path=run_group_path(self.solve_type, model_name=selected_model.name, option_name=option_name),
                     metadata=self._metadata(
                         model_name=selected_model.name,
                         option_name=option_name,
@@ -268,7 +281,7 @@ class TransientModelOptionRunner:
                 filename,
                 failures,
                 group_path=(
-                    f"{safe_group_name(self.network.name)}/transient/runs/"
+                    f"{safe_group_name(self.network.name)}/{safe_group_name(self.solve_type)}/runs/"
                     f"{safe_group_name(selected_model.name)}/failures"
                 ),
             )
