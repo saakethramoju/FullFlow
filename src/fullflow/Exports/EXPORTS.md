@@ -116,41 +116,87 @@ Model-option runs use deeper paths:
 
 This lets a single file store a base run, several model-option runs, diagnostics, and failure information without overwriting unrelated data.
 
-## Map generation moved to FullPlot
+## HDF5 map files
 
 FullFlow no longer contains plotting utilities or map-generation utilities.
 Those live in the independent `fullplot` package.
 
-Use FullPlot to generate rectangular HDF5 map files:
-
-```python
-import fullplot as fplt
-
-fplt.generate_map(
-    "property_map.h5",
-    group="properties",
-    axes=[
-        fplt.Axis.linear("pressure", 100000.0, 500000.0, 5),
-        fplt.Axis.linear("temperature", 250.0, 500.0, 6),
-    ],
-    evaluate=lambda pressure, temperature: {
-        "density": pressure / (287.0 * temperature),
-    },
-)
-```
-
-FullFlow still contains the `Map` component. It can load compatible HDF5 maps
-with `Map.from_hdf5(...)`, but FullFlow itself does not generate those files.
+FullFlow still contains the `Map` component. `Map.from_hdf5(...)` reads a
+simple rectangular-grid HDF5 map layout. FullPlot's `generate_map()` is one
+convenient way to create that layout, but it is not required. Users can create
+compatible map files with any HDF5 writer.
 
 ## Map.from_hdf5()
 
-`Map.from_hdf5()` loads a map file that contains:
+`Map.from_hdf5()` loads a map group with this generic layout:
 
 ```text
-/<map_group>/axes/<axis_name>
-/<map_group>/outputs/<output_name>
-/<map_group>/status/success
-/<map_group>/status/message
+/<map_group>
+    attrs:
+        axis_order = '["pressure", "temperature"]'   optional but recommended
+
+    /axes
+        /pressure
+        /temperature
+
+    /outputs
+        /density
+        /enthalpy
 ```
 
-The `fullplot.generate_map()` function writes this layout.
+Each axis dataset must be one-dimensional and strictly increasing. Every output
+dataset must be a rectangular array whose shape matches the axis lengths in the
+same order. For example, with `pressure.shape == (5,)` and
+`temperature.shape == (6,)`, every output should have shape `(5, 6)`.
+
+Optional attributes such as `units`, `spacing`, `constants`, `metadata`, and
+`status` are useful for inspection and generated-map bookkeeping, but the core
+reader only needs the axes and outputs. A `spacing="log"` axis attribute tells
+FullFlow to interpolate in `log(axis_value)` while users still supply physical
+values.
+
+A minimal compatible file can be written directly with `h5py`:
+
+```python
+import json
+import h5py
+import numpy as np
+
+pressure = np.linspace(1.0e5, 5.0e5, 5)
+temperature = np.linspace(250.0, 500.0, 6)
+
+density = np.empty((len(pressure), len(temperature)))
+enthalpy = np.empty_like(density)
+
+for i, p in enumerate(pressure):
+    for j, t in enumerate(temperature):
+        density[i, j] = p / (287.0 * t)
+        enthalpy[i, j] = 1005.0 * t
+
+with h5py.File("property_map.h5", "w") as file:
+    group = file.create_group("ideal_gas")
+    group.attrs["axis_order"] = json.dumps(["pressure", "temperature"])
+
+    axes = group.create_group("axes")
+    axes.create_dataset("pressure", data=pressure)
+    axes.create_dataset("temperature", data=temperature)
+
+    outputs = group.create_group("outputs")
+    outputs.create_dataset("density", data=density)
+    outputs.create_dataset("enthalpy", data=enthalpy)
+```
+
+Then load it in FullFlow:
+
+```python
+GasMap = Map.from_hdf5(
+    "Gas Map",
+    network,
+    filename="property_map.h5",
+    group="ideal_gas",
+    inputs={
+        "pressure": pressure_state,
+        "temperature": temperature_state,
+    },
+)
+```

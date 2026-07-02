@@ -126,8 +126,20 @@ class Map(Component):
 
     HDF5 maps
     ---------
-    ``Map.from_hdf5`` loads maps written by ``fullplot.generate_map`` or by any file that follows the same HDF5 map layout. The required
-    input names come from the HDF5 map axes. For a generated map with axes
+    ``Map.from_hdf5`` loads simple rectangular-grid HDF5 maps. FullPlot's
+    ``generate_map`` helper writes one compatible layout, but FullFlow does not
+    require FullPlot and the file does not need to have been created by
+    FullPlot. The generic expected structure is::
+
+        /<map_group>/axes/<axis_name>
+        /<map_group>/outputs/<output_name>
+
+    Every axis is a one-dimensional grid. Every output is a rectangular array
+    whose shape matches the axis lengths in axis order. The optional
+    ``axis_order`` group attribute records that order. If it is omitted,
+    ``Map.from_hdf5`` uses the order of the supplied ``inputs``.
+
+    The required input names come from the HDF5 map axes. For a map with axes
     ``pressure`` and ``temperature``, load it with::
 
         Products = Map.from_hdf5(
