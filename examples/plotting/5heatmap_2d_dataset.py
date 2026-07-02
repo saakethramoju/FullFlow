@@ -51,7 +51,6 @@ maps = file.at("/maps")
 # x is the horizontal coordinate array.
 # y is the vertical coordinate array.
 # zlabel labels the colorbar.
-# cmap chooses the Matplotlib colormap. "plasma" maps low values to purple and
 # high values to yellow.
 maps.map(
     z="pressure_map",
@@ -61,7 +60,6 @@ maps.map(
     ylabel="Station [-]",
     zlabel="Pressure [Pa]",
     title="Pressure Map from a 2D Dataset",
-    cmap="plasma",
     save=example_dir / "5heatmap_2d_dataset.png",
     show=False,
 )

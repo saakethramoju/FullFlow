@@ -61,7 +61,6 @@ fplt.map(
     ylabel="Station [-]",
     zlabel="Temperature [K]",
     title="Module-Level Map Call",
-    cmap="inferno",
     save=example_dir / "13module_level_map.png",
     show=False,
 )

@@ -19,6 +19,7 @@ from fullflow.Plotting.themes import (
     style_colorbar,
     style_legend,
     theme_colors,
+    theme_settings,
 )
 
 
@@ -704,7 +705,6 @@ class H5File:
         dpi: int = 200,
         show: bool = True,
         figsize=(8, 6),
-        cmap: str = "viridis",
     ):
         """
         Plot a 2D dataset as a map.
@@ -789,6 +789,8 @@ class H5File:
         ax.set_xscale(xscale)
         ax.set_yscale(yscale)
 
+        cmap = theme_settings(theme)["map_cmap"]
+
         mesh = ax.pcolormesh(
             x_array,
             y_array,
@@ -797,7 +799,6 @@ class H5File:
             cmap=cmap,
             norm=norm,
         )
-
         colorbar = fig.colorbar(mesh, ax=ax)
         style_colorbar(colorbar, theme)
 

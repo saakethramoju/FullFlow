@@ -35,7 +35,6 @@ maps = file.at("/maps")
 
 # z="positive_map" is a 2D positive array with shape [station, time].
 # zscale="log" makes the colorbar logarithmic.
-# cmap="viridis" chooses the Matplotlib colormap.
 maps.map(
     z="positive_map",
     x="time",
@@ -45,7 +44,6 @@ maps.map(
     zlabel="Normalized Positive Value [-]",
     title="Heat Map with a Log Color Scale",
     zscale="log",
-    cmap="viridis",
     save=example_dir / "8log_color_map.png",
     show=False,
 )

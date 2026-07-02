@@ -63,7 +63,6 @@ traces.map(
     ylabel="Station [-]",
     zlabel="Pressure [Pa]",
     title="Pressure Heat Map from Separate 1D Datasets",
-    cmap="plasma",
     save=example_dir / "6heatmap_stacked_1d.png",
     show=False,
 )

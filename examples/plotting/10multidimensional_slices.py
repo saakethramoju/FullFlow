@@ -135,7 +135,6 @@ multidim.map(
     ylabel="Station [-]",
     zlabel="Pressure [Pa]",
     title="3D Pressure Dataset, Case 1 as a Heat Map",
-    cmap="plasma",
     save=example_dir / "10pressure_3d_case1_heatmap.png",
     show=False,
 )

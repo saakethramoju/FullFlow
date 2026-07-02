@@ -62,7 +62,6 @@ maps.map(
     ylabel="Station [-]",
     zlabel="Temperature [K]",
     title="Temperature Heat Map",
-    cmap="inferno",
     show=False,
 )
 
