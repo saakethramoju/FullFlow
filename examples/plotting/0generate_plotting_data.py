@@ -2,26 +2,77 @@
 Generate Example HDF5 Plotting Data
 ===================================
 
-FullFlow examples normally write HDF5 results from a solve, but this plotting
-folder intentionally does not commit any .h5 files because .h5 files are ignored
-by git.
+Run this script before running the other plotting examples.
 
-Run this script first. It creates one small HDF5 file used by all of the other
-plotting examples:
+This script creates:
+
+    examples/plotting/plotting_demo.h5
+
+The repository ignores .h5 files, so this file should be generated locally
+instead of committed to git.
+
+The generated file is intentionally simple and generic. It is not meant to be a
+real fluid network model. It is just smooth, simulation-like data that lets the
+plotting examples demonstrate every major FullPlot feature.
+
+The file layout is:
 
     plotting_demo.h5
+    |
+    |-- scalars/
+    |      initial_pressure        scalar
+    |      final_pressure          scalar
+    |      final_mass_flow         scalar
+    |
+    |-- demo_transient/
+    |      time                    1D, shape (501,)
+    |      source_pressure         1D, shape (501,)
+    |      node_pressure           1D, shape (501,)
+    |      outlet_pressure         1D, shape (501,)
+    |      mass_flow               1D, shape (501,)
+    |      valve_area              1D, shape (501,)
+    |      reynolds_number         1D, shape (501,)
+    |      diagnostics/
+    |          time                1D, shape (501,)
+    |          max_abs_residual    1D, positive residual-like data
+    |          rms_residual        1D, positive residual-like data
+    |
+    |-- separate_traces/
+    |      time                    1D, shape (501,)
+    |      station                 1D, shape (6,)
+    |      station_1_pressure      1D, shape (501,)
+    |      station_2_pressure      1D, shape (501,)
+    |      ...
+    |
+    |-- maps/
+    |      time                    1D, shape (501,)
+    |      station                 1D, shape (6,)
+    |      pressure_map            2D, shape (6, 501), pressure_map[station, time]
+    |      temperature_map         2D, shape (6, 501), temperature_map[station, time]
+    |      positive_map            2D, positive data for log color-scale examples
+    |
+    |-- multidimensional/
+    |      time                    1D, shape (501,)
+    |      station                 1D, shape (6,)
+    |      case                    1D, shape (3,)
+    |      pressure_3d             3D, shape (3, 6, 501), pressure_3d[case, station, time]
+    |      temperature_3d          3D, shape (3, 6, 501), temperature_3d[case, station, time]
+    |
+    |-- log_data/
+           time                    1D, shape (501,)
+           frequency               1D, positive log-spaced x data
+           gain                    1D, positive y data
+           phase_lag               1D, right-axis data
+           positive_decay          1D, positive data for log y-axis examples
+           positive_growth         1D, positive data for log y-axis examples
 
-The file contains common plotting data types:
+The important part is the array shape convention used by later examples:
 
-    - scalar values
-    - 1D time histories
-    - multiple related 1D traces
-    - a true 2D map
-    - separate 1D datasets that can be stacked into a heat map
-    - positive data for log-axis examples
-    - a true 3D dataset for slice examples
+    pressure_map[station, time]
+    pressure_3d[case, station, time]
 
-The data is synthetic, but it is shaped like simple transient simulation output.
+The last dimension is time, so the plotting examples use axis=-1 when they want
+to plot along time.
 """
 
 from pathlib import Path
@@ -35,31 +86,58 @@ filename = example_dir / "plotting_demo.h5"
 
 
 # ---------------------------------------------------------------------------
-# Synthetic transient data
+# Independent coordinates
 # ---------------------------------------------------------------------------
-# This is not meant to be a detailed physical model. It is just smooth,
-# simulation-like data that is easy to plot.
+# time is the shared x-axis for most examples.
+# station is a simple normalized position from inlet to outlet.
+# case represents three synthetic operating cases.
+# frequency is positive and log-spaced for log x-axis examples.
+# ---------------------------------------------------------------------------
 
 time = np.linspace(0.0, 10.0, 501)
 station = np.linspace(0.0, 1.0, 6)
 case = np.array([0, 1, 2])
 frequency = np.logspace(0.0, 4.0, 300)
 
+
+# ---------------------------------------------------------------------------
+# Simple 1D time histories
+# ---------------------------------------------------------------------------
+# These behave like ordinary transient solver outputs. Each array has the same
+# length as time, so any of them can be plotted against time.
+# ---------------------------------------------------------------------------
+
 source_pressure = 350000.0 + 4000.0 * np.sin(2.0 * np.pi * time / 7.0)
 node_pressure = 101325.0 + 180000.0 * (1.0 - np.exp(-time / 1.8)) + 8000.0 * np.exp(-time / 4.0) * np.sin(2.0 * np.pi * time / 1.6)
 outlet_pressure = 101325.0 + 5000.0 * np.sin(2.0 * np.pi * time / 5.0)
 mass_flow = 0.25 * (1.0 - np.exp(-time / 1.2)) + 0.015 * np.exp(-time / 3.0) * np.sin(2.0 * np.pi * time / 0.8)
+
+# Valve area is constant until t = 6 s, then closes linearly over 3 s.
 valve_area = 8.0e-5 * np.ones_like(time)
 valve_area[time > 6.0] = 8.0e-5 * np.maximum(0.0, 1.0 - (time[time > 6.0] - 6.0) / 3.0)
+
 reynolds_number = 2500.0 + 75000.0 * np.abs(mass_flow) / np.max(np.abs(mass_flow))
+
+# Residual-like data is strictly positive so it can be plotted on a log y-axis.
 max_abs_residual = 1.0e-1 * np.exp(-2.2 * time) + 1.0e-8
 rms_residual = 2.0e-2 * np.exp(-2.0 * time) + 5.0e-9
 
 
 # ---------------------------------------------------------------------------
-# Related 1D traces that can be plotted together
+# Related traces at several stations
 # ---------------------------------------------------------------------------
-# pressure_traces[i, :] is the pressure history at station i.
+# pressure_traces is a list of six 1D arrays.
+# pressure_traces[0] is station 0 pressure versus time.
+# pressure_traces[1] is station 1 pressure versus time.
+# etc.
+#
+# These traces are written two ways:
+#
+#   1. As separate 1D datasets under /separate_traces.
+#   2. As one 2D dataset under /maps.
+#
+# That lets the examples show both types of HDF5 layout.
+# ---------------------------------------------------------------------------
 
 pressure_traces = []
 temperature_traces = []
@@ -76,15 +154,26 @@ for x in station:
     pressure_traces.append(pressure)
     temperature_traces.append(temperature)
 
+# These are true 2D arrays.
+# Axis 0 is station.
+# Axis 1 is time.
 pressure_map = np.vstack(pressure_traces)
 temperature_map = np.vstack(temperature_traces)
 
 
 # ---------------------------------------------------------------------------
-# True 3D data
+# True 3D arrays
 # ---------------------------------------------------------------------------
-# pressure_3d[case, station, time]
-# temperature_3d[case, station, time]
+# These are made by stacking three slightly different 2D maps.
+#
+# pressure_3d has shape:
+#
+#     pressure_3d[case, station, time]
+#
+# Axis 0 is case.
+# Axis 1 is station.
+# Axis 2 is time.
+# ---------------------------------------------------------------------------
 
 pressure_3d = np.stack([
     0.97 * pressure_map,
@@ -100,7 +189,10 @@ temperature_3d = np.stack([
 
 
 # ---------------------------------------------------------------------------
-# Positive data for log-axis examples
+# Positive data for log-scale examples
+# ---------------------------------------------------------------------------
+# Logarithmic axes require positive values. These arrays are positive by
+# construction.
 # ---------------------------------------------------------------------------
 
 gain = 1.0 / np.sqrt(1.0 + (frequency / 75.0) ** 2)
@@ -170,3 +262,8 @@ with h5py.File(filename, "w") as h5:
 
 
 print(f"Wrote {filename}")
+print()
+print("Important dataset shapes:")
+print("  /demo_transient/time              ", time.shape)
+print("  /maps/pressure_map                ", pressure_map.shape, "= [station, time]")
+print("  /multidimensional/pressure_3d     ", pressure_3d.shape, "= [case, station, time]")

@@ -2,7 +2,14 @@
 Light Theme
 ===========
 
-FullPlot uses a dark theme by default. This example switches to the light theme.
+FullPlot uses a dark theme by default.
+
+This example switches to the light theme with:
+
+    theme="light"
+
+Only the visual style changes. The data selection is the same as any other
+plot() call.
 
 Run 0generate_plotting_data.py first if plotting_demo.h5 does not exist.
 """
@@ -18,6 +25,9 @@ filename = example_dir / "plotting_demo.h5"
 file = fplt.open(filename)
 run = file.at("/demo_transient")
 
+
+# This is the same kind of multi-trace pressure plot shown earlier, but with a
+# light background instead of the default dark background.
 run.plot(
     x="time",
     y=[

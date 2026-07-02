@@ -2,7 +2,18 @@
 Dual-Axis Plot
 ==============
 
-This example uses y for the left axis and y2 for the right axis.
+This example plots two quantities with different units on the same x-axis.
+
+The left y-axis uses y:
+
+    node_pressure [Pa]
+
+The right y-axis uses y2:
+
+    mass_flow [kg/s]
+
+Use a dual-axis plot when the datasets share the same x-axis but have different
+units or very different magnitudes.
 
 Run 0generate_plotting_data.py first if plotting_demo.h5 does not exist.
 """
@@ -18,6 +29,13 @@ filename = example_dir / "plotting_demo.h5"
 file = fplt.open(filename)
 run = file.at("/demo_transient")
 
+
+# y is plotted on the left axis.
+# y2 is plotted on the right axis.
+# labels names the left-axis trace.
+# y2labels names the right-axis trace.
+# ylabel names the left y-axis.
+# y2label names the right y-axis.
 run.plot(
     x="time",
     y="node_pressure",

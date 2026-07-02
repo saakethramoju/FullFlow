@@ -2,10 +2,19 @@
 Logarithmic Axes
 ================
 
-This example demonstrates xscale, yscale, and y2scale.
+This example demonstrates:
 
-Log scales only change the plotted axis. They do not transform the stored data.
-All values plotted on a log axis must be positive.
+    xscale="log"
+    yscale="log"
+
+A log scale changes only the displayed axis. It does not apply log10() to the
+stored data.
+
+Important rule:
+
+    Every value plotted on a log axis must be positive.
+
+The generated file includes positive data specifically for this example.
 
 Run 0generate_plotting_data.py first if plotting_demo.h5 does not exist.
 """
@@ -21,7 +30,16 @@ filename = example_dir / "plotting_demo.h5"
 file = fplt.open(filename)
 log_data = file.at("/log_data")
 
-# Bode-style plot with a logarithmic frequency axis.
+
+# ---------------------------------------------------------------------------
+# Logarithmic x-axis
+# ---------------------------------------------------------------------------
+# frequency is log-spaced and strictly positive.
+# gain is plotted on the left y-axis.
+# phase_lag is plotted on the right y-axis using y2.
+# xscale="log" makes the frequency axis logarithmic.
+# ---------------------------------------------------------------------------
+
 log_data.plot(
     x="frequency",
     y="gain",
@@ -37,7 +55,14 @@ log_data.plot(
     show=False,
 )
 
-# Decaying residual-style data on a logarithmic y-axis.
+
+# ---------------------------------------------------------------------------
+# Logarithmic y-axis
+# ---------------------------------------------------------------------------
+# positive_decay and positive_growth are both strictly positive.
+# yscale="log" makes the left y-axis logarithmic.
+# ---------------------------------------------------------------------------
+
 log_data.plot(
     x="time",
     y=[

@@ -58,6 +58,9 @@ run.plot(
 )
 ```
 
+This keeps examples short because you do not need to write the full HDF5 path
+every time.
+
 ## Inspecting files
 
 Use `tree()` to see the file structure:
@@ -85,7 +88,9 @@ time = run.read("time")
 pressure = run.read("node_pressure")
 ```
 
-## Single trace
+## 1D line plots
+
+A single trace uses one 1D x dataset and one 1D y dataset:
 
 ```python
 run.plot(
@@ -97,7 +102,7 @@ run.plot(
 )
 ```
 
-## Multiple traces
+Multiple traces can share one y-axis by passing a list to `y`:
 
 ```python
 run.plot(
@@ -118,9 +123,11 @@ run.plot(
 )
 ```
 
+All y traces must have the same length as the x dataset.
+
 ## Dual-axis plots
 
-Use `y2` for a right-side y-axis.
+Use `y` for the left y-axis and `y2` for the right y-axis.
 
 ```python
 run.plot(
@@ -136,7 +143,12 @@ run.plot(
 )
 ```
 
-## Heat maps
+This is useful when two datasets share the same x-axis but have different units
+or very different magnitudes.
+
+## Heat maps from 2D datasets
+
+For maps, `z` is the value represented by color. `zlabel` labels the colorbar.
 
 If the HDF5 file already has a 2D dataset, plot it directly:
 
@@ -155,8 +167,31 @@ maps.map(
 )
 ```
 
-If the file stores each trace as a separate 1D dataset, pass a list to `z`.
-FullPlot stacks the selected 1D datasets into a 2D array:
+If the dataset is shaped like:
+
+```text
+pressure_map[station, time]
+```
+
+then the map means:
+
+```text
+x-axis = time
+y-axis = station
+color  = pressure_map[station, time]
+```
+
+## Heat maps from separate 1D datasets
+
+Some files store each trace separately:
+
+```text
+station_1_pressure[time]
+station_2_pressure[time]
+station_3_pressure[time]
+```
+
+Pass a list to `z` and FullPlot stacks the traces in the order provided:
 
 ```python
 traces = file.at("/separate_traces")
@@ -180,13 +215,39 @@ traces.map(
 )
 ```
 
-For maps, `zlabel` is the colorbar label.
+Internally, this creates:
+
+```text
+stacked_pressure[station, time]
+```
 
 ## Multidimensional line plots
 
 A multidimensional dataset can be plotted as multiple line traces. The `axis`
 argument selects the dimension used as the x direction. The remaining dimensions
 become separate traces.
+
+For example, this dataset:
+
+```text
+pressure_map[station, time]
+```
+
+has shape:
+
+```text
+(6, 501)
+```
+
+Axis meaning:
+
+```text
+axis 0 = station
+axis 1 = time
+axis -1 = last axis = time
+```
+
+So this plot:
 
 ```python
 maps.plot(
@@ -199,11 +260,64 @@ maps.plot(
 )
 ```
 
-Use `slice` to reduce 3D or higher-dimensional data before plotting:
+means:
+
+```text
+plot along time, and make one trace for each station
+```
+
+## Slicing 3D or higher-dimensional data
+
+Use `slice` to reduce 3D or higher-dimensional data before plotting.
+
+For example, this dataset:
+
+```text
+pressure_3d[case, station, time]
+```
+
+has shape:
+
+```text
+(3, 6, 501)
+```
+
+Axis meaning:
+
+```text
+axis 0 = case
+axis 1 = station
+axis 2 = time
+axis -1 = last axis = time
+```
+
+This argument:
 
 ```python
-multidim = file.at("/multidimensional")
+slice={0: 1}
+```
 
+means:
+
+```text
+select index 1 from axis 0
+```
+
+Since axis 0 is case, that selects case 1. The data is reduced from:
+
+```text
+pressure_3d[case, station, time]
+```
+
+to:
+
+```text
+pressure_3d[station, time]
+```
+
+Then it can be plotted as lines:
+
+```python
 multidim.plot(
     x="time",
     y="pressure_3d",
@@ -215,7 +329,7 @@ multidim.plot(
 )
 ```
 
-The same sliced 3D data can also be plotted as a heat map:
+or as a heat map:
 
 ```python
 multidim.map(
@@ -229,7 +343,7 @@ multidim.map(
 )
 ```
 
-## Log axes
+## Log axes and log color scales
 
 Use `xscale`, `yscale`, `y2scale`, or `zscale` with either `"linear"` or `"log"`.
 

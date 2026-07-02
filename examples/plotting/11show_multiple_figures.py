@@ -2,8 +2,18 @@
 Show Multiple Figures Together
 ==============================
 
-This example creates several plots with show=False and then displays all open
-figures at the end with fplt.show().
+This example creates several figures and displays them at the end.
+
+Each plot call uses:
+
+    show=False
+
+That prevents each figure from blocking the script immediately. At the end,
+this line displays all open figures together:
+
+    fplt.show()
+
+This is useful when a script creates several plots from the same HDF5 file.
 
 Run 0generate_plotting_data.py first if plotting_demo.h5 does not exist.
 """
@@ -20,6 +30,8 @@ file = fplt.open(filename)
 run = file.at("/demo_transient")
 maps = file.at("/maps")
 
+
+# First figure: one pressure time history.
 run.plot(
     x="time",
     y="node_pressure",
@@ -29,6 +41,8 @@ run.plot(
     show=False,
 )
 
+
+# Second figure: one mass-flow time history.
 run.plot(
     x="time",
     y="mass_flow",
@@ -38,6 +52,8 @@ run.plot(
     show=False,
 )
 
+
+# Third figure: a 2D temperature map.
 maps.map(
     z="temperature_map",
     x="time",
@@ -50,4 +66,6 @@ maps.map(
     show=False,
 )
 
+
+# Display all three figures at the same time.
 fplt.show()

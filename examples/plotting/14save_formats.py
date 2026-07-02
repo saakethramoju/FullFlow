@@ -2,8 +2,15 @@
 Saving Figures
 ==============
 
-The save argument can write any normal Matplotlib-supported figure format.
-Common choices are .png, .pdf, and .svg.
+The save argument writes a Matplotlib figure to disk.
+
+The filename extension controls the output format:
+
+    .png    raster image, good for quick viewing
+    .svg    vector image, good for diagrams and web pages
+    .pdf    vector document, good for reports
+
+This example saves one plot as PNG and another as SVG.
 
 Run 0generate_plotting_data.py first if plotting_demo.h5 does not exist.
 """
@@ -19,6 +26,8 @@ filename = example_dir / "plotting_demo.h5"
 file = fplt.open(filename)
 run = file.at("/demo_transient")
 
+
+# Save a pressure plot as a PNG file.
 run.plot(
     x="time",
     y="node_pressure",
@@ -29,6 +38,8 @@ run.plot(
     show=False,
 )
 
+
+# Save a mass-flow plot as an SVG file.
 run.plot(
     x="time",
     y="mass_flow",

@@ -2,13 +2,20 @@
 Module-Level API
 ================
 
-Most examples use:
+Most examples use the object-style API:
 
     file = fplt.open(filename)
-    run = file.at("/some/group")
+    run = file.at("/demo_transient")
     run.plot(...)
 
-FullPlot also provides module-level helpers for quick one-off plots.
+FullPlot also provides module-level helper functions for quick one-off plots:
+
+    fplt.tree(...)
+    fplt.plot(...)
+    fplt.map(...)
+
+When using module-level plot() or map(), pass root="..." to choose the HDF5
+group where the dataset names should be resolved.
 
 Run 0generate_plotting_data.py first if plotting_demo.h5 does not exist.
 """
@@ -21,10 +28,14 @@ from fullflow import fullplot as fplt
 example_dir = Path(__file__).resolve().parent
 filename = example_dir / "plotting_demo.h5"
 
+
 # Print a short tree from the file root.
 fplt.tree(filename, max_depth=2)
 
-# Plot directly from a group using the root argument.
+
+# Plot directly from /demo_transient.
+# x="time" means /demo_transient/time.
+# y="mass_flow" means /demo_transient/mass_flow.
 fplt.plot(
     filename,
     root="/demo_transient",
@@ -37,7 +48,9 @@ fplt.plot(
     show=False,
 )
 
-# Make a heat map directly from a group using the root argument.
+
+# Make a heat map directly from /maps.
+# z="temperature_map" means /maps/temperature_map.
 fplt.map(
     filename,
     root="/maps",

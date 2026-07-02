@@ -4,8 +4,19 @@ Logarithmic Color Map
 
 This example demonstrates zscale="log" for a heat map.
 
-The x and y axes remain linear, but the colorbar uses a logarithmic scale.
-All z values must be positive.
+For a heat map:
+
+    xscale controls the x-axis
+    yscale controls the y-axis
+    zscale controls the colorbar
+
+Here, the x and y axes remain linear, but the color scale is logarithmic.
+
+Important rule:
+
+    Every z value must be positive when zscale="log".
+
+The dataset positive_map is positive by construction.
 
 Run 0generate_plotting_data.py first if plotting_demo.h5 does not exist.
 """
@@ -21,6 +32,10 @@ filename = example_dir / "plotting_demo.h5"
 file = fplt.open(filename)
 maps = file.at("/maps")
 
+
+# z="positive_map" is a 2D positive array with shape [station, time].
+# zscale="log" makes the colorbar logarithmic.
+# cmap="viridis" chooses the Matplotlib colormap.
 maps.map(
     z="positive_map",
     x="time",
