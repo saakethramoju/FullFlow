@@ -31,6 +31,7 @@ from fullflow.Plotting.fullplot import (
     values,
     plot,
     map,
+    show,
 )
 
 __all__ = [
@@ -46,4 +47,5 @@ __all__ = [
     "values",
     "plot",
     "map",
+    "show",
 ]

@@ -10,6 +10,7 @@ from typing import Any
 import h5py
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.colors import LogNorm
 
 from fullflow.Plotting.themes import (
     apply_theme,
@@ -139,6 +140,53 @@ def _decode_scalar(value):
         return value.item()
 
     return value
+
+
+def _check_scale(scale: str) -> str:
+    scale = str(scale).lower().strip()
+
+    if scale not in ("linear", "log"):
+        raise ValueError("scale must be either 'linear' or 'log'.")
+
+    return scale
+
+
+def _check_log_positive(values, name: str):
+    values = np.asarray(values)
+
+    if values.size == 0:
+        raise PlotDataError(f"{name} is empty and cannot be plotted on a log scale.")
+
+    finite_values = values[np.isfinite(values)]
+
+    if finite_values.size == 0:
+        raise PlotDataError(f"{name} has no finite values and cannot be plotted on a log scale.")
+
+    if np.any(finite_values <= 0.0):
+        raise PlotDataError(f"{name} contains zero or negative values and cannot be plotted on a log scale.")
+
+
+def _apply_plot_scales(ax, ax2, x_array, left_series, right_series, xscale, yscale, y2scale):
+    xscale = _check_scale(xscale)
+    yscale = _check_scale(yscale)
+    y2scale = _check_scale(y2scale)
+
+    if xscale == "log":
+        _check_log_positive(x_array, "x")
+
+    if yscale == "log":
+        for series in left_series:
+            _check_log_positive(series.data, series.label)
+
+    if y2scale == "log":
+        for series in right_series:
+            _check_log_positive(series.data, series.label)
+
+    ax.set_xscale(xscale)
+    ax.set_yscale(yscale)
+
+    if ax2 is not None:
+        ax2.set_yscale(y2scale)
 
 
 def _normalize_axis(axis: int, ndim: int) -> int:
@@ -430,6 +478,9 @@ class H5File:
         ylabel: str | None = None,
         y2label: str | None = None,
         title: str | None = None,
+        xscale: str = "linear",
+        yscale: str = "linear",
+        y2scale: str = "linear",
         legend: bool = True,
         legend_location: str = "best",
         grid: bool = True,
@@ -466,6 +517,12 @@ class H5File:
         axis:
             Axis along which to plot multidimensional arrays.
             All remaining dimensions become separate traces.
+
+        xscale, yscale, y2scale:
+            Axis scale options. Use "linear" or "log". A log scale only changes
+            the axis display; it does not transform the stored data. If data is
+            already stored as log10(value), keep the scale linear and label it as
+            log10(value).
 
         save:
             Optional output filename. Extension controls format, such as .png,
@@ -591,6 +648,17 @@ class H5File:
         if title is not None:
             ax.set_title(title)
 
+        _apply_plot_scales(
+            ax=ax,
+            ax2=ax2,
+            x_array=x_array,
+            left_series=left_series,
+            right_series=right_series,
+            xscale=xscale,
+            yscale=yscale,
+            y2scale=y2scale,
+        )
+
         if grid:
             ax.grid(True, **grid_kwargs(theme))
         else:
@@ -627,6 +695,9 @@ class H5File:
         ylabel: str | None = None,
         zlabel: str | None = None,
         title: str | None = None,
+        xscale: str = "linear",
+        yscale: str = "linear",
+        zscale: str = "linear",
         grid: bool = False,
         theme: str = "dark",
         save: str | Path | None = None,
@@ -652,6 +723,10 @@ class H5File:
 
         slice:
             Optional integer-index slicing for 3D+ arrays.
+
+        xscale, yscale, zscale:
+            Axis and color scale options. Use "linear" or "log". A log scale
+            only changes the displayed scale; it does not transform stored data.
         """
 
         theme = check_theme(theme)
@@ -714,12 +789,32 @@ class H5File:
         fig, ax = plt.subplots(figsize=figsize)
         apply_theme(fig, ax, theme)
 
+        xscale = _check_scale(xscale)
+        yscale = _check_scale(yscale)
+        zscale = _check_scale(zscale)
+
+        if xscale == "log":
+            _check_log_positive(x_array, "x")
+
+        if yscale == "log":
+            _check_log_positive(y_array, "y")
+
+        norm = None
+
+        if zscale == "log":
+            _check_log_positive(z_array, "z")
+            norm = LogNorm()
+
+        ax.set_xscale(xscale)
+        ax.set_yscale(yscale)
+
         mesh = ax.pcolormesh(
             x_array,
             y_array,
             z_array,
             shading="auto",
             cmap=cmap,
+            norm=norm,
         )
 
         colorbar = fig.colorbar(mesh, ax=ax)
@@ -1067,6 +1162,23 @@ def map(filename: str | Path, z, root: str = "/", **kwargs):
     return open(filename, root=root).map(z=z, **kwargs)
 
 
+def show():
+    """
+    Show all currently open matplotlib figures.
+
+    This is useful when creating several plots with show=False.
+
+    Example
+    -------
+
+    run.plot(x="time", y="pressure", show=False)
+    run.plot(x="time", y="temperature", show=False)
+    fplt.show()
+    """
+
+    plt.show()
+
+
 list = list_h5
 
 
@@ -1083,4 +1195,5 @@ __all__ = [
     "values",
     "plot",
     "map",
+    "show",
 ]
