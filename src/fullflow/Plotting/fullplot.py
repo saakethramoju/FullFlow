@@ -712,14 +712,19 @@ class H5File:
         Parameters
         ----------
         z:
-            2D dataset name/path, or a multidimensional dataset reduced to 2D
-            with slice.
+            One of the following:
+
+            - A 2D dataset name/path.
+            - A multidimensional dataset reduced to 2D with slice.
+            - A list of 1D dataset names/paths, which will be stacked into
+              a 2D array. This is useful for heat maps built from several
+              separate time histories.
 
         x:
-            Optional 1D x-axis dataset.
+            Optional 1D x-axis dataset or array-like values.
 
         y:
-            Optional 1D y-axis dataset.
+            Optional 1D y-axis dataset or array-like values.
 
         slice:
             Optional integer-index slicing for 3D+ arrays.
@@ -732,59 +737,35 @@ class H5File:
         theme = check_theme(theme)
 
         with h5py.File(self.filename, "r") as h5:
-            z_path = self._resolve_dataset_path(h5, z)
-            z_name = _basename(z_path)
-            z_array = np.asarray(h5[z_path][()])
-
-            if not _is_numeric_dtype(z_array.dtype):
-                raise PlotDataError("z must be numeric.")
+            z_array, z_name = self._read_map_z(h5, z)
 
             z_array = _apply_slice_for_map(z_array, slice)
 
             if z_array.ndim != 2:
                 raise PlotDataError(
                     f"map requires 2D data after slicing. "
-                    f"Selected dataset has shape {z_array.shape}."
+                    f"Selected data has shape {z_array.shape}."
                 )
 
             rows, cols = z_array.shape
 
-            x_array = None
-            y_array = None
-            x_name = "Column Index"
-            y_name = "Row Index"
+            x_array, x_name = self._read_map_axis(
+                h5=h5,
+                value=x,
+                default=np.arange(cols),
+                default_name="Column Index",
+                valid_lengths=(cols, cols + 1),
+                axis_name="x",
+            )
 
-            if x is not None:
-                x_path = self._resolve_dataset_path(h5, x)
-                x_name = _basename(x_path)
-                x_array = np.asarray(h5[x_path][()])
-
-                if x_array.ndim != 1:
-                    raise PlotDataError("x must be a 1D dataset.")
-
-                if len(x_array) not in (cols, cols + 1):
-                    raise PlotDataError(
-                        f"x has length {len(x_array)}, but z has {cols} columns."
-                    )
-
-            if y is not None:
-                y_path = self._resolve_dataset_path(h5, y)
-                y_name = _basename(y_path)
-                y_array = np.asarray(h5[y_path][()])
-
-                if y_array.ndim != 1:
-                    raise PlotDataError("y must be a 1D dataset.")
-
-                if len(y_array) not in (rows, rows + 1):
-                    raise PlotDataError(
-                        f"y has length {len(y_array)}, but z has {rows} rows."
-                    )
-
-            if x_array is None:
-                x_array = np.arange(cols)
-
-            if y_array is None:
-                y_array = np.arange(rows)
+            y_array, y_name = self._read_map_axis(
+                h5=h5,
+                value=y,
+                default=np.arange(rows),
+                default_name="Row Index",
+                valid_lengths=(rows, rows + 1),
+                axis_name="y",
+            )
 
         fig, ax = plt.subplots(figsize=figsize)
         apply_theme(fig, ax, theme)
@@ -1132,6 +1113,70 @@ class H5File:
 
         if show:
             plt.show()
+
+    def _read_map_z(self, h5: h5py.File, z):
+        if isinstance(z, (builtins.list, tuple)):
+            arrays = []
+
+            if len(z) == 0:
+                raise PlotDataError("z cannot be an empty list.")
+
+            for selector in z:
+                path = self._resolve_dataset_path(h5, selector)
+                array = np.asarray(h5[path][()])
+
+                if not _is_numeric_dtype(array.dtype):
+                    raise PlotDataError(f"Dataset {path!r} is not numeric.")
+
+                if array.ndim != 1:
+                    raise PlotDataError(
+                        f"When z is a list, each selected dataset must be 1D. "
+                        f"Dataset {path!r} has shape {array.shape}."
+                    )
+
+                arrays.append(array)
+
+            lengths = {len(array) for array in arrays}
+
+            if len(lengths) != 1:
+                raise PlotDataError("All z datasets must have the same length to form a heat map.")
+
+            return np.vstack(arrays), "Stacked Values"
+
+        z_path = self._resolve_dataset_path(h5, z)
+        z_name = _basename(z_path)
+        z_array = np.asarray(h5[z_path][()])
+
+        if not _is_numeric_dtype(z_array.dtype):
+            raise PlotDataError("z must be numeric.")
+
+        return z_array, z_name
+
+    def _read_map_axis(self, h5: h5py.File, value, default, default_name: str, valid_lengths, axis_name: str):
+        if value is None:
+            return default, default_name
+
+        if isinstance(value, str):
+            path = self._resolve_dataset_path(h5, value)
+            array = np.asarray(h5[path][()])
+            name = _basename(path)
+        else:
+            array = np.asarray(value)
+            name = default_name
+
+        if array.ndim != 1:
+            raise PlotDataError(f"{axis_name} must be 1D.")
+
+        if not _is_numeric_dtype(array.dtype):
+            raise PlotDataError(f"{axis_name} must be numeric.")
+
+        if len(array) not in valid_lengths:
+            valid_text = " or ".join(str(length) for length in valid_lengths)
+            raise PlotDataError(
+                f"{axis_name} has length {len(array)}, but expected length {valid_text}."
+            )
+
+        return array, name
 
 
 def open(filename: str | Path, root: str = "/") -> H5File:
