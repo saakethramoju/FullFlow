@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+import math
 from typing import Any
 
 import numpy as np
@@ -25,7 +26,7 @@ from fullflow.System.State import (
     resolve_value,
 )
 from fullflow.Solvers.balance_filtering import filter_user_balances
-from fullflow.Exceptions import SolverSetupError
+from fullflow.Exceptions import SensorDataStop, SolverSetupError
 from fullflow.Solvers.equations import (
     balance_object_equations,
     component_balances,
@@ -57,6 +58,8 @@ class RuntimeCache:
     def __init__(self, network, ignore_balances=None) -> None:
         self.network = network
         self.ignore_balances = ignore_balances
+        self._active_sensor_balance_owner_ids: set[int] = set()
+        self._direct_sensor_balance_owner_ids: set[int] = set()
         self.version = -1
         self.refresh()
 
@@ -116,6 +119,113 @@ class RuntimeCache:
         self.state_refs = self._collect_state_refs()
         self.version = self.network.version
 
+    @staticmethod
+    def _is_sensor_anchor_owner(component: Any) -> bool:
+        """Return True for Sensor-like components that can act as balances."""
+        try:
+            return bool(component.is_anchor)
+        except Exception:
+            return False
+
+    @staticmethod
+    def _sensor_extend_enabled(component: Any) -> bool:
+        try:
+            return bool(component._extend_enabled)
+        except Exception:
+            try:
+                value = component.extend
+                if is_state_like(value):
+                    value = value.value
+                return bool(value)
+            except Exception:
+                return True
+
+    @staticmethod
+    def _set_sensor_state(component: Any, name: str, value: Any) -> None:
+        state = getattr(component, name, None)
+        if is_state_like(state):
+            state.value = value
+
+    @staticmethod
+    def _finite_number(value: Any) -> float:
+        try:
+            number = float(value)
+        except Exception:
+            return math.nan
+        return number if math.isfinite(number) else math.nan
+
+    def configure_sensor_balances(self, time_value: float, *, stop_on_missing: bool = True) -> None:
+        """Freeze the active Sensor-balance set for one steady solve."""
+        active_ids: set[int] = set()
+        direct_ids: set[int] = set()
+
+        for component in self.component_list:
+            if not self._is_sensor_anchor_owner(component):
+                continue
+
+            component_id = id(component)
+            target = self._finite_number(component.target_value(time_value))
+            has_target = math.isfinite(target)
+
+            variable = getattr(component, "variable", None)
+            reading = getattr(component, "reading", None)
+            variable_value = self._finite_number(getattr(variable, "numeric_value", math.nan))
+
+            self._set_sensor_state(component, "data_value", target if has_target else math.nan)
+            self._set_sensor_state(component, "variable_value", variable_value)
+
+            if not has_target:
+                self._set_sensor_state(component, "active", False)
+                self._set_sensor_state(component, "error", math.nan)
+                if stop_on_missing and not self._sensor_extend_enabled(component):
+                    raise SensorDataStop(
+                        f"Sensor {component.name!r} has no finite FullPlot Trace value at "
+                        f"time {float(time_value):.9g}."
+                    )
+                continue
+
+            if variable is reading:
+                variable.value = target
+                direct_ids.add(component_id)
+                self._set_sensor_state(component, "active", True)
+                self._set_sensor_state(component, "variable_value", target)
+                self._set_sensor_state(component, "error", 0.0)
+                continue
+
+            active_ids.add(component_id)
+            self._set_sensor_state(component, "active", True)
+            try:
+                self._set_sensor_state(component, "error", self._finite_number(reading.value - target))
+            except Exception:
+                self._set_sensor_state(component, "error", math.nan)
+
+        self._active_sensor_balance_owner_ids = active_ids
+        self._direct_sensor_balance_owner_ids = direct_ids
+        self._rebuild_iteration_metadata()
+
+    def _component_balance_equations(self, component: Any):
+        """Return algebraic balances active for the current solve."""
+        if not self._is_sensor_anchor_owner(component):
+            return component_balances(component)
+        component_id = id(component)
+        if component_id in self._direct_sensor_balance_owner_ids:
+            return []
+        if component_id in self._active_sensor_balance_owner_ids:
+            return component_balances(component)
+        return []
+
+    def _rebuild_iteration_metadata(self) -> None:
+        """Rebuild algebraic and iteration lists after sensor activation changes."""
+        self.component_balance_items = tuple(self._component_balance_iteration_items())
+        self.balance_items = tuple(self._balance_iteration_items())
+        self.component_items = self.component_dynamic_items + self.component_balance_items
+        self._validate_no_component_balance_overlap()
+        self.iteration_items = self.component_items + self.balance_items
+        self.iteration_variables = tuple(item.state for item in self.iteration_items)
+        self.iteration_ids = {id(state) for state in self.iteration_variables}
+        self.iteration_labels = tuple(item.label for item in self.iteration_items)
+        self.state_refs = self._collect_state_refs()
+
     def _dynamic_iteration_items(self) -> list[IterationItem]:
         """Collect steady-state unknowns from component dynamics.
 
@@ -141,7 +251,7 @@ class RuntimeCache:
         items: list[IterationItem] = []
 
         for component in self.component_list:
-            for equation in component_balances(component):
+            for equation in self._component_balance_equations(component):
                 items.append(
                     IterationItem(
                         state=equation.variable,
@@ -272,7 +382,7 @@ class RuntimeCache:
             )
             labels.extend(
                 f"{component.name}.balance[{i}]"
-                for i, _ in enumerate(component_balances(component))
+                for i, _ in enumerate(self._component_balance_equations(component))
             )
 
         for balance in self.balance_list:
@@ -444,7 +554,7 @@ class RuntimeCache:
                     residuals.extend(self.flatten_residuals(equation.derivative))
 
                 # Algebraic balances are separate non-storage equations.
-                for equation in component_balances(component):
+                for equation in self._component_balance_equations(component):
                     residuals.extend(self.flatten_residuals(equation.residual))
             except Exception as error:
                 original = str(error).splitlines()[0]

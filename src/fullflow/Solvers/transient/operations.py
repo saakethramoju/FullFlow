@@ -195,10 +195,13 @@ class TransientStepSolve:
         self._active_state_settings = state_settings
 
         cache = self._cache_getter()
-        self._active_cache = cache
-        x0 = cache.iteration_value_array()
         accepted_snapshot = cache.snapshot_mutable_states()
         accepted_time = float(self.network.time.value)
+        self.network.time.value = t_new
+        if hasattr(cache, "configure_sensor_balances"):
+            cache.configure_sensor_balances(t_new, stop_on_missing=True)
+        self._active_cache = cache
+        x0 = cache.iteration_value_array()
 
         self._last_valid_x = None
         self._last_valid_residual = None

@@ -151,6 +151,8 @@ class NonlinearSolve:
         cache = self.refresh_cache()
         cache.run_pre_evaluation()
         cache = self.refresh_cache()
+        if hasattr(cache, "configure_sensor_balances"):
+            cache.configure_sensor_balances(float(self.network.time.value), stop_on_missing=True)
 
         x0 = np.array(cache.iteration_values, dtype=float)
         statistics.reset()
