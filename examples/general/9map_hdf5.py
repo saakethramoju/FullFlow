@@ -9,9 +9,9 @@ file. It only needs a simple rectangular-grid HDF5 layout:
     /<map_group>/outputs/<output_name>
 
 This example uses FullPlot to generate that generic HDF5 layout, then loads the
-file with Map.from_hdf5(). FullPlot is only used as a convenient map writer;
-FullFlow does not depend on FullPlot, and compatible files can also be written
-by any other HDF5 tool.
+file with Map.from_hdf5(). FullPlot is used here as a convenient map writer,
+but Map.from_hdf5() only needs the generic HDF5 map layout shown above.
+Compatible files can also be written by h5py or any other HDF5 tool.
 
 The output datasets are renamed for use in the script:
 

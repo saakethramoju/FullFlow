@@ -18,6 +18,8 @@
 
 ### Solvers
 
+* Added clean transient stopping for sensors with unavailable test data when `extend=False`.
+
 * Refactored `SteadyState.py` into a thin public wrapper backed by the modular `Solvers/steady_state/` implementation.
 * Added a network-version-aware runtime plan/cache for iteration variables, bounds, component evaluation callables, residual owners, and state-settling references.
 * Reduced repeated network introspection inside residual evaluations and state-settling passes.
@@ -28,6 +30,8 @@
 
 
 ### Components
+
+* Added active `Sensor` anchoring: sensors can now sample FullPlot Trace objects at solver time and expose a balance through `variable`/`data`. Missing data can either be extended through by holding the variable or stop a transient/forced-steady run cleanly.
 
 * Streamlined scalar branch math used by discharge coefficients, regulators, nozzles, friction factors, pumps, and selected compressible-flow components. Common reversible-flow helpers now live in `Branches/_flow_math.py`, preserving existing equations while avoiding unnecessary NumPy scalar dispatch.
 * Reduced component import overhead by keeping NumPy only where arrays/root solving are actually needed.

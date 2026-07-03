@@ -28,7 +28,7 @@ from rich.console import Console
 
 from fullflow.Solvers.steady_state.models import ModelManager
 from fullflow.Solvers.steady_state.settings import LeastSquaresSettings, StateEvaluationSettings
-from fullflow.Exceptions import TransientStepError
+from fullflow.Exceptions import SensorDataStop, TransientStepError
 
 from .diagnostics import TransientPrinter
 from .evaluation import TransientStateEvaluator
@@ -474,6 +474,7 @@ class Transient:
 
         run_metadata = dict(metadata or {})
         run_metadata.update(cache.dynamic_mode_summary())
+        stop_reason = None
 
         solve_start_time = time.perf_counter()
 
@@ -515,6 +516,13 @@ class Transient:
                     diagnostics.retries = retries
                     break
 
+                except SensorDataStop as error:
+                    stop_reason = str(error)
+                    self.network.time.value = current_time
+                    self._cache()
+                    diagnostics = None
+                    break
+
                 except Exception as error:
                     if retries >= transient_settings.max_step_retries:
                         raise TransientStepError(
@@ -547,6 +555,9 @@ class Transient:
                     self.network.time.value = current_time
                     self._cache()
 
+            if diagnostics is None:
+                break
+
             self.step_diagnostics.append(diagnostics)
             save_output = self._should_save_output(
                 time_value=diagnostics.time,
@@ -570,6 +581,9 @@ class Transient:
             self._cache()
 
         elapsed_time = time.perf_counter() - solve_start_time
+        if stop_reason is not None:
+            run_metadata["stopped_by_sensor"] = True
+            run_metadata["stop_reason"] = stop_reason
         step_rows = self._diagnostic_rows(self.step_diagnostics)
         self.history.save(filename, self.network, step_rows, group_path=group_path, metadata=run_metadata)
 

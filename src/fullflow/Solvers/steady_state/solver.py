@@ -27,7 +27,7 @@ from .operations import NonlinearSolve, StaticDiagnostics, StaticEvaluation, Sol
 from .runtime import RuntimeCache
 from .settings import LeastSquaresSettings, StateEvaluationSettings
 from .statistics import SolverStatistics
-from fullflow.Exceptions import SolverSetupError
+from fullflow.Exceptions import SensorDataStop, SolverSetupError
 
 if TYPE_CHECKING:
     from fullflow.System import Network
@@ -146,6 +146,9 @@ class SteadyState:
             return residual
 
         except Exception as error:
+            if isinstance(error, SensorDataStop):
+                raise
+
             self._last_debug_error = error
             penalty_residual = self._invalid_trial_residual(x, cache)
 

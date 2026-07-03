@@ -17,7 +17,7 @@ Network object::
                     /metadata
                     /components/<component>/<attribute>
                     /tracks/<tracked_name>
-                    /sensors/<sensor_name>
+                    /sensors/<sensor_name>/<attribute>
                     /table/<column>
                     /diagnostics/<column>
                 /<model_name>/<option_name>
@@ -29,12 +29,12 @@ Network object::
                     /time
                     /components/<component>/<attribute>
                     /tracks/<tracked_name>
-                    /sensors/<sensor_name>
+                    /sensors/<sensor_name>/<attribute>
                     /table/<column>
                     /diagnostics/<column>
                     /final/components/<component>/<attribute>
                     /final/tracks/<tracked_name>
-                    /final/sensors/<sensor_name>
+                    /final/sensors/<sensor_name>/<attribute>
                     /final/table/<column>
                 /<model_name>/<option_name>
                     ... same as base ...
@@ -528,29 +528,41 @@ def _write_static_tracks(parent: h5py.Group, rows: list[dict[str, Any]]) -> h5py
 
 
 
+
 def _sensor_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [row for row in solution_records(rows) if row.get("component_type") == "Sensor"]
+
+
+def _sensor_dataset_value(row: dict[str, Any]) -> Any:
+    value = row.get("numeric_value")
+
+    if value is not None and math.isfinite(_as_float(value)):
+        return float(value)
+
+    return row.get("value")
 
 
 def _write_static_sensors(parent: h5py.Group, rows: list[dict[str, Any]]) -> h5py.Group:
     sensors_group = _replace_group(parent, "sensors")
     sensors_group.attrs["kind"] = "sensor_values"
 
+    grouped: dict[str, list[dict[str, Any]]] = {}
     for row in _sensor_rows(rows):
         sensor_name = str(row.get("component_name", "sensor"))
-        value = row.get("numeric_value")
+        grouped.setdefault(sensor_name, []).append(row)
 
-        if value is not None and math.isfinite(_as_float(value)):
-            dataset_value = float(value)
-        else:
-            dataset_value = row.get("value")
+    for sensor_name, items in grouped.items():
+        sensor_group = sensors_group.require_group(safe_group_name(sensor_name))
+        sensor_group.attrs["name"] = sensor_name
 
-        _write_dataset(
-            sensors_group,
-            sensor_name,
-            dataset_value,
-            attrs={"name": sensor_name},
-        )
+        for row in items:
+            attribute = str(row.get("attribute", "reading"))
+            _write_dataset(
+                sensor_group,
+                attribute,
+                _sensor_dataset_value(row),
+                attrs={"name": sensor_name, "attribute": attribute},
+            )
 
     return sensors_group
 
@@ -560,15 +572,19 @@ def _write_sensors(parent: h5py.Group, rows: list[dict[str, Any]], time_values: 
     sensors_group.attrs["kind"] = "sensor_histories"
 
     time_index = {float(value): i for i, value in enumerate(time_values)}
-    grouped: dict[str, list[dict[str, Any]]] = {}
+    grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
 
     for row in _sensor_rows(rows):
         sensor_name = str(row.get("component_name", "sensor"))
-        grouped.setdefault(sensor_name, []).append(row)
+        attribute = str(row.get("attribute", "reading"))
+        grouped.setdefault((sensor_name, attribute), []).append(row)
 
-    for sensor_name, items in grouped.items():
+    for (sensor_name, attribute), items in grouped.items():
         numeric_values = [_as_float(row.get("numeric_value")) for row in items]
         numeric = any(math.isfinite(value) for value in numeric_values)
+
+        sensor_group = sensors_group.require_group(safe_group_name(sensor_name))
+        sensor_group.attrs["name"] = sensor_name
 
         if numeric:
             data = np.full(len(time_values), np.nan, dtype=float)
@@ -583,7 +599,12 @@ def _write_sensors(parent: h5py.Group, rows: list[dict[str, Any]], time_values: 
                 if i is not None:
                     data[i] = _as_text(row.get("value"))
 
-        _write_dataset(sensors_group, sensor_name, data, attrs={"name": sensor_name})
+        _write_dataset(
+            sensor_group,
+            attribute,
+            data,
+            attrs={"name": sensor_name, "attribute": attribute},
+        )
 
     return sensors_group
 

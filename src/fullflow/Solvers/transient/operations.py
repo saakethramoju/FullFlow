@@ -23,7 +23,7 @@ import numpy as np
 from scipy.optimize import Bounds, least_squares
 
 from fullflow.Solvers.steady_state.settings import LeastSquaresSettings, StateEvaluationSettings
-from fullflow.Exceptions import SolverSetupError, TransientStepError
+from fullflow.Exceptions import SensorDataStop, SolverSetupError, TransientStepError
 
 
 @dataclass(slots=True)
@@ -110,6 +110,9 @@ class TransientStepSolve:
             return residual
 
         except Exception as error:
+            if isinstance(error, SensorDataStop):
+                raise
+
             self._last_debug_error = error
             penalty_residual = self._invalid_trial_residual(x)
 

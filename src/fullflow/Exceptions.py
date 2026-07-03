@@ -54,6 +54,10 @@ class TransientStepError(SolverConvergenceError):
     """A transient timestep failed after the nonlinear solve or timestep retries."""
 
 
+class SensorDataStop(FullFlowSolverError):
+    """A sensor requested a clean solve stop because test data is unavailable."""
+
+
 __all__ = [
     "FullFlowError",
     "FullFlowConfigurationError",
@@ -66,4 +70,5 @@ __all__ = [
     "SolverSetupError",
     "SolverConvergenceError",
     "TransientStepError",
+    "SensorDataStop",
 ]
