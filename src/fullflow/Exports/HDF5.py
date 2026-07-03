@@ -67,7 +67,7 @@ import numpy as np
 HDF5_EXTENSIONS = {".h5", ".hdf5"}
 _STRING_DTYPE = h5py.string_dtype(encoding="utf-8")
 _FORMAT = "fullflow-simple-hdf5"
-_SCHEMA_VERSION = 5
+_SCHEMA_VERSION = 6
 
 
 @dataclass(frozen=True, slots=True)
@@ -611,6 +611,52 @@ def _write_sensors(parent: h5py.Group, rows: list[dict[str, Any]], time_values: 
 
 
 
+def _write_sensor_conditions(parent: h5py.Group, rows: list[dict[str, Any]]) -> None:
+    """Write FullPlot condition traces attached to Sensors.
+
+    These are separate from sampled sensor histories because condition traces
+    retain their own time bases. FullPlot can load them as ordinary traces using
+    the saved role metadata.
+    """
+    if not rows:
+        return
+
+    sensors_group = parent.require_group("sensors")
+    sensors_group.attrs.setdefault("kind", "sensor_histories")
+
+    for row in rows:
+        sensor_name = str(row.get("sensor", "sensor"))
+        trace_name = str(row.get("trace", "condition"))
+        role = str(row.get("role", ""))
+        action = str(row.get("action", ""))
+
+        sensor_group = sensors_group.require_group(safe_group_name(sensor_name))
+        sensor_group.attrs["name"] = sensor_name
+        conditions_group = sensor_group.require_group("conditions")
+        conditions_group.attrs["kind"] = "sensor_condition_traces"
+
+        trace_group = _replace_group(conditions_group, trace_name)
+        trace_group.attrs["name"] = trace_name
+        trace_group.attrs["role"] = role
+        trace_group.attrs["action"] = action
+        trace_group.attrs["kind"] = "trace"
+
+        _write_dataset(trace_group, "time", row.get("x", []), attrs={"name": "time"})
+        _write_dataset(
+            trace_group,
+            "value",
+            row.get("y", []),
+            attrs={"name": trace_name, "role": role, "action": action},
+        )
+
+
+def _write_sensor_events(parent: h5py.Group, rows: list[dict[str, Any]]) -> h5py.Group:
+    """Write sparse Sensor condition events for one run."""
+    events_group = _write_table(parent, "events", rows)
+    events_group.attrs["kind"] = "sensor_events"
+    return events_group
+
+
 def _link_time_dataset(group: h5py.Group, time_dataset: h5py.Dataset) -> None:
     """Add a local hard link named ``time`` to a time-history group.
 
@@ -729,6 +775,8 @@ def write_transient_solution(
     final_records: list[dict[str, Any]],
     models: list[Any] | None = None,
     output_times: list[float] | None = None,
+    sensor_event_rows: list[dict[str, Any]] | None = None,
+    sensor_condition_trace_rows: list[dict[str, Any]] | None = None,
     group_path: str = "transient/runs/base",
     metadata: dict[str, Any] | None = None,
 ) -> Path:
@@ -791,9 +839,11 @@ def write_transient_solution(
         _write_component_history(run_group, history_rows, time_values)
         _write_tracks(run_group, track_rows, time_values)
         _write_sensors(run_group, history_rows, time_values)
+        _write_sensor_conditions(run_group, sensor_condition_trace_rows or [])
         _link_time_to_time_history_groups(run_group)
         _write_table(run_group, "table", history_rows)
         _write_table(run_group, "diagnostics", step_rows)
+        _write_sensor_events(run_group, sensor_event_rows or [])
 
         final_group = run_group.create_group("final")
         final_group.attrs["kind"] = "final"

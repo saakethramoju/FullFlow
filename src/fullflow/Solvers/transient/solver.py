@@ -475,12 +475,15 @@ class Transient:
         run_metadata = dict(metadata or {})
         run_metadata.update(cache.dynamic_mode_summary())
         stop_reason = None
+        redline_abort_event = None
 
         solve_start_time = time.perf_counter()
 
         # Evaluate the initial condition and store transient history.  At this
         # point every transient State has ``state.previous == state.value``.
         self.step_solver.initialize(state_settings)
+        self.network.reset_sensor_events()
+        self.network.initialize_sensor_conditions(float(self.network.time.value))
         self.history.append(self.network, float(self.network.time.value))
         sequence_breakpoints = self._collect_sequence_breakpoints()
         next_save_time = None if save_dt is None else float(self.network.time.value) + float(save_dt)
@@ -565,8 +568,25 @@ class Transient:
                 next_save_time=next_save_time,
             )
 
-            if save_output:
+            step_events = self.network.check_sensor_conditions(diagnostics.time)
+            if step_events and verbose:
+                self.printer.print_sensor_events(step_events)
+
+            if step_events and not save_output:
                 self.history.append(self.network, diagnostics.time)
+                save_output = True
+            elif save_output:
+                self.history.append(self.network, diagnostics.time)
+
+            redline_events = [
+                event
+                for event in step_events
+                if bool(getattr(event, "is_redline_abort", False))
+            ]
+            if redline_events:
+                redline_abort_event = redline_events[0]
+                stop_reason = str(getattr(redline_abort_event, "message", "Redline crossed."))
+                self.printer.print_redline_abort(redline_abort_event, filename)
 
             if save_dt is not None:
                 tolerance = 1.0e-12 * max(1.0, abs(diagnostics.time), abs(t_final))
@@ -580,7 +600,19 @@ class Transient:
             # structure during the step.  Refresh lazily for the next step.
             self._cache()
 
+            if redline_abort_event is not None:
+                break
+
         elapsed_time = time.perf_counter() - solve_start_time
+        sensor_event_records = self.network.sensor_event_records()
+        if sensor_event_records:
+            run_metadata["sensor_event_count"] = len(sensor_event_records)
+            for role in ("greenline", "blueline", "yellowline", "redline"):
+                run_metadata[f"{role}_event_count"] = sum(
+                    1 for row in sensor_event_records if row.get("role") == role
+                )
+        if redline_abort_event is not None:
+            run_metadata["aborted_by_redline"] = True
         if stop_reason is not None:
             run_metadata["stopped_by_sensor"] = True
             run_metadata["stop_reason"] = stop_reason
@@ -600,7 +632,10 @@ class Transient:
                 gtol=least_squares_settings.gtol,
                 rtol=least_squares_settings.rtol,
                 solve_time=elapsed_time,
+                success=redline_abort_event is None and stop_reason is None,
+                stop_reason=stop_reason,
             )
+            self.printer.print_sensor_event_summary(self.network.sensor_event_list)
             self.printer.print_network_solution()
 
         return format_records(self.history.public_records, return_type)

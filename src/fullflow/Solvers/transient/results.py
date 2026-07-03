@@ -73,6 +73,8 @@ class TransientHistory:
             final_records=network.save(filename=None, return_type="dict"),
             models=network.model_list,
             output_times=self.output_times,
+            sensor_event_rows=network.sensor_event_records(),
+            sensor_condition_trace_rows=network.sensor_condition_trace_records(),
             group_path=group_path,
             metadata=metadata,
         )

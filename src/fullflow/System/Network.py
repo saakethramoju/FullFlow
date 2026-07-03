@@ -19,6 +19,7 @@ class Network:
         self.balance_list: list[Balance] = []
         self.model_list: list[Any] = []
         self.tracked_state_list: list[dict[str, Any]] = []
+        self.sensor_event_list: list[Any] = []
         self._version = 0
 
     @property
@@ -49,6 +50,85 @@ class Network:
 
     def add_model(self, model: Any) -> None:
         self._add_unique(model, self.model_list)
+
+
+    def sensor_components(self) -> list[Any]:
+        """Return registered Sensor-like components without touching dynamic instance attributes.
+
+        Lookup components implement dynamic output attributes through ``__getattr__``.
+        Calling ``getattr(component, "check_conditions", None)`` on every
+        component can therefore accidentally ask a Lookup for an output named
+        ``check_conditions``. Inspect the component type instead so only real
+        class methods are considered.
+        """
+        return [
+            component
+            for component in self.component_list
+            if callable(getattr(type(component), "check_conditions", None))
+        ]
+
+    def reset_sensor_events(self) -> None:
+        """Clear transient sensor events before a new run."""
+        self.sensor_event_list = []
+
+    def initialize_sensor_conditions(self, time_value: float | None = None) -> None:
+        """Prime Sensor condition crossing memory without logging events."""
+        if time_value is None:
+            time_value = float(self.time.value)
+
+        for sensor in self.sensor_components():
+            reset = getattr(type(sensor), "reset_condition_history", None)
+            if callable(reset):
+                reset(sensor, float(time_value))
+
+    def check_sensor_conditions(self, time_value: float | None = None) -> list[Any]:
+        """Check all Sensor condition traces and append any new events."""
+        if time_value is None:
+            time_value = float(self.time.value)
+
+        events: list[Any] = []
+        for sensor in self.sensor_components():
+            check = getattr(type(sensor), "check_conditions", None)
+            if not callable(check):
+                continue
+            sensor_events = list(check(sensor, float(time_value)) or [])
+            events.extend(sensor_events)
+
+        self.sensor_event_list.extend(events)
+        return events
+
+    def sensor_event_records(self) -> list[dict[str, Any]]:
+        """Return sparse Sensor condition events for HDF5 export."""
+        rows: list[dict[str, Any]] = []
+        for event in self.sensor_event_list:
+            as_record = getattr(event, "as_record", None)
+            if callable(as_record):
+                rows.append(dict(as_record()))
+            elif isinstance(event, dict):
+                rows.append(dict(event))
+            else:
+                rows.append({"event": str(event)})
+        return rows
+
+    def sensor_condition_trace_records(self) -> list[dict[str, Any]]:
+        """Return Sensor condition trace definitions for HDF5 export."""
+        rows: list[dict[str, Any]] = []
+        for sensor in self.sensor_components():
+            for condition in getattr(sensor, "conditions", ()) or ():
+                trace = getattr(condition, "trace", None)
+                if trace is None:
+                    continue
+                rows.append(
+                    {
+                        "sensor": getattr(sensor, "name", "sensor"),
+                        "trace": getattr(trace, "name", "condition"),
+                        "role": getattr(condition, "role", getattr(trace, "role", "")),
+                        "action": getattr(condition, "action", ""),
+                        "x": getattr(trace, "x", []),
+                        "y": getattr(trace, "y", []),
+                    }
+                )
+        return rows
 
     def track(
         self,
