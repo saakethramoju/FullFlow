@@ -609,6 +609,49 @@ def _write_sensors(parent: h5py.Group, rows: list[dict[str, Any]], time_values: 
     return sensors_group
 
 
+
+
+def _link_time_dataset(group: h5py.Group, time_dataset: h5py.Dataset) -> None:
+    """Add a local hard link named ``time`` to a time-history group.
+
+    The same HDF5 dataset can have multiple hard links, so this makes scoped
+    plotting convenient without duplicating the time array in the file.
+    """
+    if "time" in group:
+        return
+    group["time"] = time_dataset
+
+
+def _link_time_to_time_history_groups(run_group: h5py.Group) -> None:
+    """Expose run-level time inside time-dependent child groups.
+
+    This lets users scope FullPlot to a component or sensor group and still use
+    ``x="time"`` directly, for example::
+
+        line = file.at("/Network/transient/runs/base/components/Line")
+        line.plot(x="time", y="mass_flow")
+    """
+    if "time" not in run_group:
+        return
+
+    time_dataset = run_group["time"]
+
+    for section_name in ("components", "tracks", "sensors"):
+        if section_name not in run_group:
+            continue
+
+        section_group = run_group[section_name]
+
+        if not isinstance(section_group, h5py.Group):
+            continue
+
+        _link_time_dataset(section_group, time_dataset)
+
+        for child in section_group.values():
+            if isinstance(child, h5py.Group):
+                _link_time_dataset(child, time_dataset)
+
+
 def _section_from_group_path(group_path: str) -> str:
     text = str(group_path).strip("/").lower()
     if "transient" in text and "final" in text:
@@ -748,6 +791,7 @@ def write_transient_solution(
         _write_component_history(run_group, history_rows, time_values)
         _write_tracks(run_group, track_rows, time_values)
         _write_sensors(run_group, history_rows, time_values)
+        _link_time_to_time_history_groups(run_group)
         _write_table(run_group, "table", history_rows)
         _write_table(run_group, "diagnostics", step_rows)
 
