@@ -55,6 +55,7 @@ class Sensor(Component):
         self.active = State(False)
         self.variable_value = State(math.nan)
 
+
     @property
     def value(self):
         return self.reading.value
@@ -64,7 +65,7 @@ class Sensor(Component):
         # Keep external FullPlot Trace objects and configuration metadata out of
         # the component table. The useful sampled values are exported through
         # reading/data_value/error/active/variable_value.
-        return {"variable", "data", "extend"}
+        return {"data", "extend", "error", "variable_value"}
 
     @staticmethod
     def _resolved(value: Any, default: Any = None) -> Any:
