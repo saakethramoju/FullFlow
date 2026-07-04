@@ -68,11 +68,17 @@ class SteadyState:
 
         # Some thermodynamic backends legitimately fail for temporary nonlinear
         # trial points, for example an invalid pressure-enthalpy flash while
-        # SciPy is estimating a Jacobian.  Keep the last valid residual so those
-        # trial points can be penalized instead of aborting the whole solve.
+        # SciPy is estimating a Jacobian. Keep the last valid residual so those
+        # trial points can be rejected without aborting the whole solve.
+        #
+        # Invalid-trial residuals are directional rather than a fixed wall such
+        # as 1.0e12. A fixed wall makes every invalid point look the same to
+        # SciPy, which can stall the trust-region search. The directional gain
+        # below scales from the last valid residual and the normalized distance
+        # from the last valid iteration vector.
         self._last_valid_x: np.ndarray | None = None
         self._last_valid_residual: np.ndarray | None = None
-        self._invalid_residual_penalty = 1.0e12
+        self._invalid_residual_directional_gain = 10.0
 
         # Success metadata is populated by the one-shot operation helpers and
         # consumed by ``_print_last_success``.
@@ -169,31 +175,74 @@ class SteadyState:
             ) from error
 
     def _invalid_trial_residual(self, x: np.ndarray, cache: RuntimeCache) -> np.ndarray | None:
-        """Return a large residual for invalid nonlinear trial points.
+        """Return a directional residual for invalid nonlinear trial points.
 
         External property packages can raise for temporary SciPy guesses that
-        are outside their valid thermodynamic domain.  When a previous valid
-        residual exists, treat the bad point as an expensive trial and let the
-        trust-region algorithm back away.  If even the initial point is invalid,
-        return ``None`` so the real setup error is reported.
+        are outside their valid thermodynamic domain. When a previous valid
+        residual exists, make the bad point look worse in the direction it moved
+        from that valid point instead of returning a constant residual wall.
+
+        A constant vector such as ``1.0e12`` gives SciPy almost no information:
+        all invalid guesses have the same cost and nearly the same numerical
+        derivative. This directional fallback preserves the sign pattern of the
+        failed step and scales with the normalized distance from the last valid
+        iteration vector.
         """
         if self._last_valid_residual is None:
             return None
 
-        count = len(self._last_valid_residual)
+        last_residual = np.array(self._last_valid_residual, dtype=float)
+        count = len(last_residual)
 
         if count == 0:
             return np.array([], dtype=float)
 
-        residual = np.full(count, self._invalid_residual_penalty, dtype=float)
-
-        if self._last_valid_x is not None and len(x) > 0:
+        if self._last_valid_x is None or len(x) == 0:
+            # Without a valid iteration-vector direction, fall back to the last
+            # residual sign pattern. This path should only occur for unusual
+            # setup cases after at least one valid residual was collected.
+            direction = np.sign(last_residual)
+            direction[direction == 0.0] = 1.0
+            distance = 1.0
+        else:
             dx = np.array(x, dtype=float) - self._last_valid_x
             scale = np.maximum(np.abs(self._last_valid_x), 1.0)
             normalized_dx = dx / scale
+            distance = float(np.linalg.norm(normalized_dx))
 
-            for index in range(min(count, len(normalized_dx))):
-                residual[index] += 1.0e6 * normalized_dx[index]
+            if distance == 0.0 or not np.isfinite(distance):
+                direction = np.sign(last_residual)
+                direction[direction == 0.0] = 1.0
+                distance = 1.0
+            else:
+                # Map the iteration-vector direction into residual space. The
+                # residual and iteration vectors can have different lengths, so
+                # resize repeats/truncates the direction while keeping the bad
+                # trial's sign information instead of replacing it with a wall.
+                direction = np.resize(normalized_dx / distance, count)
+
+        last_norm = float(np.linalg.norm(last_residual))
+        residual_rms = float(np.sqrt(np.mean(last_residual**2)))
+        residual_scale = max(residual_rms, 1.0)
+        target_norm = max(
+            last_norm * (1.0 + self._invalid_residual_directional_gain * distance),
+            residual_scale * np.sqrt(count),
+        )
+
+        residual = last_residual + (
+            self._invalid_residual_directional_gain * residual_scale * distance * direction
+        )
+
+        # Keep the invalid trial more expensive than the last valid point while
+        # preserving the direction computed above. This prevents a lucky
+        # cancellation from making an invalid property state look attractive.
+        residual_norm = float(np.linalg.norm(residual))
+        if residual_norm == 0.0 or not np.isfinite(residual_norm):
+            residual = residual_scale * direction
+            residual_norm = float(np.linalg.norm(residual))
+
+        if residual_norm < target_norm:
+            residual *= target_norm / max(residual_norm, np.finfo(float).tiny)
 
         return residual
 

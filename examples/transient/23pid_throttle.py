@@ -6,14 +6,14 @@ import math
 psia_to_pa = 6894.76
 in_to_m = 1 / 39.37
 in2_to_m2 = 1 / 1550
-in3_to_m3 = in2_to_m2 * in2_to_m2
+in3_to_m3 = in_to_m**3
 lbf_to_n = 4.44822
 
 
 Engine = Network("Engine")
 
 
-fuel = Fluid("RP1", pressure=450*psia_to_pa, temperature=300)
+fuel = Fluid("RP1", pressure=400*psia_to_pa, temperature=300)
 ox = Fluid("LOX", pressure=400*psia_to_pa, quality=0.0)
 
 
@@ -22,7 +22,7 @@ InjFuel = Lookup(
     Engine,
     Propellant,
     "rp-1",
-    pressure = 350 * psia_to_pa,
+    pressure = 380 * psia_to_pa,
     temperature = 300
 )
 
@@ -31,7 +31,7 @@ InjOx = Lookup(
     Engine,
     Propellant,
     "lox",
-    pressure = 350 * psia_to_pa,
+    pressure = 380 * psia_to_pa,
     temperature = 90
 )
 
@@ -41,7 +41,7 @@ InjReactants = Lookup(
     Reactants,
     fuels = InjFuel,
     oxidizers = InjOx,
-    mixture_ratio = 2.3
+    mixture_ratio = 2
 )
 
 ChamberGas = Lookup(
@@ -49,7 +49,7 @@ ChamberGas = Lookup(
     Engine,
     Equilibrium,
     reactants = InjReactants,
-    pressure = 300 * psia_to_pa
+    pressure = 350 * psia_to_pa
 )
 
 FuelMain = DischargeCoefficient(
@@ -60,7 +60,8 @@ FuelMain = DischargeCoefficient(
     density=fuel.density,
     discharge_coefficient=0.4,
     cross_sectional_area=(math.pi/4) * (1 * in_to_m)**2,
-    #length=4
+    #length=4,
+    #mass_flow=0
 )
 
 
@@ -72,7 +73,8 @@ OxMain = DischargeCoefficient(
     density=ox.density,
     discharge_coefficient=0.5,
     cross_sectional_area=(math.pi/4) * (1 * in_to_m)**2,
-    #length=4
+    #length=4,
+    #mass_flow=0
 )
 
 
@@ -95,13 +97,16 @@ OxManifold = Volume(
 )
 
 
+
+
+
 FuelOrf = DischargeCoefficient(
     "Injector Fuel Orifices",
     Engine,
     upstream_pressure=InjFuel.pressure,
     downstream_pressure=ChamberGas.pressure,
     density=InjFuel.density,
-    discharge_coefficient=1,
+    discharge_coefficient=0.6,
     cross_sectional_area=0.555 * 1e-4,
     mass_flow=FuelManifold.mass_flow_out
 )
@@ -112,7 +117,7 @@ OxOrf = DischargeCoefficient(
     upstream_pressure=InjOx.pressure,
     downstream_pressure=ChamberGas.pressure,
     density=InjOx.density,
-    discharge_coefficient=1,
+    discharge_coefficient=0.6,
     cross_sectional_area=1.25 * 1e-4,
     mass_flow=OxManifold.mass_flow_out
 )
@@ -143,14 +148,6 @@ Nozzle = IsentropicNozzle(
     mass_flow=Chamber.mass_flow_out,
 )
 
-MRBalance = Balance(
-    "Mixture Ratio Balance",
-    Engine,
-    variable=OxOrf.discharge_coefficient,
-    function=InjReactants.mixture_ratio - 2.0,
-    #bounds=(0.01, 2.0),
-    #keep_feasible=True,
-)
 
 F = Nozzle.mass_flow * Nozzle.exit_velocity + (Nozzle.exit_static_pressure - Nozzle.ambient_pressure) * Nozzle.expansion_ratio * Nozzle.throat_area
 
@@ -166,14 +163,17 @@ Engine.track("Ox Mass Flow [kg/s]", OxOrf.mass_flow)
 Engine.track("Thrust [lbf]", F / lbf_to_n)
 
 
-Transient(Engine).solve(
-    dt = 0.1,
-    t_final=0.2,
-    verbose=True,
-    statistics=True
-)
-
 SteadyState(Engine).solve(
     verbose=True,
     statistics=True,
 )
+
+'''
+Transient(Engine).solve(
+    dt=0.01, 
+    t_final=0.5, 
+    verbose=True, 
+    statistics=True,
+    filename='test'
+)
+'''

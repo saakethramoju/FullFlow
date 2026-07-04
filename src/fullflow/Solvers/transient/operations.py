@@ -73,9 +73,17 @@ class TransientStepSolve:
         self._last_debug_x: np.ndarray | None = None
         self._last_debug_residual: np.ndarray | None = None
         self._last_debug_error: Exception | None = None
+        # Invalid timestep trial points can occur while SciPy is probing a
+        # nonlinear step or estimating a Jacobian. Keep the last valid residual
+        # so those failures can be rejected without aborting the whole step.
+        #
+        # Use a directional invalid-trial residual rather than a fixed wall such
+        # as 1.0e12. A fixed wall makes every invalid point look identical to
+        # SciPy; the directional form scales from the last valid residual and
+        # the normalized distance from the last valid iteration vector.
         self._last_valid_x: np.ndarray | None = None
         self._last_valid_residual: np.ndarray | None = None
-        self._invalid_residual_penalty = 1.0e12
+        self._invalid_residual_directional_gain = 10.0
 
     def residual(self, x: np.ndarray) -> np.ndarray:
         """Residual function passed to SciPy for the current timestep.
@@ -134,24 +142,67 @@ class TransientStepSolve:
             ) from error
 
     def _invalid_trial_residual(self, x: np.ndarray) -> np.ndarray | None:
-        """Return a large residual for invalid nonlinear trial points."""
+        """Return a directional residual for invalid nonlinear trial points.
+
+        Failed property calls during a timestep are not represented by a fixed
+        residual wall. Instead, the residual grows from the last valid residual
+        in the direction of the failed iteration-vector step. This gives SciPy
+        useful local information while still making invalid points unattractive.
+        """
         if self._last_valid_residual is None:
             return None
 
-        count = len(self._last_valid_residual)
+        last_residual = np.array(self._last_valid_residual, dtype=float)
+        count = len(last_residual)
 
         if count == 0:
             return np.array([], dtype=float)
 
-        residual = np.full(count, self._invalid_residual_penalty, dtype=float)
-
-        if self._last_valid_x is not None and len(x) > 0:
+        if self._last_valid_x is None or len(x) == 0:
+            # Without an iteration-vector direction, use the last residual sign
+            # pattern. This should only happen after a valid residual exists but
+            # before a valid x direction is available.
+            direction = np.sign(last_residual)
+            direction[direction == 0.0] = 1.0
+            distance = 1.0
+        else:
             dx = np.array(x, dtype=float) - self._last_valid_x
             scale = np.maximum(np.abs(self._last_valid_x), 1.0)
             normalized_dx = dx / scale
+            distance = float(np.linalg.norm(normalized_dx))
 
-            for index in range(min(count, len(normalized_dx))):
-                residual[index] += 1.0e6 * normalized_dx[index]
+            if distance == 0.0 or not np.isfinite(distance):
+                direction = np.sign(last_residual)
+                direction[direction == 0.0] = 1.0
+                distance = 1.0
+            else:
+                # The iteration vector and residual vector do not always have
+                # the same length. Resize repeats/truncates the normalized step
+                # direction so the fallback residual stays directional instead
+                # of becoming a constant wall.
+                direction = np.resize(normalized_dx / distance, count)
+
+        last_norm = float(np.linalg.norm(last_residual))
+        residual_rms = float(np.sqrt(np.mean(last_residual**2)))
+        residual_scale = max(residual_rms, 1.0)
+        target_norm = max(
+            last_norm * (1.0 + self._invalid_residual_directional_gain * distance),
+            residual_scale * np.sqrt(count),
+        )
+
+        residual = last_residual + (
+            self._invalid_residual_directional_gain * residual_scale * distance * direction
+        )
+
+        # Preserve the direction but make sure the failed point is not cheaper
+        # than the last valid point because of accidental vector cancellation.
+        residual_norm = float(np.linalg.norm(residual))
+        if residual_norm == 0.0 or not np.isfinite(residual_norm):
+            residual = residual_scale * direction
+            residual_norm = float(np.linalg.norm(residual))
+
+        if residual_norm < target_norm:
+            residual *= target_norm / max(residual_norm, np.finfo(float).tiny)
 
         return residual
 
@@ -207,12 +258,39 @@ class TransientStepSolve:
         self._last_valid_residual = None
 
         try:
-            # Evaluate the residual once before SciPy.  This catches invalid
-            # initial states and detects the degenerate case where there is
-            # nothing to solve.
+            # Evaluate the predictor residual once before SciPy.  The predictor
+            # is the current accepted state copied forward to t_new.  When a
+            # network was already steady-initialized, or when no commands changed
+            # between timesteps, this residual may already satisfy the timestep
+            # tolerance.  In that case the implicit corrector has nothing useful
+            # to do, so skip least_squares and accept the step immediately.
+            #
+            # This preserves the backward-Euler equations and accuracy check: the
+            # fast path only accepts the same residual vector that would otherwise
+            # be used as SciPy's initial residual.  It just avoids building a
+            # finite-difference Jacobian for a timestep that is already solved.
+            predictor_start = time.perf_counter()
             self.network.time.value = t_new
             r0 = self.residual(x0)
+            predictor_elapsed = time.perf_counter() - predictor_start
             cache.validate_residual_count(r0)
+
+            max_r0 = float(np.max(np.abs(r0))) if len(r0) else 0.0
+            if max_r0 <= least_squares_settings.rtol:
+                self.evaluator.run(
+                    max_passes=state_settings.max_passes,
+                    tolerance=state_settings.tolerance,
+                    cache=cache,
+                )
+                cache.store_previous_values()
+                return StepDiagnostics(
+                    time=t_new,
+                    dt=dt,
+                    x0=x0,
+                    sol=None,
+                    residual=r0,
+                    elapsed_time=predictor_elapsed,
+                )
 
             if len(x0) == 0:
                 # Static transient step: explicit components may still update
@@ -241,7 +319,7 @@ class TransientStepSolve:
                     x0=x0,
                     sol=None,
                     residual=r0,
-                    elapsed_time=0.0,
+                    elapsed_time=predictor_elapsed,
                 )
 
             solver_kwargs = self._least_squares_kwargs(cache, x0, least_squares_settings)
