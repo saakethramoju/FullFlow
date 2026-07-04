@@ -81,6 +81,11 @@ class RuntimeCache:
         here makes individual residual calls simpler and faster.
         """
         self.component_list = tuple(self.network.component_list)
+        self.active_component_list = tuple(
+            component
+            for component in self.component_list
+            if component.active_in_solver("steady")
+        )
         self.balance_list, self.ignored_balance_list = filter_user_balances(
             self.network.balance_list,
             self.ignore_balances,
@@ -91,7 +96,10 @@ class RuntimeCache:
         # balance-error attributes created inside evaluate_states().  Evaluate
         # once before reading dynamics/balances so component constructors do not
         # need boilerplate like self.mass_flow_dot = 0.0.
-        evaluate_components_for_equation_discovery(self.component_list)
+        evaluate_components_for_equation_discovery(
+            self.active_component_list,
+            solve_mode="steady",
+        )
 
         self.component_dynamic_items = tuple(self._dynamic_iteration_items())
         self.component_balance_items = tuple(self._component_balance_iteration_items())
@@ -108,10 +116,10 @@ class RuntimeCache:
         # Bound method lookup is cheap, but doing it once makes residual calls
         # easier to read and avoids repeatedly walking the component list.
         self.pre_evaluation_callables = tuple(
-            component.pre_evaluation for component in self.component_list
+            component.pre_evaluation for component in self.active_component_list
         )
         self.evaluate_state_callables = tuple(
-            component.evaluate_states for component in self.component_list
+            component.evaluate_states for component in self.active_component_list
         )
 
         # Track non-iteration states so StateEvaluator can detect convergence of
@@ -234,7 +242,7 @@ class RuntimeCache:
         """
         items: list[IterationItem] = []
 
-        for component in self.component_list:
+        for component in self.active_component_list:
             for equation in component_dynamics(component):
                 items.append(
                     IterationItem(
@@ -250,7 +258,7 @@ class RuntimeCache:
         """Collect steady-state unknowns from component algebraic balances."""
         items: list[IterationItem] = []
 
-        for component in self.component_list:
+        for component in self.active_component_list:
             for equation in self._component_balance_equations(component):
                 items.append(
                     IterationItem(
@@ -375,7 +383,7 @@ class RuntimeCache:
         """Build labels matching the current residual vector order."""
         labels: list[str] = []
 
-        for component in self.component_list:
+        for component in self.active_component_list:
             labels.extend(
                 f"{component.name}.dynamic[{i}]"
                 for i, _ in enumerate(component_dynamics(component))
@@ -546,7 +554,7 @@ class RuntimeCache:
         """
         residuals: list[float] = []
 
-        for component in self.component_list:
+        for component in self.active_component_list:
             try:
                 # Dynamic equations become steady-state trim equations by
                 # driving the derivative itself to zero.

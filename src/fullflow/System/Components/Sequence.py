@@ -18,7 +18,8 @@ class Sequence(Component):
     solves. Functional sequences can also read input states, but those inputs
     are sampled from the previous accepted transient step.
 
-    In steady-state solves, Sequence is inactive. The target State keeps its
+    In steady-state solves, Sequence is skipped by the solver because
+    ``TRANSIENT_ONLY = True``. The target State keeps its
     current value. This lets a steady-state solve use a fixed initial command
     such as a closed valve, while the transient solve later updates that command
     from the sequence.
@@ -46,6 +47,8 @@ class Sequence(Component):
 
         source_pressure = PressureSequence.target
     """
+
+    TRANSIENT_ONLY = True
 
     def __init__(
         self,

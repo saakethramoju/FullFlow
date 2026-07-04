@@ -639,8 +639,35 @@ class Map(Component):
             getattr(self, output_name).value = float(np.asarray(interpolator(point)).item())
 
     @property
+    def export_attributes(self) -> dict[str, State]:
+        """Export live map inputs using their actual input names.
+
+        Manual maps and HDF5-loaded maps both store runtime inputs in
+        ``self.inputs``.  Export each input separately so the solution HDF5 has
+        user-facing paths such as::
+
+            Chamber_Gas_Map/chamber_pressure
+            Chamber_Gas_Map/mixture_ratio
+
+        instead of one generic ``inputs`` dictionary dataset.
+        """
+        exported: dict[str, State] = {}
+
+        for input_name in self.input_names:
+            if input_name in self.output_maps:
+                raise ValueError(
+                    f"{self.name}: map input name {input_name!r} conflicts with an "
+                    "output name. Rename the input or output before exporting."
+                )
+
+            exported[input_name] = self.inputs.value[input_name]
+
+        return exported
+
+    @property
     def ignored_export_attributes(self) -> set[str]:
         return super().ignored_export_attributes | {
+            "inputs",
             "axes",
             "outputs",
             "axis_values",

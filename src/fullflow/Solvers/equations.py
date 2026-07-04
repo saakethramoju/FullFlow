@@ -97,7 +97,12 @@ def _callable_name(method: Any) -> str:
     return getattr(method, "__name__", repr(method))
 
 
-def evaluate_components_for_equation_discovery(components: list[Any] | tuple[Any, ...], *, max_passes: int = 20) -> None:
+def evaluate_components_for_equation_discovery(
+    components: list[Any] | tuple[Any, ...],
+    *,
+    max_passes: int = 20,
+    solve_mode: str = "transient",
+) -> None:
     """Evaluate components before reading their equation properties.
 
     Component authors should be able to write clean constructors that mostly do
@@ -109,11 +114,16 @@ def evaluate_components_for_equation_discovery(components: list[Any] | tuple[Any
     Only order-of-evaluation failures caused by unassigned upstream States are
     deferred. Physical/modeling errors still raise immediately.
     """
-    pending = list(components)
+    active_components = [
+        component
+        for component in components
+        if component.active_in_solver(solve_mode)
+    ]
+    pending = list(active_components)
     last_deferred_errors: dict[int, tuple[Any, BaseException]] = {}
 
     for _ in range(max_passes):
-        for component in components:
+        for component in active_components:
             component.pre_evaluation()
 
         next_pending: list[Any] = []
@@ -141,7 +151,7 @@ def evaluate_components_for_equation_discovery(components: list[Any] | tuple[Any
         pending_ids = {id(component) for component in next_pending}
         pending = next_pending + [
             component
-            for component in components
+            for component in active_components
             if id(component) not in pending_ids
         ]
 

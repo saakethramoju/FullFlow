@@ -68,6 +68,10 @@ if generate_combustion_map:
 
 
 
+
+
+
+
 Engine = Network("Engine")
 
 
@@ -107,23 +111,25 @@ ChamberGas = Map.from_hdf5(
     },
 )
 
-'''
-FuelMainValve = Sequence(
-    "Fuel Main Valve Cd",
+
+
+
+ox_cd = State(0.3)
+
+
+MRController = PID(
+    "MR Controller",
     Engine,
-    times = [0.0, 0.01, 0.02, 0.03, 0.04, 0.05],
-    values= [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    feedback=mixture_ratio,
+    setpoint=2.3,
+    command=ox_cd,
+    trim=0.4,
+    proportional_gain=0.8,
+    integral_gain=1.0,
+    derivative_gain=0.0,
+    minimum=1e-3,
 )
 
-OxMainValve = Sequence(
-    "Oxidizer Main Valve Cd",
-    Engine,
-    times = [0.0, 0.01, 0.02, 0.03, 0.04, 0.05],
-    values= [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
-)
-'''
-
-ox_cd = State(0.5)
 
 
 FuelMain = DischargeCoefficient(
@@ -228,6 +234,8 @@ Engine.track("Fuel Injector Pressure [psia]", InjFuel.pressure / psia_to_pa)
 Engine.track("Ox Injector Pressure [psia]", InjOx.pressure / psia_to_pa)
 Engine.track("Chamber Pressure [psia]", Chamber.pressure / psia_to_pa)
 
+Engine.track("Ox Cd Command", ox_cd)
+
 Engine.track("Mixture Ratio", mixture_ratio)
 Engine.track("Fuel Mass Flow [kg/s]", FuelOrf.mass_flow)
 Engine.track("Ox Mass Flow [kg/s]", OxOrf.mass_flow)
@@ -242,24 +250,9 @@ SteadyState(Engine).solve(
 )
 
 
-
-MRController = PID(
-    "MR Controller",
-    Engine,
-    feedback=mixture_ratio,
-    setpoint=2.3,
-    command=ox_cd,
-    proportional_gain=0.8,
-    integral_gain=1.0,
-    derivative_gain=0.0,
-    minimum=1e-3,
-)
-
-
-
 Transient(Engine).solve(
     dt=0.01, 
-    t_final=1, 
+    t_final=5.0, 
     verbose=True, 
     statistics=True,
     filename=filename
@@ -267,3 +260,29 @@ Transient(Engine).solve(
 
 
 
+result = fplt.open(filename).at("Engine/transient/runs/base/tracks")
+result.tree()
+
+mr = result.trace(y="Mixture_Ratio", x="time", name="Mixture Ratio")
+ox_cd = result.trace(y="Ox Cd Command", x="time", name="Ox Cd", role="command")
+pc = result.trace(y="Chamber Pressure [psia]", x="time", name="Chamber Pressure")
+
+result.plot(
+    y=ox_cd,
+    y2=mr,
+    xlabel="Time [s]",
+    ylabel="Discharge Coefficient",
+    y2label="Mixture Ratio",
+    title="PID Control",
+)
+
+
+result.plot(
+    y=pc,
+    xlabel="Time [s]",
+    ylabel="Pressure [psia]",
+    title="Chamber Pressure",
+)
+
+
+fplt.show()

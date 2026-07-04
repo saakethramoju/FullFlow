@@ -12,6 +12,12 @@ if TYPE_CHECKING:
 
 
 class Component:
+    # Components normally participate in both steady-state and transient
+    # solves.  Command/procedure/controller components can set this to True
+    # so steady-state solves leave their outputs at the current value while
+    # transient solves evaluate them normally.
+    TRANSIENT_ONLY = False
+
     _iteration_variable_names: tuple[str, ...] = ()
     _fullflow_setup_cache: tuple[tuple[str, ...], dict[str, Any]] | None = None
 
@@ -147,6 +153,18 @@ class Component:
         cls._validate_template_arguments("template", name, kwargs)
         return cls.model(name, **kwargs)
 
+    def active_in_solver(self, solve_mode: str) -> bool:
+        """Return whether this component should run in the requested solver.
+
+        ``TRANSIENT_ONLY`` is intentionally simple for user-written components:
+        set ``TRANSIENT_ONLY = True`` on a command, sequence, or controller and
+        steady-state solves will skip its hooks/equations without resetting any
+        of its States.  Transient solves still evaluate it normally.
+        """
+        if bool(getattr(self, "TRANSIENT_ONLY", False)):
+            return solve_mode == "transient"
+        return True
+
     def pre_evaluation(self) -> None:
         pass
 
@@ -200,6 +218,17 @@ class Component:
     @property
     def ignored_export_attributes(self) -> set[str]:
         return set()
+
+    @property
+    def export_attributes(self) -> dict[str, Any]:
+        """Additional attributes to include in solution exports.
+
+        Components can override this when the exported HDF5 names should be
+        cleaner than the internal runtime attributes.  The generic exporter
+        treats these exactly like normal component attributes, without requiring
+        the component to store duplicate State objects on ``__dict__``.
+        """
+        return {}
 
     @staticmethod
     def _format_value(value: Any) -> Any:

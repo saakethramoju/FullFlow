@@ -501,5 +501,6 @@ SteadyState(BangBangSim).solve(
 Transient(BangBangSim).solve(
     dt=0.01,
     t_final=22.5,
+    statistics=True,
     filename=filename,
 )

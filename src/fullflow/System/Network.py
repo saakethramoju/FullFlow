@@ -406,6 +406,26 @@ class Network:
                 self._safe_value(attr_value),
             )
 
+        # Components may expose extra export-only attributes without storing
+        # duplicate runtime State objects on ``__dict__``.  Map uses this to
+        # export each named input separately, for example ``chamber_pressure``
+        # and ``mixture_ratio``, instead of one generic ``inputs`` dictionary.
+        export_attributes = getattr(owner, "export_attributes", {})
+        if callable(export_attributes):
+            export_attributes = export_attributes()
+
+        for attr_name, attr_value in dict(export_attributes).items():
+            if attr_name in ignored_attributes or attr_name.startswith("_"):
+                continue
+
+            self._append_record(
+                records,
+                owner.name,
+                owner.__class__.__name__,
+                str(attr_name),
+                self._safe_value(attr_value),
+            )
+
     def tracked_records(self) -> list[dict[str, Any]]:
         """Return only user-tracked records for transient history export."""
         records: list[dict[str, Any]] = []

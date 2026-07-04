@@ -145,7 +145,10 @@ class TransientRuntimeCache:
         # balance-error attributes created inside evaluate_states().  Evaluate
         # once before reading dynamics/balances so component constructors do not
         # need boilerplate like self.mass_flow_dot = 0.0.
-        evaluate_components_for_equation_discovery(self.component_list)
+        evaluate_components_for_equation_discovery(
+            self.component_list,
+            solve_mode="transient",
+        )
 
         self._cache_component_transient_lists()
 

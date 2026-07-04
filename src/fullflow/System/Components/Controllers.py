@@ -8,7 +8,6 @@ if TYPE_CHECKING:
     from fullflow.System import Network
 
 
-
 class PID(Component):
     """Simple PID controller.
 
@@ -21,15 +20,21 @@ class PID(Component):
                 + integral_gain * integral(error)
                 + derivative_gain * d(error)/dt
 
-    The command bias comes from trim when trim is supplied.
+    PID is transient-only by default. Steady-state solves leave the command at
+    its current value. Transient solves activate the controller.
 
-    If trim is omitted but an initialized command State is supplied, the initial
-    command value is used as the fixed command bias. This lets a user connect the
-    PID to an actuator without also providing a trim value.
+    Startup behavior is bumpless when trim is omitted and an initialized command
+    State is supplied. In that case, the PID chooses its internal command bias so
+    that the first PID output equals the current command value. This prevents a
+    command kick when the controller first becomes active.
+
+    If trim is supplied, trim is treated as the nominal command.
 
     If both trim and an initialized command are omitted, the PID cannot know what
     actuator command to start from, so it raises an error.
     """
+
+    TRANSIENT_ONLY = True
 
     def __init__(
         self,
@@ -47,8 +52,14 @@ class PID(Component):
     ):
         self.setup()
 
+        # A transient-only PID is skipped during steady-state solves. If the
+        # user wires PID.command directly into an actuator, seed that command
+        # from trim here so the steady-state plant still has an initial command.
+        if not self.command.is_assigned and self.trim.is_assigned:
+            self.command.value = float(self.trim.value)
+
     def evaluate_states(self):
-        # Runtime memory is created on the first evaluation.
+        # Runtime memory is created on the first transient evaluation.
         #
         # setup() already converted constructor inputs into State-like
         # attributes, so trim/command/minimum/maximum are State objects even when
@@ -56,10 +67,22 @@ class PID(Component):
         if not hasattr(self, "_initialized"):
             self._initialized = True
 
+            time = float(self.network.time.value)
+
+            feedback = float(self.feedback.value)
+            setpoint = float(self.setpoint.value)
+
+            proportional_gain = float(self.proportional_gain.value)
+
+            initial_error = setpoint - feedback
+
             # Controller memory.
             self.integral_error = State(0.0)
-            self.previous_error = State(0.0)
-            self.previous_time = State(float(self.network.time.value))
+
+            # Initialize previous_error to the current error. This prevents a
+            # derivative kick on the first active evaluation.
+            self.previous_error = State(initial_error)
+            self.previous_time = State(time)
 
             # Public diagnostic outputs.
             self.error = State(0.0)
@@ -71,9 +94,9 @@ class PID(Component):
 
             # If trim was supplied, trim is the nominal actuator command.
             #
-            # If trim was not supplied but command already has a value, use the
-            # initial command value as the fixed nominal actuator command. This
-            # avoids inventing a universal PID default like 0.0.
+            # If trim was not supplied but command already has a value, use a
+            # bumpless internal bias. This makes the first active PID output
+            # equal to the current command, avoiding a startup command kick.
             #
             # If neither trim nor command is assigned, the PID has no way to know
             # what actuator units or nominal command it should use.
@@ -81,7 +104,12 @@ class PID(Component):
                 self.command_bias = State(float(self.trim.value))
 
             elif self.command.is_assigned:
-                self.command_bias = State(float(self.command.value))
+                initial_command = float(self.command.value)
+                initial_proportional = proportional_gain * initial_error
+
+                self.command_bias = State(
+                    initial_command - initial_proportional
+                )
 
             else:
                 raise ValueError(
@@ -104,7 +132,7 @@ class PID(Component):
 
         # If trim is supplied, it remains the live nominal command. This allows
         # a user to schedule or otherwise update trim. If trim was omitted, the
-        # initial command value captured above is used as the fixed bias.
+        # bumpless command bias captured on startup is used as the fixed bias.
         if self.trim.is_assigned:
             command_bias = float(self.trim.value)
         else:
