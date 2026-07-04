@@ -9,8 +9,6 @@ if TYPE_CHECKING:
 
 
 
-
-
 class PID(Component):
     """Simple PID controller.
 
@@ -18,12 +16,19 @@ class PID(Component):
 
         error = setpoint - feedback
 
-        command = trim
+        command = command_bias
                 + proportional_gain * error
                 + integral_gain * integral(error)
                 + derivative_gain * d(error)/dt
 
-    trim is the nominal command. The PID terms are corrections around trim.
+    The command bias comes from trim when trim is supplied.
+
+    If trim is omitted but an initialized command State is supplied, the initial
+    command value is used as the fixed command bias. This lets a user connect the
+    PID to an actuator without also providing a trim value.
+
+    If both trim and an initialized command are omitted, the PID cannot know what
+    actuator command to start from, so it raises an error.
     """
 
     def __init__(
@@ -35,7 +40,7 @@ class PID(Component):
         proportional_gain: float = 0.0,
         integral_gain: float = 0.0,
         derivative_gain: float = 0.0,
-        trim: State | float = 0.0,
+        trim: State | float | None = None,
         command: State | None = None,
         minimum: float | None = None,
         maximum: float | None = None,
@@ -46,7 +51,7 @@ class PID(Component):
         # Runtime memory is created on the first evaluation.
         #
         # setup() already converted constructor inputs into State-like
-        # attributes, so command/minimum/maximum are State objects even when
+        # attributes, so trim/command/minimum/maximum are State objects even when
         # their values are None.
         if not hasattr(self, "_initialized"):
             self._initialized = True
@@ -64,10 +69,31 @@ class PID(Component):
             self.raw_command = State(0.0)
             self.saturated = State(False)
 
-            # If no command State was supplied, setup() made an unassigned
-            # State. Initialize that output to zero.
+            # If trim was supplied, trim is the nominal actuator command.
+            #
+            # If trim was not supplied but command already has a value, use the
+            # initial command value as the fixed nominal actuator command. This
+            # avoids inventing a universal PID default like 0.0.
+            #
+            # If neither trim nor command is assigned, the PID has no way to know
+            # what actuator units or nominal command it should use.
+            if self.trim.is_assigned:
+                self.command_bias = State(float(self.trim.value))
+
+            elif self.command.is_assigned:
+                self.command_bias = State(float(self.command.value))
+
+            else:
+                raise ValueError(
+                    f"{self.name}: PID requires either a trim value or an "
+                    "initialized command State. The PID cannot choose a default "
+                    "actuator command because command units depend on what is "
+                    "being controlled."
+                )
+
+            # If the PID owns the command State, initialize it to the bias.
             if not self.command.is_assigned:
-                self.command.value = 0.0
+                self.command.value = float(self.command_bias.value)
 
         # Current simulation time.
         time = float(self.network.time.value)
@@ -75,7 +101,14 @@ class PID(Component):
         # Read controller inputs.
         feedback = float(self.feedback.value)
         setpoint = float(self.setpoint.value)
-        trim = float(self.trim.value)
+
+        # If trim is supplied, it remains the live nominal command. This allows
+        # a user to schedule or otherwise update trim. If trim was omitted, the
+        # initial command value captured above is used as the fixed bias.
+        if self.trim.is_assigned:
+            command_bias = float(self.trim.value)
+        else:
+            command_bias = float(self.command_bias.value)
 
         # Read gains.
         proportional_gain = float(self.proportional_gain.value)
@@ -108,7 +141,7 @@ class PID(Component):
         derivative = derivative_gain * error_rate
 
         # Unclamped command.
-        raw_command = trim + proportional + integral + derivative
+        raw_command = command_bias + proportional + integral + derivative
         command = raw_command
 
         # Clamp command to optional limits.
