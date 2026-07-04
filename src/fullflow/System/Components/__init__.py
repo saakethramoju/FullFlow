@@ -10,3 +10,4 @@ from .Lookup import *
 from .Composition import *
 from .Sequence import *
 from .Sensor import *
+from .Controllers import *

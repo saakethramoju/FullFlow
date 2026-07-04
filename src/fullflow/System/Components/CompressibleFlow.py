@@ -155,6 +155,8 @@ class IsentropicNozzle(Component):
         mass_flow: State | None = None,
         exit_mach_number: State | None = None,
         exit_static_pressure: State | None = None,
+        exit_static_temperature: State | None = None,
+        exit_velocity: State | None = None,
         normal_shock: State | bool | None = False,
         shock_mach_number: State | None = 0.0,
     ):
@@ -255,9 +257,16 @@ class IsentropicNozzle(Component):
 
                         Pe = Po * Pt2_Pt1 / self._pressure_ratio_from_mach(Me, g)
 
+
+        Te = To / (1.0 + 0.5 * (g - 1.0) * Me**2)
+        ae = (g * R * Te) ** 0.5
+        Ve = Me * ae
+
         self.mass_flow.value = mdot
         self.exit_mach_number.value = Me
         self.exit_static_pressure.value = Pe
+        self.exit_static_temperature.value = Te
+        self.exit_velocity.value = Ve
         self.normal_shock.value = normal_shock
         self.shock_mach_number.value = Ms
 

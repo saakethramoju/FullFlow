@@ -980,6 +980,10 @@ class TransientRuntimeCache:
                 continue
 
             _, state, value = item
+
+            if not is_assignable_state_like(state):
+                continue
+
             state.value = TransientRuntimeCache._snapshot_value(value)
 
     def snapshot_iteration_variables(self) -> tuple[tuple[Any, Any], ...]:

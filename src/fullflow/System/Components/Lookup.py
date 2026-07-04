@@ -120,6 +120,44 @@ class LookupAttribute:
 
     @property
     def is_derived(self) -> bool:
+        """Return True when this attribute is not directly assignable.
+
+        Lookup attributes are state-like proxies.  Active lookup inputs are
+        assignable only when their backing input is assignable.  Outputs are
+        derived from the lookup result and must not be restored or solved as
+        mutable States.
+
+        This distinction matters for derived lookup inputs, for example::
+
+            Reactants.mixture_ratio = OxOrf.mass_flow / FuelOrf.mass_flow
+
+        ``mixture_ratio`` is an active lookup input, but its backing value is a
+        derived State.  Solver rollback should restore the mass-flow States and
+        let ``mixture_ratio`` recompute instead of assigning into it directly.
+        """
+        if self.lookup.input_is_active(self.name):
+            current = self.lookup.kwargs.get(self.name, _MISSING)
+
+            if isinstance(current, State):
+                return bool(current.is_derived)
+
+            as_state = getattr(type(current), "as_state", None)
+            if callable(as_state):
+                try:
+                    state = as_state(current)
+                except Exception:
+                    return False
+                try:
+                    return bool(state.is_derived)
+                except Exception:
+                    return False
+
+            return False
+
+        for group in self.lookup.priority:
+            if group and self.name == group[0] and self.lookup.accepts_input(self.name):
+                return False
+
         return True
 
     def _constraint_state(self) -> State | None:

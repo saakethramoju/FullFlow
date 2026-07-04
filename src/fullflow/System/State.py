@@ -78,17 +78,32 @@ def resolve_numeric(value: Any) -> float:
 
 
 def is_assignable_state_like(value: Any) -> bool:
-    """Return True for State-like objects the solver may assign."""
+    """Return True for State-like objects the solver may assign.
+
+    State-like proxies such as ``LookupAttribute`` can expose either writable
+    lookup inputs or derived lookup outputs.  A proxy class may mark itself as
+    assignable in general, but the specific instance still gets the final say
+    through ``is_derived``.  This prevents solver and snapshot/restore code from
+    assigning directly into derived expressions such as::
+
+        Reactants.mixture_ratio = OxFlow / FuelFlow
+
+    In that case the underlying flow States should be restored and the derived
+    mixture ratio should recompute naturally.
+    """
     if not is_state_like(value):
         return False
+
+    try:
+        if bool(value.is_derived):
+            return False
+    except Exception:
+        pass
 
     if bool(getattr(type(value), "_fullflow_assignable_state_like", False)):
         return True
 
-    try:
-        return not bool(value.is_derived)
-    except Exception:
-        return True
+    return True
 
 
 class State:
