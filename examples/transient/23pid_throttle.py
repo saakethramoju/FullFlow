@@ -75,8 +75,20 @@ if generate_combustion_map:
 Engine = Network("Engine")
 
 
-fuel = Fluid("RP1", pressure=400*psia_to_pa, temperature=300)
-ox = Fluid("LOX", pressure=400*psia_to_pa, quality=0.0)
+
+runline_length = 5.0
+runline_area = 0.5e-4
+
+fuel_throttle_cda = 0.5e-4
+ox_throttle_cda = 1.0e-4
+
+fuel_main_cd = fuel_throttle_cda / runline_area
+ox_main_cd = ox_throttle_cda / runline_area
+
+
+
+fuel = Fluid("RP1", pressure=450 * psia_to_pa, temperature=300)
+ox = Fluid("LOX", pressure=400 * psia_to_pa, quality=0.0)
 
 
 InjFuel = Lookup(
@@ -84,8 +96,8 @@ InjFuel = Lookup(
     Engine,
     Propellant,
     "rp-1",
-    pressure = 380 * psia_to_pa,
-    temperature = 300
+    pressure=350 * psia_to_pa,
+    temperature=300,
 )
 
 InjOx = Lookup(
@@ -93,11 +105,11 @@ InjOx = Lookup(
     Engine,
     Propellant,
     "lox",
-    pressure = 380 * psia_to_pa,
-    temperature = 90
+    pressure=350 * psia_to_pa,
+    temperature=90,
 )
 
-chamber_pressure = State(350 * psia_to_pa)
+chamber_pressure = State(300 * psia_to_pa)
 mixture_ratio = State(2.0)
 
 ChamberGas = Map.from_hdf5(
@@ -114,23 +126,43 @@ ChamberGas = Map.from_hdf5(
 
 
 
-ox_cd = State(0.3)
+ox_cmd = State(ox_main_cd)
 
 
-MRController = PID(
-    "MR Controller",
+PcController = PID(
+    "Pc Controller",
     Engine,
-    feedback=mixture_ratio,
-    setpoint=2.3,
-    command=ox_cd,
-    trim=0.4,
-    proportional_gain=0.8,
-    integral_gain=1.0,
+    feedback=chamber_pressure / psia_to_pa,
+    setpoint=285,
+    command=ox_cmd,
+    trim=ox_main_cd,
+    proportional_gain=0.01,
+    integral_gain=0.05,
     derivative_gain=0.0,
-    minimum=1e-3,
+    minimum=0.5,
+    maximum=3.0,
 )
 
+'''
+ox_cmd = State(ox_main_cd)
 
+def ox_cd_step(t):
+    if t < 1.0:
+        return 2.0      # CdA = 2.0 * 0.5e-4 = 1.0e-4
+
+    return 2.3          # CdA = 2.3 * 0.5e-4 = 1.15e-4
+
+OxCdSequence = Sequence(
+    "Ox Cd Step",
+    Engine,
+    target=ox_cmd,
+    function=ox_cd_step,
+)
+
+'''
+
+
+fuel_main_mdot = State(1.0)
 
 FuelMain = DischargeCoefficient(
     "Fuel Main Line",
@@ -138,12 +170,14 @@ FuelMain = DischargeCoefficient(
     upstream_pressure=fuel.pressure,
     downstream_pressure=InjFuel.pressure,
     density=fuel.density,
-    discharge_coefficient=0.75,
-    cross_sectional_area=(math.pi/4) * (1.0 * in_to_m)**2,
-    #length=4,
-    #mass_flow=0
+    discharge_coefficient=fuel_main_cd,
+    cross_sectional_area=runline_area,
+    length=runline_length,
+    mass_flow=fuel_main_mdot,
 )
 
+
+ox_main_mdot = State(2.0)
 
 OxMain = DischargeCoefficient(
     "Oxidizer Main Line",
@@ -151,17 +185,16 @@ OxMain = DischargeCoefficient(
     upstream_pressure=ox.pressure,
     downstream_pressure=InjOx.pressure,
     density=ox.density,
-    discharge_coefficient=ox_cd,
-    cross_sectional_area=(math.pi/4) * (1.0 * in_to_m)**2,
-    #length=4,
-    #mass_flow=0
+    discharge_coefficient=ox_cmd,
+    cross_sectional_area=runline_area,
+    length=runline_length,
+    mass_flow=ox_main_mdot,
 )
-
 
 FuelManifold = Volume(
     "Injector Fuel Manifold",
     Engine,
-    volume= 25 * in3_to_m3,
+    volume= 0.1287,
     pressure=InjFuel.pressure,
     density=InjFuel.density,
     mass_flow_in=FuelMain.mass_flow
@@ -170,7 +203,7 @@ FuelManifold = Volume(
 OxManifold = Volume(
     "Injector Oxidizer Manifold",
     Engine,
-    volume= 25 * in3_to_m3,
+    volume= 0.1287,
     pressure=InjOx.pressure,
     density=InjOx.density,
     mass_flow_in=OxMain.mass_flow
@@ -184,9 +217,9 @@ FuelOrf = DischargeCoefficient(
     upstream_pressure=InjFuel.pressure,
     downstream_pressure=chamber_pressure,
     density=InjFuel.density,
-    discharge_coefficient=0.6,
-    cross_sectional_area=0.555 * 1e-4,
-    mass_flow=FuelManifold.mass_flow_out
+    discharge_coefficient=1.0,
+    cross_sectional_area=0.5e-4,
+    mass_flow=FuelManifold.mass_flow_out,
 )
 
 OxOrf = DischargeCoefficient(
@@ -195,9 +228,9 @@ OxOrf = DischargeCoefficient(
     upstream_pressure=InjOx.pressure,
     downstream_pressure=chamber_pressure,
     density=InjOx.density,
-    discharge_coefficient=0.6,
-    cross_sectional_area=1.25 * 1e-4,
-    mass_flow=OxManifold.mass_flow_out
+    discharge_coefficient=1.0,
+    cross_sectional_area=1.0e-4,
+    mass_flow=OxManifold.mass_flow_out,
 )
 
 mixture_ratio <<= OxOrf.mass_flow / FuelOrf.mass_flow
@@ -206,7 +239,7 @@ mixture_ratio <<= OxOrf.mass_flow / FuelOrf.mass_flow
 Chamber = Volume(
     "Combustion Chamber",
     Engine,
-    volume=(25 * in2_to_m2) * (8 * in_to_m),
+    volume=6.0e-2,
     pressure=chamber_pressure,
     density=ChamberGas.density,
     mass_flow_in=FuelOrf.mass_flow + OxOrf.mass_flow
@@ -220,8 +253,8 @@ Nozzle = IsentropicNozzle(
     ambient_pressure=14.67 * psia_to_pa,
     specific_heat_ratio=ChamberGas.gamma,
     gas_constant=ChamberGas.gas_constant,
-    throat_area=6 * in2_to_m2,
-    expansion_ratio=6,
+    throat_area=6.05 * in2_to_m2,
+    expansion_ratio=4.7,
     mass_flow=Chamber.mass_flow_out,
 )
 
@@ -234,7 +267,7 @@ Engine.track("Fuel Injector Pressure [psia]", InjFuel.pressure / psia_to_pa)
 Engine.track("Ox Injector Pressure [psia]", InjOx.pressure / psia_to_pa)
 Engine.track("Chamber Pressure [psia]", Chamber.pressure / psia_to_pa)
 
-Engine.track("Ox Cd Command", ox_cd)
+Engine.track("Ox Cd Command", ox_cmd)
 
 Engine.track("Mixture Ratio", mixture_ratio)
 Engine.track("Fuel Mass Flow [kg/s]", FuelOrf.mass_flow)
@@ -251,37 +284,39 @@ SteadyState(Engine).solve(
 
 
 Transient(Engine).solve(
-    dt=0.01, 
-    t_final=5.0, 
-    verbose=True, 
+    dt=0.01,
+    t_final=2.0,
+    verbose=True,
     statistics=True,
-    filename=filename
+    filename=filename,
 )
 
 
 
 result = fplt.open(filename).at("Engine/transient/runs/base/tracks")
-result.tree()
+#result.tree()
 
 mr = result.trace(y="Mixture_Ratio", x="time", name="Mixture Ratio")
-ox_cd = result.trace(y="Ox Cd Command", x="time", name="Ox Cd", role="command")
+ox_cmd = result.trace(y="Ox Cd Command", x="time", name="Ox Cd", role="command")
 pc = result.trace(y="Chamber Pressure [psia]", x="time", name="Chamber Pressure")
+fipt = result.trace(y="Fuel Injector Pressure [psia]", x="time", name="Fuel Inj Pressure")
+oipt = result.trace(y="Ox Injector Pressure [psia]", x="time", name="Ox Inj Pressure")
 
 result.plot(
-    y=ox_cd,
-    y2=mr,
+    y=ox_cmd,
+    y2=[pc, fipt, oipt],
     xlabel="Time [s]",
-    ylabel="Discharge Coefficient",
-    y2label="Mixture Ratio",
-    title="PID Control",
+    ylabel="Oxidizer Discharge Coefficient",
+    y2label="Chamber Pressure [psia]",
+    title="Pc PID Control",
 )
-
-
 result.plot(
-    y=pc,
+    y=[mr],
+    y2=ox_cmd,
     xlabel="Time [s]",
-    ylabel="Pressure [psia]",
-    title="Chamber Pressure",
+    ylabel="Mixture Ratio",
+    y2label="Oxidizer Discharge Coefficient",
+    title="Pc PID Control",
 )
 
 

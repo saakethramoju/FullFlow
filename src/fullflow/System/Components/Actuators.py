@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 from typing import TYPE_CHECKING
 
 from fullflow.System import Component
@@ -10,7 +9,7 @@ if TYPE_CHECKING:
 
 
 
-class FirstOrderActuator(Component): pass
 
 
-class RateLimitedActuator(Component): pass
+
+class Actuator(Component): pass
