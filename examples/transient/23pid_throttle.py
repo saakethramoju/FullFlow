@@ -127,6 +127,7 @@ ChamberGas = Map.from_hdf5(
 
 
 ox_cmd = State(ox_main_cd)
+ox_position = State(ox_main_cd)
 
 
 PcController = PID(
@@ -162,6 +163,18 @@ OxCdSequence = Sequence(
 '''
 
 
+OxActuator = Actuator(
+    "Ox Actuator",
+    Engine,
+    command=ox_cmd,
+    position=ox_position,
+    minimum=0.5,
+    maximum=3.0,
+    rate_limit=0.5,      # Cd-multiplier per second
+)
+
+
+
 fuel_main_mdot = State(1.0)
 
 FuelMain = DischargeCoefficient(
@@ -185,7 +198,7 @@ OxMain = DischargeCoefficient(
     upstream_pressure=ox.pressure,
     downstream_pressure=InjOx.pressure,
     density=ox.density,
-    discharge_coefficient=ox_cmd,
+    discharge_coefficient=ox_position,
     cross_sectional_area=runline_area,
     length=runline_length,
     mass_flow=ox_main_mdot,
@@ -268,6 +281,7 @@ Engine.track("Ox Injector Pressure [psia]", InjOx.pressure / psia_to_pa)
 Engine.track("Chamber Pressure [psia]", Chamber.pressure / psia_to_pa)
 
 Engine.track("Ox Cd Command", ox_cmd)
+Engine.track("Ox Cd Position", ox_position)
 
 Engine.track("Mixture Ratio", mixture_ratio)
 Engine.track("Fuel Mass Flow [kg/s]", FuelOrf.mass_flow)
@@ -297,19 +311,21 @@ result = fplt.open(filename).at("Engine/transient/runs/base/tracks")
 #result.tree()
 
 mr = result.trace(y="Mixture_Ratio", x="time", name="Mixture Ratio")
-ox_cmd = result.trace(y="Ox Cd Command", x="time", name="Ox Cd", role="command")
+ox_cmd = result.trace(y="Ox Cd Command", x="time", name="Ox Cd Command", role="command")
+ox_position = result.trace(y="Ox Cd Position", x="time", name="Ox Cd Position")
 pc = result.trace(y="Chamber Pressure [psia]", x="time", name="Chamber Pressure")
 fipt = result.trace(y="Fuel Injector Pressure [psia]", x="time", name="Fuel Inj Pressure")
 oipt = result.trace(y="Ox Injector Pressure [psia]", x="time", name="Ox Inj Pressure")
 
 result.plot(
-    y=ox_cmd,
+    y=[ox_cmd, ox_position],
     y2=[pc, fipt, oipt],
     xlabel="Time [s]",
     ylabel="Oxidizer Discharge Coefficient",
-    y2label="Chamber Pressure [psia]",
+    y2label="Pressure [psia]",
     title="Pc PID Control",
 )
+
 result.plot(
     y=[mr],
     y2=ox_cmd,
