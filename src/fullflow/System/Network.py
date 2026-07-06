@@ -148,7 +148,7 @@ class Network:
         return rows
 
     def activate_sequence_conditions(self, events: list[Any]) -> None:
-        """Activate Sequence commands that depend on accepted Sensor events."""
+        """Activate Sequence commands and abort rules that depend on Sensor events."""
         if not events:
             return
 
@@ -156,6 +156,58 @@ class Network:
             activate = getattr(type(sequence), "activate_condition_commands", None)
             if callable(activate):
                 activate(sequence, events)
+
+            activate_abort = getattr(type(sequence), "activate_condition_aborts", None)
+            if callable(activate_abort):
+                activate_abort(sequence, events)
+
+    def reset_sequence_aborts(self) -> None:
+        """Reset one-run Sequence abort history before a transient run."""
+        for sequence in self.sequence_components():
+            reset = getattr(type(sequence), "reset_abort_history", None)
+            if callable(reset):
+                reset(sequence)
+
+    def next_sequence_abort_time(self, current_time: float | None = None) -> float | None:
+        """Return the next clean abort time requested by any Sequence."""
+        if current_time is None:
+            current_time = float(self.time.value)
+
+        candidates: list[float] = []
+        for sequence in self.sequence_components():
+            next_abort_time = getattr(type(sequence), "next_abort_time", None)
+            if not callable(next_abort_time):
+                continue
+            value = next_abort_time(sequence, float(current_time))
+            if value is None:
+                continue
+            try:
+                value = float(value)
+            except Exception:
+                continue
+            candidates.append(value)
+
+        if not candidates:
+            return None
+        return min(candidates)
+
+    def check_sequence_abort(self, time_value: float | None = None) -> dict[str, Any] | None:
+        """Return a clean abort record if any Sequence abort rule is due."""
+        if time_value is None:
+            time_value = float(self.time.value)
+
+        abort_records: list[dict[str, Any]] = []
+        for sequence in self.sequence_components():
+            check_abort = getattr(type(sequence), "check_abort", None)
+            if not callable(check_abort):
+                continue
+            record = check_abort(sequence, float(time_value))
+            if record:
+                abort_records.append(dict(record))
+
+        if not abort_records:
+            return None
+        return min(abort_records, key=lambda row: float(row.get("time", time_value)))
 
     def track(
         self,

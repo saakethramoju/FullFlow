@@ -489,22 +489,40 @@ class Transient:
         # point every transient State has ``state.previous == state.value``.
         self.step_solver.initialize(state_settings)
         self.network.reset_sensor_events()
+        self.network.reset_sequence_aborts()
         self.network.initialize_sensor_conditions(float(self.network.time.value))
         self.history.append(self.network, float(self.network.time.value))
         sequence_breakpoints = self._collect_sequence_breakpoints()
         next_save_time = None if save_dt is None else float(self.network.time.value) + float(save_dt)
 
+        abort_record = None
+
         while float(self.network.time.value) < t_final:
+            current_time = float(self.network.time.value)
+            pending_abort_time = self.network.next_sequence_abort_time(current_time)
+            tolerance = 1.0e-12 * max(1.0, abs(current_time), abs(t_final))
+
+            if pending_abort_time is not None and pending_abort_time <= current_time + tolerance:
+                abort_record = self.network.check_sequence_abort(current_time)
+                if abort_record is not None:
+                    stop_reason = str(abort_record.get("message") or "Sequence abort requested.")
+                    if verbose:
+                        self.printer.print_sequence_abort(abort_record)
+                break
+
+            step_final = t_final
+            if pending_abort_time is not None:
+                step_final = min(step_final, float(pending_abort_time))
+
             dt_step = self._pick_timestep(
                 transient_settings.dt,
-                t_final,
+                step_final,
                 sequence_breakpoints,
                 next_save_time,
             )
             if dt_step <= 0.0:
                 break
 
-            current_time = float(self.network.time.value)
             trial_dt = dt_step
             retries = 0
 
@@ -580,7 +598,13 @@ class Transient:
             if step_events:
                 self.network.activate_sequence_conditions(step_events)
 
-            if step_events and not save_output:
+            abort_record = self.network.check_sequence_abort(diagnostics.time)
+            if abort_record is not None:
+                stop_reason = str(abort_record.get("message") or "Sequence abort requested.")
+                if verbose:
+                    self.printer.print_sequence_abort(abort_record)
+
+            if (step_events or abort_record is not None) and not save_output:
                 self.history.append(self.network, diagnostics.time)
                 save_output = True
             elif save_output:
@@ -598,6 +622,9 @@ class Transient:
             # structure during the step.  Refresh lazily for the next step.
             self._cache()
 
+            if abort_record is not None:
+                break
+
         elapsed_time = time.perf_counter() - solve_start_time
         sensor_event_records = self.network.sensor_event_records()
         if sensor_event_records:
@@ -606,8 +633,17 @@ class Transient:
                 run_metadata[f"{role}_event_count"] = sum(
                     1 for row in sensor_event_records if row.get("role") == role
                 )
+        if abort_record is not None:
+            run_metadata["sequence_aborted"] = True
+            run_metadata["abort_sequence"] = abort_record.get("sequence", "")
+            run_metadata["abort_condition"] = abort_record.get("condition", "")
+            run_metadata["abort_time"] = abort_record.get("time", float(self.network.time.value))
+            run_metadata["abort_trigger_time"] = abort_record.get("trigger_time", math.nan)
+            run_metadata["abort_delay"] = abort_record.get("delay", 0.0)
+            run_metadata["abort_message"] = abort_record.get("message", "")
         if stop_reason is not None:
-            run_metadata["stopped_by_sensor"] = True
+            if abort_record is None:
+                run_metadata["stopped_by_sensor"] = True
             run_metadata["stop_reason"] = stop_reason
         step_rows = self._diagnostic_rows(self.step_diagnostics)
         self.history.save(filename, self.network, step_rows, group_path=group_path, metadata=run_metadata)

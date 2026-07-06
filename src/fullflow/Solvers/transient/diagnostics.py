@@ -276,6 +276,24 @@ class TransientPrinter:
         """Backward-compatible alias for printing a redline Sensor event."""
         self._print_sensor_event_banner(event, abort=False, filename=filename)
 
+    def print_sequence_abort(self, record: dict[str, Any]) -> None:
+        """Print a clean Sequence abort banner."""
+        style = "bold red"
+        line = "=" * 72
+        self.console.print()
+        self.console.print(_plain(line, style))
+        self.console.print(_plain("SEQUENCE ABORT", style))
+        self.console.print(_plain(line, style))
+        self.console.print(_plain(f"Time:      {float(record.get('time', 0.0)):.9g} s", style))
+        self.console.print(_plain(f"Sequence:  {record.get('sequence', '')}", style))
+        self.console.print(_plain(f"Condition: {record.get('condition', '')}", style))
+        self.console.print(_plain(f"Delay:     {float(record.get('delay', 0.0)):.9g} s", style))
+        message = str(record.get("message", "Sequence abort requested."))
+        self.console.print(_plain(message, style))
+        self.console.print(_plain("Transient stopped cleanly. HDF5 export will still be written if filename was provided.", style))
+        self.console.print(_plain(line, style))
+        self.console.print()
+
     def print_sensor_event_summary(self, events: list[Any]) -> None:
         """Print final sensor condition event details with simple per-row colors."""
         if not events:

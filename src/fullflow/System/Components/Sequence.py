@@ -62,6 +62,21 @@ class SequenceCommand:
         self.clear_pending()
 
 
+@dataclass(slots=True)
+class SequenceAbort:
+    """One clean transient stop requested by a Sequence."""
+
+    condition: Any = None
+    condition_sensor: Any = None
+    condition_name: str | None = None
+    trigger_time: float | None = None
+    abort_time: float | None = None
+    delay: float = 0.0
+    message: str | None = None
+    is_triggered: bool = False
+    has_aborted: bool = False
+
+
 class Sequence(Component):
     """
     Generic transient sequence/command source.
@@ -86,6 +101,10 @@ class Sequence(Component):
     Conditional command-trace use::
 
         Start.command(FuelValve.area, fuel_abort_command, condition=(CHPT, "High Pc"))
+
+    Clean abort use::
+
+        Start.abort(condition=(CHPT, "High Pc"), delay=0.5)
 
     Normalized command-trace use::
 
@@ -114,6 +133,7 @@ class Sequence(Component):
         self._target_was_provided = target is not None
         self._active_in_transient = False
         self._command_entries: list[SequenceCommand] = []
+        self._abort_entries: list[SequenceAbort] = []
 
         self.setup()
 
@@ -176,6 +196,11 @@ class Sequence(Component):
     def command_entries(self) -> tuple[SequenceCommand, ...]:
         """Registered command-trace entries."""
         return tuple(self._command_entries)
+
+    @property
+    def abort_entries(self) -> tuple[SequenceAbort, ...]:
+        """Registered clean transient abort rules."""
+        return tuple(self._abort_entries)
 
     @staticmethod
     def _trace_role(trace: Trace) -> str:
@@ -323,6 +348,64 @@ class Sequence(Component):
         self.network.mark_structure_changed()
         return entry
 
+    def abort(
+        self,
+        condition: Any = None,
+        *,
+        delay: float = 0.0,
+        message: str | None = None,
+    ) -> SequenceAbort:
+        """Stop the transient cleanly when a Sequence condition is satisfied.
+
+        ``condition`` uses the same form as :meth:`command`:
+
+        ``None``
+            Abort at the start of the run, optionally after ``delay`` seconds.
+
+        number
+            Abort at that absolute simulation time, optionally after ``delay`` seconds.
+
+        ``(sensor, condition_name)``
+            Abort after that Sensor condition is crossed on an accepted timestep.
+
+        The abort is clean: accepted history is exported normally and the run is
+        marked as aborted in transient metadata. Sensor redlines, yellowlines,
+        bluelines, and greenlines still only create events; they do not stop the
+        solver unless a Sequence abort rule refers to them.
+        """
+        try:
+            delay = float(delay)
+        except Exception as error:
+            raise SolverSetupError(f"Sequence {self.name!r} abort delay must be numeric.") from error
+
+        if not math.isfinite(delay) or delay < 0.0:
+            raise SolverSetupError(f"Sequence {self.name!r} abort delay must be finite and non-negative.")
+
+        condition_sensor, condition_name, activation_time, is_active = self._normalize_command_condition(condition)
+
+        abort_time = None
+        trigger_time = None
+        is_triggered = False
+
+        if condition_sensor is None:
+            trigger_time = 0.0 if activation_time is None else float(activation_time)
+            abort_time = trigger_time + delay
+            is_triggered = True
+
+        entry = SequenceAbort(
+            condition=condition,
+            condition_sensor=condition_sensor,
+            condition_name=condition_name,
+            trigger_time=trigger_time,
+            abort_time=abort_time,
+            delay=delay,
+            message=message,
+            is_triggered=is_triggered,
+        )
+        self._abort_entries.append(entry)
+        self.network.mark_structure_changed()
+        return entry
+
     def set_transient_context(self, *, dt: float) -> None:
         super().set_transient_context(dt=dt)
         self._active_in_transient = True
@@ -455,6 +538,103 @@ class Sequence(Component):
                 entry.has_last_value = False
                 entry.last_value = None
                 break
+
+    def activate_condition_aborts(self, events: list[Any]) -> None:
+        """Arm clean abort rules whose Sensor condition occurred on an accepted step."""
+        if not events:
+            return
+
+        for entry in self._abort_entries:
+            if entry.condition_sensor is None or entry.condition_name is None or entry.is_triggered:
+                continue
+
+            sensor_name = str(getattr(entry.condition_sensor, "name", ""))
+            for event in events:
+                if str(getattr(event, "sensor", "")) != sensor_name:
+                    continue
+                if str(getattr(event, "trace", "")) != str(entry.condition_name):
+                    continue
+                try:
+                    trigger_time = float(getattr(event, "time"))
+                except Exception:
+                    trigger_time = self._network_time()
+                entry.trigger_time = trigger_time
+                entry.abort_time = trigger_time + float(entry.delay)
+                entry.is_triggered = True
+                break
+
+    def next_abort_time(self, current_time: float | None = None) -> float | None:
+        """Return the next clean abort time requested by this Sequence."""
+        if current_time is None:
+            current_time = self._network_time()
+        current_time = float(current_time)
+        tolerance = 1.0e-12 * max(1.0, abs(current_time))
+
+        candidates: list[float] = []
+        for entry in self._abort_entries:
+            if entry.has_aborted or not entry.is_triggered or entry.abort_time is None:
+                continue
+            abort_time = float(entry.abort_time)
+            if math.isfinite(abort_time) and abort_time >= current_time - tolerance:
+                candidates.append(abort_time)
+
+        if not candidates:
+            return None
+        return min(candidates)
+
+    def check_abort(self, time_value: float | None = None) -> dict[str, Any] | None:
+        """Return an abort record if any clean abort rule is due."""
+        if time_value is None:
+            time_value = self._network_time()
+        time_value = float(time_value)
+        tolerance = 1.0e-12 * max(1.0, abs(time_value))
+
+        due_entries = []
+        for entry in self._abort_entries:
+            if entry.has_aborted or not entry.is_triggered or entry.abort_time is None:
+                continue
+            abort_time = float(entry.abort_time)
+            if math.isfinite(abort_time) and abort_time <= time_value + tolerance:
+                due_entries.append(entry)
+
+        if not due_entries:
+            return None
+
+        entry = min(due_entries, key=lambda item: float(item.abort_time or time_value))
+        entry.has_aborted = True
+        return {
+            "status": "aborted",
+            "sequence": self.name,
+            "time": float(entry.abort_time if entry.abort_time is not None else time_value),
+            "trigger_time": math.nan if entry.trigger_time is None else float(entry.trigger_time),
+            "delay": float(entry.delay),
+            "condition": self._abort_condition_label(entry),
+            "condition_sensor": getattr(entry.condition_sensor, "name", "") if entry.condition_sensor is not None else "",
+            "condition_name": entry.condition_name or "",
+            "message": entry.message or f"Sequence {self.name!r} requested abort.",
+        }
+
+    def reset_abort_history(self) -> None:
+        """Reset one-run abort state without changing configured abort rules."""
+        for entry in self._abort_entries:
+            entry.has_aborted = False
+            if entry.condition_sensor is not None:
+                entry.is_triggered = False
+                entry.trigger_time = None
+                entry.abort_time = None
+            else:
+                start_time = 0.0 if entry.trigger_time is None else float(entry.trigger_time)
+                entry.trigger_time = start_time
+                entry.abort_time = start_time + float(entry.delay)
+                entry.is_triggered = True
+
+    @staticmethod
+    def _abort_condition_label(entry: SequenceAbort) -> str:
+        if entry.condition_sensor is not None and entry.condition_name is not None:
+            return f"{getattr(entry.condition_sensor, 'name', 'sensor')}:{entry.condition_name}"
+        if entry.trigger_time is not None and float(entry.trigger_time) != 0.0:
+            return f"time:{float(entry.trigger_time):.9g}"
+        return "immediate"
 
     def _normalize_command_condition(self, condition: Any) -> tuple[Any, str | None, float | None, bool]:
         if condition is None:
