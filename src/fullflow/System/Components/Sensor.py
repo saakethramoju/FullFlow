@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 SENSOR_DATA_ROLE = "data"
 SENSOR_CONDITION_ROLES = {"redline", "blueline", "yellowline", "greenline"}
 SENSOR_CONDITION_ACTIONS = {
-    "redline": "abort",
+    "redline": "event",
     "yellowline": "warning",
     "blueline": "event",
     "greenline": "event",
@@ -43,7 +43,10 @@ class SensorEvent:
 
     @property
     def is_redline_abort(self) -> bool:
-        return self.role == "redline" and self.action == "abort"
+        # Redlines are high-severity Sensor events. They no longer stop the
+        # transient solver by themselves; abort behavior should be modeled by
+        # Sequence command logic if desired.
+        return False
 
     def as_record(self) -> dict[str, Any]:
         return {
@@ -90,8 +93,9 @@ class Sensor(Component):
     ``data`` is reserved for a FullPlot Trace with role ``"data"``. Optional
     ``conditions`` are FullPlot Trace objects with role ``"redline"``,
     ``"blueline"``, ``"yellowline"``, or ``"greenline"``. Conditions are
-    checked after accepted transient steps. Redline crossings abort the run;
-    the other line roles are logged as sensor events.
+    checked after accepted transient steps and logged as sensor events.
+    Redlines are high-severity events, but they do not stop the run by
+    themselves. Abort behavior should be modeled with Sequence commands.
     """
 
     def __init__(
@@ -235,6 +239,18 @@ class Sensor(Component):
     @property
     def has_conditions(self) -> bool:
         return bool(self.conditions)
+
+    def condition(self, name: str) -> SensorCondition | None:
+        """Return a named condition attached to this Sensor, if present."""
+        name = str(name)
+        for condition in self.conditions:
+            if str(condition.name) == name:
+                return condition
+        return None
+
+    def has_condition(self, name: str) -> bool:
+        """Return True when this Sensor owns a condition with this name."""
+        return self.condition(name) is not None
 
     @staticmethod
     def _finite_number(value: Any) -> float:

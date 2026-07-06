@@ -130,9 +130,8 @@ class TransientRuntimeCache:
         """Rebuild transient items, algebraic items, callables, and bounds.
 
         Phase 6 keeps the expensive network walk here.  Residual calls should
-        only assign SciPy's vector, evaluate cached component callables, and
-        collect cached equation blocks.  Nothing sequence-related lives in this
-        cache.
+        only assign SciPy's vector, apply command traces, evaluate cached
+        component callables, and collect cached equation blocks.
         """
         self.component_list = tuple(self.network.component_list)
         self.balance_list, self.ignored_balance_list = filter_user_balances(
@@ -140,6 +139,13 @@ class TransientRuntimeCache:
             self.ignore_balances,
         )
         self.model_list = tuple(self.network.model_list)
+
+        # Command traces define model inputs for the current transient time.
+        # Apply them before equation discovery so downstream components can use
+        # command-driven States even when those States were not initialized by
+        # hand.
+        self.set_transient_context(dt=0.0)
+        self.apply_sequence_commands(float(self.network.time.value))
 
         # Component equation properties are allowed to reference derivative or
         # balance-error attributes created inside evaluate_states().  Evaluate
@@ -1007,6 +1013,33 @@ class TransientRuntimeCache:
         """Run all component ``pre_evaluation()`` hooks in network order."""
         for pre_evaluation in self.pre_evaluation_callables:
             pre_evaluation()
+
+    def apply_sequence_commands(self, time_value: float | None = None) -> None:
+        """Apply Sequence command traces before physical model evaluation."""
+        if time_value is None:
+            try:
+                time_value = float(self.network.time.value)
+            except Exception:
+                time_value = 0.0
+
+        for component in self.component_list:
+            apply_commands = getattr(type(component), "apply_commands", None)
+            if callable(apply_commands):
+                apply_commands(component, float(time_value))
+
+    def commit_sequence_commands(self) -> None:
+        """Commit command samples after a timestep is accepted."""
+        for component in self.component_list:
+            commit_commands = getattr(type(component), "commit_commands", None)
+            if callable(commit_commands):
+                commit_commands(component)
+
+    def clear_sequence_command_pending(self) -> None:
+        """Clear unaccepted command samples after a failed timestep."""
+        for component in self.component_list:
+            clear_pending = getattr(type(component), "clear_command_pending", None)
+            if callable(clear_pending):
+                clear_pending(component)
 
     def set_transient_context(self, *, dt: float) -> None:
         """Pass timestep context to every component before evaluation."""

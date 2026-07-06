@@ -270,16 +270,11 @@ class TransientPrinter:
             return
 
         for event in events:
-            # Redline aborts get the dedicated REDLINE ABORT banner immediately
-            # after condition handling, so do not print a second generic event
-            # banner for the same abort.
-            if bool(getattr(event, "is_redline_abort", False)):
-                continue
             self._print_sensor_event_banner(event)
 
     def print_redline_abort(self, event: Any, filename: str | None = None) -> None:
-        """Print a loud terminal banner for a redline abort."""
-        self._print_sensor_event_banner(event, abort=True, filename=filename)
+        """Backward-compatible alias for printing a redline Sensor event."""
+        self._print_sensor_event_banner(event, abort=False, filename=filename)
 
     def print_sensor_event_summary(self, events: list[Any]) -> None:
         """Print final sensor condition event details with simple per-row colors."""

@@ -130,6 +130,33 @@ class Network:
                 )
         return rows
 
+    def sequence_components(self) -> list[Any]:
+        """Return registered Sequence-like components without dynamic attribute lookup."""
+        return [
+            component
+            for component in self.component_list
+            if callable(getattr(type(component), "command_trace_records", None))
+        ]
+
+    def sequence_command_trace_records(self) -> list[dict[str, Any]]:
+        """Return Sequence command trace definitions for HDF5 export."""
+        rows: list[dict[str, Any]] = []
+        for sequence in self.sequence_components():
+            command_trace_records = getattr(type(sequence), "command_trace_records", None)
+            if callable(command_trace_records):
+                rows.extend(command_trace_records(sequence) or [])
+        return rows
+
+    def activate_sequence_conditions(self, events: list[Any]) -> None:
+        """Activate Sequence commands that depend on accepted Sensor events."""
+        if not events:
+            return
+
+        for sequence in self.sequence_components():
+            activate = getattr(type(sequence), "activate_condition_commands", None)
+            if callable(activate):
+                activate(sequence, events)
+
     def track(
         self,
         name: str,

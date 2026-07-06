@@ -657,6 +657,75 @@ def _write_sensor_events(parent: h5py.Group, rows: list[dict[str, Any]]) -> h5py
     return events_group
 
 
+def _write_sequence_commands(parent: h5py.Group, rows: list[dict[str, Any]]) -> h5py.Group | None:
+    """Write FullPlot command traces attached to Sequences."""
+    if not rows:
+        return None
+
+    sequences_group = _replace_group(parent, "sequences")
+    sequences_group.attrs["kind"] = "sequences"
+
+    used_names: dict[tuple[str, str], int] = {}
+
+    for row in rows:
+        sequence_name = str(row.get("sequence", "sequence"))
+        trace_name = str(row.get("trace", "command"))
+        role = str(row.get("role", "command"))
+        target = str(row.get("target", ""))
+        missing = str(row.get("missing", "hold"))
+        condition = str(row.get("condition", "immediate"))
+        condition_sensor = str(row.get("condition_sensor", ""))
+        condition_name = str(row.get("condition_name", ""))
+        activation_time = row.get("activation_time", float("nan"))
+        scale = row.get("scale", 1.0)
+        offset = row.get("offset", 0.0)
+
+        sequence_group = sequences_group.require_group(safe_group_name(sequence_name))
+        sequence_group.attrs["name"] = sequence_name
+        sequence_group.attrs["kind"] = "sequence"
+        commands_group = sequence_group.require_group("commands")
+        commands_group.attrs["kind"] = "sequence_command_traces"
+
+        key = (sequence_name, safe_group_name(trace_name))
+        used_names[key] = used_names.get(key, 0) + 1
+        group_name = trace_name if used_names[key] == 1 else f"{trace_name}_{used_names[key]}"
+
+        trace_group = _replace_group(commands_group, group_name)
+        trace_group.attrs["name"] = trace_name
+        trace_group.attrs["role"] = role
+        trace_group.attrs["target"] = target
+        trace_group.attrs["missing"] = missing
+        trace_group.attrs["condition"] = condition
+        trace_group.attrs["condition_sensor"] = condition_sensor
+        trace_group.attrs["condition_name"] = condition_name
+        trace_group.attrs["activation_time"] = activation_time
+        trace_group.attrs["scale"] = scale
+        trace_group.attrs["offset"] = offset
+        trace_group.attrs["has_transform"] = bool(row.get("has_transform", False))
+        trace_group.attrs["kind"] = "trace"
+
+        _write_dataset(trace_group, "time", row.get("x", []), attrs={"name": "time"})
+        _write_dataset(
+            trace_group,
+            "value",
+            row.get("y", []),
+            attrs={
+                "name": trace_name,
+                "role": role,
+                "target": target,
+                "missing": missing,
+                "condition": condition,
+                "condition_sensor": condition_sensor,
+                "condition_name": condition_name,
+                "activation_time": activation_time,
+                "scale": scale,
+                "offset": offset,
+            },
+        )
+
+    return sequences_group
+
+
 def _link_time_dataset(group: h5py.Group, time_dataset: h5py.Dataset) -> None:
     """Add a local hard link named ``time`` to a time-history group.
 
@@ -777,6 +846,7 @@ def write_transient_solution(
     output_times: list[float] | None = None,
     sensor_event_rows: list[dict[str, Any]] | None = None,
     sensor_condition_trace_rows: list[dict[str, Any]] | None = None,
+    sequence_command_trace_rows: list[dict[str, Any]] | None = None,
     group_path: str = "transient/runs/base",
     metadata: dict[str, Any] | None = None,
 ) -> Path:
@@ -840,6 +910,7 @@ def write_transient_solution(
         _write_tracks(run_group, track_rows, time_values)
         _write_sensors(run_group, history_rows, time_values)
         _write_sensor_conditions(run_group, sensor_condition_trace_rows or [])
+        _write_sequence_commands(run_group, sequence_command_trace_rows or [])
         _link_time_to_time_history_groups(run_group)
         _write_table(run_group, "table", history_rows)
         _write_table(run_group, "diagnostics", step_rows)

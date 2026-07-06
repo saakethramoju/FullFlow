@@ -97,31 +97,38 @@ class Transient:
         return self._runtime_cache.ensure_current()
 
     def _collect_sequence_breakpoints(self) -> tuple[float, ...]:
-        """Return all known tabular Sequence times in the current network."""
+        """Return known tabular Sequence and command-trace times."""
         breakpoints: set[float] = set()
 
         for component in self.network.component_list:
-            if not getattr(component, "_table_sequence", False):
-                continue
+            if getattr(component, "_table_sequence", False):
+                times = getattr(component, "times", None)
+                if times is not None:
+                    try:
+                        if hasattr(times, "is_assigned") and not times.is_assigned:
+                            time_values = ()
+                        else:
+                            time_values = times.value if hasattr(times, "value") else times
+                    except Exception:
+                        time_values = ()
 
-            times = getattr(component, "times", None)
-            if times is None:
-                continue
+                    try:
+                        for time_value in time_values:
+                            breakpoint_time = float(time_value)
+                            if math.isfinite(breakpoint_time):
+                                breakpoints.add(breakpoint_time)
+                    except (TypeError, ValueError):
+                        pass
 
-            try:
-                if hasattr(times, "is_assigned") and not times.is_assigned:
+            command_breakpoints = getattr(type(component), "command_breakpoints", None)
+            if callable(command_breakpoints):
+                try:
+                    for time_value in command_breakpoints(component):
+                        breakpoint_time = float(time_value)
+                        if math.isfinite(breakpoint_time):
+                            breakpoints.add(breakpoint_time)
+                except Exception:
                     continue
-                time_values = times.value if hasattr(times, "value") else times
-            except Exception:
-                continue
-
-            try:
-                for time_value in time_values:
-                    breakpoint_time = float(time_value)
-                    if math.isfinite(breakpoint_time):
-                        breakpoints.add(breakpoint_time)
-            except (TypeError, ValueError):
-                continue
 
         return tuple(sorted(breakpoints))
 
@@ -475,7 +482,6 @@ class Transient:
         run_metadata = dict(metadata or {})
         run_metadata.update(cache.dynamic_mode_summary())
         stop_reason = None
-        redline_abort_event = None
 
         solve_start_time = time.perf_counter()
 
@@ -571,22 +577,14 @@ class Transient:
             step_events = self.network.check_sensor_conditions(diagnostics.time)
             if step_events and verbose:
                 self.printer.print_sensor_events(step_events)
+            if step_events:
+                self.network.activate_sequence_conditions(step_events)
 
             if step_events and not save_output:
                 self.history.append(self.network, diagnostics.time)
                 save_output = True
             elif save_output:
                 self.history.append(self.network, diagnostics.time)
-
-            redline_events = [
-                event
-                for event in step_events
-                if bool(getattr(event, "is_redline_abort", False))
-            ]
-            if redline_events:
-                redline_abort_event = redline_events[0]
-                stop_reason = str(getattr(redline_abort_event, "message", "Redline crossed."))
-                self.printer.print_redline_abort(redline_abort_event, filename)
 
             if save_dt is not None:
                 tolerance = 1.0e-12 * max(1.0, abs(diagnostics.time), abs(t_final))
@@ -600,9 +598,6 @@ class Transient:
             # structure during the step.  Refresh lazily for the next step.
             self._cache()
 
-            if redline_abort_event is not None:
-                break
-
         elapsed_time = time.perf_counter() - solve_start_time
         sensor_event_records = self.network.sensor_event_records()
         if sensor_event_records:
@@ -611,8 +606,6 @@ class Transient:
                 run_metadata[f"{role}_event_count"] = sum(
                     1 for row in sensor_event_records if row.get("role") == role
                 )
-        if redline_abort_event is not None:
-            run_metadata["aborted_by_redline"] = True
         if stop_reason is not None:
             run_metadata["stopped_by_sensor"] = True
             run_metadata["stop_reason"] = stop_reason
@@ -632,7 +625,7 @@ class Transient:
                 gtol=least_squares_settings.gtol,
                 rtol=least_squares_settings.rtol,
                 solve_time=elapsed_time,
-                success=redline_abort_event is None and stop_reason is None,
+                success=stop_reason is None,
                 stop_reason=stop_reason,
             )
             self.printer.print_sensor_event_summary(self.network.sensor_event_list)

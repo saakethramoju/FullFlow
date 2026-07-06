@@ -104,6 +104,7 @@ class TransientStepSolve:
         cache.assign_iteration_values(x)
         self.network.time.value = self._active_time
         cache.set_transient_context(dt=self._active_dt)
+        cache.apply_sequence_commands(self._active_time)
 
         try:
             self.evaluator.run(
@@ -216,13 +217,16 @@ class TransientStepSolve:
 
         try:
             cache.set_transient_context(dt=0.0)
+            cache.apply_sequence_commands(float(self.network.time.value))
             self.evaluator.run(
                 max_passes=state_settings.max_passes,
                 tolerance=state_settings.tolerance,
                 cache=cache,
             )
             cache.store_previous_values()
+            cache.commit_sequence_commands()
         finally:
+            cache.clear_sequence_command_pending()
             self._active_cache = None
 
     def run_once(
@@ -251,6 +255,8 @@ class TransientStepSolve:
         self.network.time.value = t_new
         if hasattr(cache, "configure_sensor_balances"):
             cache.configure_sensor_balances(t_new, stop_on_missing=True)
+        cache.set_transient_context(dt=dt)
+        cache.apply_sequence_commands(t_new)
         self._active_cache = cache
         x0 = cache.iteration_value_array()
 
@@ -277,12 +283,14 @@ class TransientStepSolve:
 
             max_r0 = float(np.max(np.abs(r0))) if len(r0) else 0.0
             if max_r0 <= least_squares_settings.rtol:
+                cache.apply_sequence_commands(t_new)
                 self.evaluator.run(
                     max_passes=state_settings.max_passes,
                     tolerance=state_settings.tolerance,
                     cache=cache,
                 )
                 cache.store_previous_values()
+                cache.commit_sequence_commands()
                 return StepDiagnostics(
                     time=t_new,
                     dt=dt,
@@ -307,12 +315,14 @@ class TransientStepSolve:
                     t_new=t_new,
                     dt=dt,
                 )
+                cache.apply_sequence_commands(t_new)
                 self.evaluator.run(
                     max_passes=state_settings.max_passes,
                     tolerance=state_settings.tolerance,
                     cache=cache,
                 )
                 cache.store_previous_values()
+                cache.commit_sequence_commands()
                 return StepDiagnostics(
                     time=t_new,
                     dt=dt,
@@ -333,6 +343,7 @@ class TransientStepSolve:
             # is the actual residual used for timestep acceptance.
             cache.assign_iteration_values(sol.x)
             self.network.time.value = t_new
+            cache.apply_sequence_commands(t_new)
             self.evaluator.run(
                 max_passes=state_settings.max_passes,
                 tolerance=state_settings.tolerance,
@@ -351,6 +362,7 @@ class TransientStepSolve:
             )
             # Evaluate once more after acceptance so exported algebraic outputs
             # reflect the accepted continuous state for this timestep.
+            cache.apply_sequence_commands(t_new)
             self.evaluator.run(
                 max_passes=state_settings.max_passes,
                 tolerance=state_settings.tolerance,
@@ -362,6 +374,7 @@ class TransientStepSolve:
             # ``state.previous`` remained the last accepted value while SciPy
             # changed ``state.value``.
             cache.store_previous_values()
+            cache.commit_sequence_commands()
 
             return StepDiagnostics(
                 time=t_new,
@@ -373,10 +386,12 @@ class TransientStepSolve:
             )
 
         except Exception:
+            cache.clear_sequence_command_pending()
             cache.restore_mutable_states(accepted_snapshot)
             self.network.time.value = accepted_time
             raise
         finally:
+            cache.clear_sequence_command_pending()
             self._active_cache = None
 
     def _least_squares_kwargs(
