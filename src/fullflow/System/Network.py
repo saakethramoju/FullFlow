@@ -11,7 +11,44 @@ if TYPE_CHECKING:
 
 
 class Network:
+    """Container for a complete FullFlow simulation model.
+
+        ``Network`` stores components, balances, model options, tracked variables,
+        sensor events, sequence state, and the simulation clock.  It is intentionally
+        a container rather than a numerical algorithm: solvers read the network,
+        build runtime caches, write iteration variables, run component evaluation,
+        and collect residuals.
+
+        Parameters
+        ----------
+        name : str
+            Human-readable network name used in diagnostics and HDF5 output paths.
+
+        Important attributes
+        --------------------
+        time : State
+            Simulation time in seconds.  Steady-state solves usually leave this at
+            its current value.  Transient solves advance it and components such as
+            ``Sequence`` and ``Actuator`` read it.
+        components, balances, models : tuple
+            Registered model objects.  These are exposed as read-only tuples so the
+            network structure stays synchronized with the solver runtime cache.
+
+        Notes
+        -----
+        ``Network.version`` increments whenever components, balances, or model
+        options are added or removed.  Solver runtime caches use that version to
+        avoid repeated introspection while still invalidating safely when the network
+        changes."""
     def __init__(self, name: str) -> None:
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         self.name = name
         self.time = State(0.0)
         self.time.add_label(f"{self.name}:time")
@@ -225,6 +262,7 @@ class Network:
         max_items: int | None = None,
         flatten: bool = True,
     ) -> Any:
+        """Register a state-like object for named export and plotting."""
         label_state_refs(value, f"track:{name}")
 
         self.tracked_state_list.append(
@@ -248,6 +286,12 @@ class Network:
 
     @property
     def balances(self) -> list[str]:
+        """Return algebraic equations contributed by this component.
+        
+                Each tuple is ``(iteration_variable, residual)``.  Steady-state and
+                transient solvers vary the iteration variable until the residual is zero.
+                Components without algebraic closure equations return an empty list or do
+                not define this property."""
         return [balance.name for balance in self.balance_list]
 
     @property
@@ -531,6 +575,7 @@ class Network:
         group_path: str = "steady_state/runs/base",
         metadata: dict[str, Any] | None = None,
     ):
+        """Write network, steady-state, or transient results to an HDF5 file."""
         return_type = return_type.lower()
         records: list[dict[str, Any]] = []
 

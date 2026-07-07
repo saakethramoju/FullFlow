@@ -26,26 +26,27 @@ _UNAVAILABLE = object()
 
 
 class LookupAttribute:
-    """
-    Dynamic state-like proxy for a Lookup input or output attribute.
+    """State-like proxy for one input or output attribute of a ``Lookup``.
 
-    Supports:
-        FuelSource.pressure
-        FuelSource.density
-        eq.pressure
-        eq.temperature
-        reactants.mixture_ratio
-
-    Also supports FullFlow-style math:
-        Chamber.mass_flow_in = FuelInjector.mass_flow + OxInjector.mass_flow
-        reactants.mixture_ratio = OxInjector.mass_flow / FuelInjector.mass_flow
-    """
+        The proxy presents ``.value``, numeric conversion, math operators, bounds,
+        and assignment behavior so lookup inputs and outputs can be used anywhere a
+        ``State`` is expected.  Reading an output attribute triggers or reflects the
+        parent lookup's latest evaluation.  Assigning an input attribute changes the
+        value used in future evaluations."""
 
     _fullflow_state_like = True
     _fullflow_assignable_state_like = True
     __slots__ = ("lookup", "name")
 
     def __init__(self, lookup: "Lookup", name: str):
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         self.lookup = lookup
         self.name = name
 
@@ -375,6 +376,7 @@ class LookupAttribute:
         return getattr(value, name)
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        """Alias for ``solve`` so solver instances can be called directly."""
         return self.value(*args, **kwargs)
 
     def __array__(self, dtype=None):
@@ -382,125 +384,22 @@ class LookupAttribute:
 
 
 class Lookup(Component, Generic[T]):
-    """
-    Wrap a function, class, or external model as a FullFlow component.
+    """Wrap a Python callable, class, property package, or external model as a FullFlow component.
 
-    `Lookup` lets arbitrary Python callables participate in a FullFlow network.
-    Keyword inputs can be plain values, `State` objects, other `Lookup` objects,
-    or `LookupAttribute` objects. When a lookup input is used as a solver variable,
-    for example `Model.pressure`, `Lookup` exposes the live mutable input state so
-    the solver can iterate on that value and re-evaluate the wrapped callable.
+        ``Lookup`` is the main bridge between FullFlow and property libraries such
+        as ThermoProp.  It evaluates a callable from current state values, stores the
+        returned object, and exposes attributes of that object as state-like
+        ``LookupAttribute`` proxies.  Users can pass those proxies directly into
+        other components or use them as solver variables.
 
-    ## Examples
-
-    A normal Python function can be solved through `Lookup`. The function
-    can return a dictionary, so users do not need to define a wrapper class
-    just to expose named outputs:
-
-    ```
-    def LinearModel(x, slope, intercept):
-        return {"y": slope * x + intercept}
-
-    Model = Lookup(
-        "Model",
-        network,
-        LinearModel,
-        x=0.0,
-        slope=2.0,
-        intercept=1.0,
-    )
-
-    Balance(
-        "Solve x",
-        network,
-        variable=Model.x,
-        function=Model.y - 9.0,
-    )
-    ```
-
-    Ordered tuple/list returns are also supported when output names are given
-    once at construction:
-
-    ```
-    def LinearModelTuple(x, slope, intercept):
-        return slope * x + intercept
-
-    Model = Lookup(
-        "Model",
-        network,
-        LinearModelTuple,
-        x=0.0,
-        slope=2.0,
-        intercept=1.0,
-        outputs=("y",),
-    )
-    ```
-
-    Here `Model.x` is a callable keyword input, but it still behaves like a
-    solver variable. The solver can change `x`, `Lookup` re-runs `LinearModel`,
-    and `Model.y` updates from the new result.
-
-    The same pattern works with user-defined classes:
-
-    ```
-    class GasModel:
-        def __init__(self, pressure, temperature):
-            self.pressure = pressure
-            self.temperature = temperature
-            self.density = pressure / (287.0 * temperature)
-
-    Gas = Lookup(
-        "Gas",
-        network,
-        GasModel,
-        pressure=1.0e5,
-        temperature=300.0,
-    )
-
-    Balance(
-        "Solve pressure",
-        network,
-        variable=Gas.pressure,
-        function=Gas.density - 2.0,
-    )
-    ```
-
-    This is not limited to ThermoProp. Any callable with inspectable keyword
-    inputs can be wrapped and driven by the network solver.
-
-    ## Caching Notes
-
-    `Lookup` can automatically detect changes in ordinary values such as numbers,
-    strings, booleans, arrays, lists, tuples, dictionaries, `State` objects,
-    `Lookup` objects, and `LookupAttribute` objects.
-
-    One limitation is hidden mutation inside arbitrary custom objects. For example:
-
-    ```
-    obj = SomeCustomObject()
-    Lookup(..., model=obj)
-
-    obj.internal_value = new_value
-    ```
-
-    The object identity is still the same, so `Lookup` cannot know which internal
-    attributes matter for caching unless the object tells it. For mutable custom
-    objects, either disable caching:
-
-    ```
-    Lookup(..., cache=False)
-    ```
-
-    or define a cache key on the object:
-
-    ```
-    def cache_key(self):
-        return (self.internal_value,)
-    ```
-
-    When `cache_key()` is provided, `Lookup` uses it to detect meaningful internal
-    changes and avoid stale cached results.
-    """
+        Features
+        --------
+        ``Lookup`` supports positional and keyword inputs, deferred/lazy evaluation,
+        output guesses, priority input sets for state-mode switching, reuse of
+        existing objects through their ``update`` method, callable signature
+        inspection, and optional memoization through ``memo_size``.  This allows
+        expensive property calls to be used in nonlinear solves without writing a
+        custom wrapper component for every property package."""
 
 
     _INTERNAL_ATTRS = {
@@ -565,6 +464,14 @@ class Lookup(Component, Generic[T]):
         # The remaining settings are internal defaults.  They keep the existing
         # caching, deferred-evaluation, update/reuse, and fallback behavior
         # without exposing those implementation details in every example.
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         output: State | None = None
         evaluate_on_set = False
         strict_inputs = False
@@ -666,6 +573,7 @@ class Lookup(Component, Generic[T]):
         return self.output.value
 
     def __call__(self) -> T:
+        """Alias for ``solve`` so solver instances can be called directly."""
         return self.output.value
 
     @staticmethod
@@ -1540,12 +1448,14 @@ class Lookup(Component, Generic[T]):
         return ("object", type(value).__name__, id(value))
 
     def clear_cache(self) -> None:
+        """Clear cached evaluation results so future calls rebuild from current inputs."""
         self._last_input_key = None
         self._last_structure_key = None
         self._memo.clear()
         self.dirty = True
 
     def mark_dirty(self) -> None:
+        """Mark cached data as stale after an external mutation."""
         self.dirty = True
 
     @property
@@ -1569,6 +1479,7 @@ class Lookup(Component, Generic[T]):
         return self._defer_count
 
     def cache_info(self) -> dict[str, Any]:
+        """Return diagnostic information about lookup or runtime-cache activity."""
         return {
             "name": self.name,
             "callable": getattr(self.callable, "__name__", repr(self.callable)),
@@ -1609,10 +1520,22 @@ class Lookup(Component, Generic[T]):
             self._memo.popitem(last=False)
 
     def pre_evaluation(self) -> None:
+        """Run pre-residual bookkeeping before component evaluation.
+        
+                Solvers call this hook before ordinary ``evaluate_states()`` passes.  It
+                is used by lookups, schedules, and instrumentation components that need
+                to update inputs before residual equations are collected."""
         if self.evaluate_in_pre_evaluation:
             self.evaluate_states()
 
     def evaluate_states(self) -> None:
+        """Evaluate the component for the current network state.
+        
+                Solvers call this method repeatedly while settling derived states and
+                assembling residuals.  It should read input ``State.value`` fields, write
+                output states, and update any residual or derivative attributes exposed
+                through ``balances`` or ``dynamics``.  The method does not advance time;
+                transient integration is handled by the solver."""
         if self._is_evaluating:
             return
 
@@ -1824,6 +1747,7 @@ class Lookup(Component, Generic[T]):
         return inspect.getdoc(self.callable)
 
     def help(self) -> None:
+        """Print or display help for the wrapped callable or component object."""
         callable_name = getattr(self.callable, "__name__", repr(self.callable))
         print(f"{self.name}: {callable_name}")
 

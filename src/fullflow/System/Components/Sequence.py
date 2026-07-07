@@ -21,7 +21,11 @@ SEQUENCE_COMMAND_MISSING = {"hold", "skip", "error"}
 
 @dataclass(frozen=True, slots=True)
 class SequenceCondition:
-    """One Sensor condition used to activate a Sequence command or abort."""
+    """Reference to one named ``Sensor`` condition used by a sequence command or abort.
+
+        The condition stores the sensor name and the condition-name key.  It lets a
+        sequence activate commands only after one or more redline/blueline/greenline
+        events have occurred."""
 
     sensor: Any
     name: str
@@ -41,7 +45,13 @@ class SequenceCondition:
 
 @dataclass(slots=True)
 class SequenceCommand:
-    """One FullPlot command Trace applied by a Sequence."""
+    """One pending or committed command managed by a ``Sequence``.
+
+        A command stores the target state, source trace/function/static value,
+        activation time or sensor-condition requirement, missing-data policy, and
+        bookkeeping about the most recent committed value.  Users normally create
+        these through ``Sequence.command(...)`` rather than instantiating the class
+        directly."""
 
     target: Any
     trace: Trace
@@ -87,7 +97,11 @@ class SequenceCommand:
 
 @dataclass(slots=True)
 class SequenceAbort:
-    """One clean transient stop requested by a Sequence."""
+    """Clean transient stop condition managed by a ``Sequence``.
+
+        Sequence aborts are not Python exceptions exposed to user code.  They are
+        records consumed by the transient solver so a run can terminate cleanly at a
+        scheduled time or when sensor conditions are satisfied."""
 
     condition: Any = None
     condition_sensor: Any = None
@@ -104,41 +118,17 @@ class SequenceAbort:
 
 
 class Sequence(Component):
-    """
-    Generic transient sequence/command source.
+    """Transient command source and abort scheduler for test-like simulations.
 
-    `Sequence` can drive one legacy target directly from a tabular or functional
-    schedule, and it can also replay FullPlot command traces into any number of
-    State-like targets through :meth:`command`.
+        ``Sequence`` writes command values into one target state from tabulated
+        times/values, a callable, a FullPlot command trace, or sensor-condition
+        triggers.  It is used to model valve commands, throttle schedules, controller
+        setpoints, test-stand event sequencing, and clean abort logic.
 
-    Legacy tabular use::
-
-        Sequence(..., target=valve_area, times=[0.0, 1.0], values=[0.0, 1.0])
-
-    Legacy functional use::
-
-        Sequence(..., target=valve_area, function=valve_command)
-
-    Command-trace use::
-
-        Start = Sequence("Start Sequence", Test)
-        Start.command(FuelValve.area, fuel_valve_area_command)
-
-    Conditional command-trace use::
-
-        Start.command(FuelValve.area, fuel_abort_command, condition=(CHPT, "High Pc"))
-
-    Clean abort use::
-
-        Start.abort(condition=(CHPT, "High Pc"), delay=0.5)
-
-    Normalized command-trace use::
-
-        Start.command(FuelValve.area, fuel_valve_open_fraction, scale=full_open_area)
-
-    In steady-state solves, Sequence is skipped by the solver because
-    ``TRANSIENT_ONLY = True``. The current target values are preserved.
-    """
+        During a transient solve the runtime calls ``apply_commands`` before each
+        residual evaluation and ``commit_commands`` after accepted steps.  Command
+        breakpoints are surfaced to the transient timestep picker so the solver can
+        land exactly on command changes rather than stepping over them."""
 
     TRANSIENT_ONLY = True
 
@@ -152,6 +142,14 @@ class Sequence(Component):
         function: Callable[..., float] | None = None,
         inputs: list[Any] | tuple[Any, ...] | Any | None = None,
     ):
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         self._table_sequence = times is not None or values is not None
         self._function_sequence = function is not None
         self._has_primary_sequence = self._table_sequence or self._function_sequence
@@ -441,14 +439,31 @@ class Sequence(Component):
         return entry
 
     def set_transient_context(self, *, dt: float) -> None:
+        """Receive timestep-level information from the transient solver.
+        
+                Components may override this hook when they need the accepted or trial
+                timestep size to update command schedules, rate limits, or other
+                transient-only bookkeeping."""
         super().set_transient_context(dt=dt)
         self._active_in_transient = True
 
     def pre_evaluation(self):
+        """Run pre-residual bookkeeping before component evaluation.
+        
+                Solvers call this hook before ordinary ``evaluate_states()`` passes.  It
+                is used by lookups, schedules, and instrumentation components that need
+                to update inputs before residual equations are collected."""
         if self._active_in_transient and self._read(self.evaluate_in_pre_evaluation):
             self.apply_commands()
 
     def evaluate_states(self):
+        """Evaluate the component for the current network state.
+        
+                Solvers call this method repeatedly while settling derived states and
+                assembling residuals.  It should read input ``State.value`` fields, write
+                output states, and update any residual or derivative attributes exposed
+                through ``balances`` or ``dynamics``.  The method does not advance time;
+                transient integration is handled by the solver."""
         if not self._active_in_transient:
             return
 

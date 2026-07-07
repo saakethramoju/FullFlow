@@ -27,7 +27,12 @@ SENSOR_CONDITION_ACTIONS = {
 
 @dataclass(slots=True)
 class SensorEvent:
-    """One runtime crossing of a sensor condition trace."""
+    """Runtime record produced when a ``Sensor`` crosses a condition trace.
+
+        The record stores the sensor, condition, event time, measured value,
+        threshold value, crossing direction, and trace role.  The transient solver
+        exports these records and can use redline events to stop a run or activate
+        sequence logic."""
 
     time: float
     sensor: str
@@ -66,7 +71,11 @@ class SensorEvent:
 
 @dataclass(slots=True)
 class SensorCondition:
-    """FullPlot line trace attached to a Sensor for transient event checks."""
+    """One FullPlot line trace attached to a ``Sensor`` for event checks.
+
+        The trace supplies a threshold versus time.  Its FullPlot role determines how
+        the event should be interpreted visually and operationally: redline,
+        blueline, greenline, or yellowline."""
 
     trace: Trace
     role: str
@@ -83,26 +92,21 @@ class SensorCondition:
 
 
 class Sensor(Component):
-    """Virtual instrumentation channel.
+    """Virtual instrumentation channel for reading, anchoring, and event detection.
 
-    In its simplest form, a Sensor behaves like a named ``track()`` entry. It
-    exports the value of ``reading`` under the sensor's name.
+        ``Sensor`` connects simulation variables to FullPlot traces.  With only a
+        ``reading`` state it behaves as a named instrumentation channel.  With
+        ``variable`` and ``data`` it can anchor a model variable to test data by
+        exposing a solver balance ``variable - data(time) = 0``.  With condition
+        traces it can detect redline, blueline, greenline, and yellowline crossings
+        during transient solves.
 
-    If both ``variable`` and ``data`` are supplied, the Sensor also behaves like
-    a Balance. The solver adjusts ``variable`` until ``reading`` matches the
-    supplied FullPlot Trace value sampled at the current network time.
-
-    ``data`` is reserved for a FullPlot Trace with role ``"data"``. Optional
-    ``conditions`` are FullPlot Trace objects with role ``"redline"``,
-    ``"blueline"``, ``"yellowline"``, or ``"greenline"``. Conditions are
-    checked after accepted transient steps and logged as sensor events.
-    Conditions are latched by default: after one crossing event is recorded,
-    later crossings of the same line do not create new events. Pass the same
-    Trace object in ``trigger_all`` to make a specific condition unlatched, so
-    every crossing of that line creates an event. Redlines are high-severity
-    events, but they do not stop the run by themselves. Abort behavior should
-    be modeled with Sequence commands.
-    """
+        Missing data
+        ------------
+        ``extend=True`` holds the nearest data value outside the trace range.
+        ``extend=False`` requests a clean transient stop when no data value is
+        available.  This lets simulations end naturally when the test-data window is
+        exhausted."""
 
     def __init__(
         self,
@@ -115,6 +119,14 @@ class Sensor(Component):
         trigger_all: Trace | list[Trace] | tuple[Trace, ...] | None = None,
         extend: bool = True,
     ) -> None:
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         if data is not None:
             self._validate_data_trace(name, data)
 
@@ -441,6 +453,11 @@ class Sensor(Component):
             return self._finite_number(y[index])
 
     def target_value(self, time_value: float | None = None) -> float:
+        """Return the time-sampled target value used by this instrumentation object.
+        
+                When the object is backed by a FullPlot trace, the value is sampled at
+                the supplied time or at ``network.time``.  Missing-data behavior follows
+                the component's ``extend`` setting."""
         if time_value is None:
             time_value = float(self.network.time.value)
         return self._sample_trace_previous(float(time_value))
@@ -488,15 +505,32 @@ class Sensor(Component):
     def evaluate_states(self) -> None:
         # Pure evaluation/export should never stop a solve. The residual method
         # handles extend=False during active matching.
+        """Evaluate the component for the current network state.
+        
+                Solvers call this method repeatedly while settling derived states and
+                assembling residuals.  It should read input ``State.value`` fields, write
+                output states, and update any residual or derivative attributes exposed
+                through ``balances`` or ``dynamics``.  The method does not advance time;
+                transient integration is handled by the solver."""
         self._update_outputs(stop_on_missing=False)
 
     @property
     def balances(self) -> list[tuple[State, Any]]:
+        """Return algebraic equations contributed by this component.
+        
+                Each tuple is ``(iteration_variable, residual)``.  Steady-state and
+                transient solvers vary the iteration variable until the residual is zero.
+                Components without algebraic closure equations return an empty list or do
+                not define this property."""
         if not self.is_anchor:
             return []
         return [(self.variable, self.residual)]
 
     def residual(self) -> float:
+        """Return the current scalar residual represented by the object.
+        
+                The value is intended for solver diagnostics, simple user balances, or
+                event logic.  It reflects the most recent component evaluation."""
         target = self._update_outputs(stop_on_missing=True)
 
         if math.isfinite(target):

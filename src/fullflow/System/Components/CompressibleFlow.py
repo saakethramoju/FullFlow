@@ -10,6 +10,23 @@ if TYPE_CHECKING:
 
 
 class CompressibleOrifice(Component):
+    """Ideal-gas compressible orifice using the standard choked-flow parameter relation.
+
+        The component computes mass flow from upstream total pressure, upstream
+        total temperature, downstream static pressure, discharge coefficient, area,
+        gas constant, and specific-heat ratio.  It automatically switches between
+        subcritical and choked flow using the ideal-gas critical pressure ratio.
+
+        Outputs
+        -------
+        mass_flow : State
+            Computed mass flow, positive from upstream total conditions to the
+            downstream pressure boundary.
+        choked : State
+            Boolean-like state indicating whether the branch is choked.
+        total_enthalpy : State, optional
+            If upstream static enthalpy and temperature are provided, this is filled
+            with the corresponding total enthalpy estimate."""
     def __init__(
         self,
         name: str,
@@ -27,9 +44,24 @@ class CompressibleOrifice(Component):
         mass_flow: State | None = None,
         choked: State | None = None
     ):
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         self.setup()
 
     def evaluate_states(self):
+        """Evaluate the component for the current network state.
+        
+                Solvers call this method repeatedly while settling derived states and
+                assembling residuals.  It should read input ``State.value`` fields, write
+                output states, and update any residual or derivative attributes exposed
+                through ``balances`` or ``dynamics``.  The method does not advance time;
+                transient integration is handled by the solver."""
         P1 = self.upstream_total_pressure.value
         T0 = self.upstream_total_temperature.value
         P2 = self.downstream_pressure.value
@@ -71,7 +103,13 @@ class CompressibleOrifice(Component):
 
 
 class IsentropicDiffuser(Component):
-    """Ideal-gas isentropic area-change branch. Positive mass flow is 1 -> 2."""
+    """Ideal-gas isentropic area-change branch with subsonic inlet and outlet diagnostics.
+
+        ``IsentropicDiffuser`` solves the one-dimensional ideal-gas relationship
+        between upstream static state, downstream static pressure, inlet area, outlet
+        area, ``gamma``, and ``R``.  It estimates inlet and outlet Mach numbers,
+        mass flow, downstream static temperature, and total enthalpy while assuming
+        adiabatic, reversible flow between the two sections."""
 
     def __init__(
         self,
@@ -92,9 +130,24 @@ class IsentropicDiffuser(Component):
         upstream_mach_number: State | None = None,
         downstream_mach_number: State | None = None,
     ):
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         self.setup()
 
     def evaluate_states(self):
+        """Evaluate the component for the current network state.
+        
+                Solvers call this method repeatedly while settling derived states and
+                assembling residuals.  It should read input ``State.value`` fields, write
+                output states, and update any residual or derivative attributes exposed
+                through ``balances`` or ``dynamics``.  The method does not advance time;
+                transient integration is handled by the solver."""
         P1 = self.upstream_static_pressure.value
         T1 = self.upstream_static_temperature.value
         P2 = self.downstream_static_pressure.value
@@ -137,6 +190,20 @@ class IsentropicDiffuser(Component):
 
 class IsentropicNozzle(Component):
 
+    """Ideal-gas converging-diverging nozzle with choking and normal-shock diagnostics.
+
+        The nozzle receives chamber or upstream total pressure and temperature,
+        ambient pressure, gas constant, specific-heat ratio, throat area, and
+        expansion ratio.  It computes choked or unchoked mass flow, exit Mach number,
+        exit static pressure, exit temperature, exit velocity, and optional total
+        enthalpy diagnostics.
+
+        Normal-shock handling
+        ---------------------
+        ``normal_shock`` and ``shock_mach_number`` are diagnostic outputs used to
+        identify whether the back pressure implies an internal normal shock for the
+        ideal-gas nozzle model.  This is a one-dimensional engineering diagnostic,
+        not a full moving-shock transient model."""
     def __init__(
         self, 
         name: str, 
@@ -160,9 +227,24 @@ class IsentropicNozzle(Component):
         normal_shock: State | bool | None = False,
         shock_mach_number: State | None = 0.0,
     ):
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         self.setup()
 
     def evaluate_states(self):
+        """Evaluate the component for the current network state.
+        
+                Solvers call this method repeatedly while settling derived states and
+                assembling residuals.  It should read input ``State.value`` fields, write
+                output states, and update any residual or derivative attributes exposed
+                through ``balances`` or ``dynamics``.  The method does not advance time;
+                transient integration is handled by the solver."""
         Po = self.upstream_total_pressure.value
         To = self.upstream_total_temperature.value
         Pamb = self.ambient_pressure.value

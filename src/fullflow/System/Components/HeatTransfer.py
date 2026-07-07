@@ -9,7 +9,11 @@ if TYPE_CHECKING:
 
 
 class Conduction(Component):
-    """One-dimensional conduction heat transfer between two temperature nodes."""
+    """One-dimensional conduction heat transfer between two temperature nodes.
+
+        ``heat_rate`` is positive from ``temperature1`` to ``temperature2`` and is
+        computed as ``k * A / L * (T1 - T2)``.  Use this component for wall segments,
+        simple solids, thermal-resistance ladders, and lumped thermal networks."""
 
     def __init__(
         self,
@@ -22,9 +26,24 @@ class Conduction(Component):
         conductive_area: float,
         heat_rate: State | None = None,
     ):
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         self.setup()
 
     def evaluate_states(self):
+        """Evaluate the component for the current network state.
+        
+                Solvers call this method repeatedly while settling derived states and
+                assembling residuals.  It should read input ``State.value`` fields, write
+                output states, and update any residual or derivative attributes exposed
+                through ``balances`` or ``dynamics``.  The method does not advance time;
+                transient integration is handled by the solver."""
         k = self.thermal_conductivity.value
         A = self.conductive_area.value
         L = self.length.value
@@ -35,7 +54,12 @@ class Conduction(Component):
 
 
 class Radiation(Component):
-    """Diffuse-gray radiation exchange between two temperature nodes."""
+    """Diffuse-gray radiation exchange between two surfaces.
+
+        The component computes net radiative heat rate using two emissivities,
+        surface areas, and a view factor.  If ``radiative_area2`` is omitted the two
+        surfaces are treated as having the same area.  Positive heat rate is from
+        ``temperature1`` to ``temperature2``."""
     SIGMA = 5.670374419e-8  # W/m^2-K^4
 
     def __init__(
@@ -51,12 +75,27 @@ class Radiation(Component):
         view_factor12: float = 1.0,
         heat_rate: State | None = None,
     ):
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         self.setup()
 
         if radiative_area2 is None:
             self.radiative_area2.value = self.radiative_area1.value
 
     def evaluate_states(self):
+        """Evaluate the component for the current network state.
+        
+                Solvers call this method repeatedly while settling derived states and
+                assembling residuals.  It should read input ``State.value`` fields, write
+                output states, and update any residual or derivative attributes exposed
+                through ``balances`` or ``dynamics``.  The method does not advance time;
+                transient integration is handled by the solver."""
         T1 = self.temperature1.value
         T2 = self.temperature2.value
 
@@ -77,7 +116,11 @@ class Radiation(Component):
 
 
 class AmbientRadiation(Component):
-    """Radiation exchange between a surface and an ambient enclosure."""
+    """Radiation exchange between a surface and a large ambient enclosure.
+
+        The surface temperature, ambient temperature, emissivity, radiative area, and
+        optional ambient emissivity determine net heat transfer.  Positive heat rate
+        leaves the surface when the surface is hotter than the ambient."""
     SIGMA = 5.670374419e-8  # W/m^2-K^4
 
     def __init__(
@@ -91,9 +134,24 @@ class AmbientRadiation(Component):
         ambient_emissivity: State | float = 1.0,
         heat_rate: State | None = None,
     ):
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         self.setup()
 
     def evaluate_states(self):
+        """Evaluate the component for the current network state.
+        
+                Solvers call this method repeatedly while settling derived states and
+                assembling residuals.  It should read input ``State.value`` fields, write
+                output states, and update any residual or derivative attributes exposed
+                through ``balances`` or ``dynamics``.  The method does not advance time;
+                transient integration is handled by the solver."""
         Ts = self.solid_temperature.value
         Tamb = self.ambient_temperature.value
 
@@ -113,7 +171,12 @@ class AmbientRadiation(Component):
 
 
 class Convection(Component):
-    """Convective heat transfer between a surface and a fluid."""
+    """Convective heat transfer between a wall/surface state and a fluid state.
+
+        The component computes ``heat_rate = h * A * (surface_temperature -
+        fluid_temperature)``.  Positive heat rate is from the surface into the fluid.
+        It is usually coupled to ``Solid`` and ``Volume`` components or to explicit
+        heat-rate states in a thermal-fluid network."""
     def __init__(
         self,
         name: str,
@@ -124,9 +187,24 @@ class Convection(Component):
         convection_coefficient: State | float,
         heat_rate: State | None = None,
     ):
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         self.setup()
 
     def evaluate_states(self):
+        """Evaluate the component for the current network state.
+        
+                Solvers call this method repeatedly while settling derived states and
+                assembling residuals.  It should read input ``State.value`` fields, write
+                output states, and update any residual or derivative attributes exposed
+                through ``balances`` or ``dynamics``.  The method does not advance time;
+                transient integration is handled by the solver."""
         Ts = self.surface_temperature.value
         Tf = self.fluid_temperature.value
         h = self.convection_coefficient.value
@@ -140,7 +218,12 @@ class Convection(Component):
 
 
 class TemperatureRecoveryFactor(Component):
-    """Compressible boundary-layer temperature recovery factor."""
+    """Boundary-layer recovery factor from Prandtl number.
+
+        The component computes a turbulent recovery factor ``Pr^(1/3)`` by default
+        or a laminar recovery factor ``sqrt(Pr)`` when ``turbulent=False``.  The
+        result is typically used by ``AdiabaticWallTemperature`` and gas-side heat
+        transfer correlations."""
     def __init__(
         self,
         name: str,
@@ -149,9 +232,24 @@ class TemperatureRecoveryFactor(Component):
         recovery_factor: State | None = None,
         turbulent: bool = True,
     ):
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         self.setup()
 
     def evaluate_states(self):
+        """Evaluate the component for the current network state.
+        
+                Solvers call this method repeatedly while settling derived states and
+                assembling residuals.  It should read input ``State.value`` fields, write
+                output states, and update any residual or derivative attributes exposed
+                through ``balances`` or ``dynamics``.  The method does not advance time;
+                transient integration is handled by the solver."""
         if self.prandtl_number is None or not self.prandtl_number.is_assigned:
             self.recovery_factor.value = 1.0
             return
@@ -170,7 +268,12 @@ class TemperatureRecoveryFactor(Component):
 
 
 class AdiabaticWallTemperature(Component):
-    """Adiabatic wall temperature for compressible flow."""
+    """Adiabatic wall temperature for compressible boundary-layer heat transfer.
+
+        The component combines total temperature, static temperature, and recovery
+        factor to estimate the wall temperature that would produce zero convective
+        heat flux.  It is commonly used before a gas-side convection coefficient or
+        wall heat-flux calculation."""
     def __init__(
         self,
         name: str,
@@ -180,9 +283,24 @@ class AdiabaticWallTemperature(Component):
         recovery_factor: State,
         adiabatic_wall_temperature: State | None = None,
     ):
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         self.setup()
 
     def evaluate_states(self):
+        """Evaluate the component for the current network state.
+        
+                Solvers call this method repeatedly while settling derived states and
+                assembling residuals.  It should read input ``State.value`` fields, write
+                output states, and update any residual or derivative attributes exposed
+                through ``balances`` or ``dynamics``.  The method does not advance time;
+                transient integration is handled by the solver."""
         T0 = self.total_temperature.value
         T = self.static_temperature.value
         r = self.recovery_factor.value
@@ -196,21 +314,12 @@ class AdiabaticWallTemperature(Component):
 
 
 class EckertReferenceTemperature(Component):
-    """
-    Calculates Eckert's reference (film) temperature.
+    """Eckert reference temperature used for evaluating gas-side transport properties.
 
-    The reference temperature is used to evaluate fluid properties
-    within a compressible turbulent boundary layer:
-
-        T_f = 0.5 T_w + 0.28 T + 0.22 T_aw
-
-    where
-
-        T_f  = Eckert reference temperature
-        T_w  = wall temperature
-        T    = static fluid temperature
-        T_aw = adiabatic wall temperature
-    """
+        The component estimates a representative film/reference temperature from
+        wall temperature, static temperature, and adiabatic wall temperature.  Users
+        can pass the output into property lookups for viscosity, conductivity, and
+        specific heat."""
 
     def __init__(
         self,
@@ -221,9 +330,24 @@ class EckertReferenceTemperature(Component):
         adiabatic_wall_temperature: State,
         reference_temperature: State | None = None,
     ):
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         self.setup()
 
     def evaluate_states(self):
+        """Evaluate the component for the current network state.
+        
+                Solvers call this method repeatedly while settling derived states and
+                assembling residuals.  It should read input ``State.value`` fields, write
+                output states, and update any residual or derivative attributes exposed
+                through ``balances`` or ``dynamics``.  The method does not advance time;
+                transient integration is handled by the solver."""
         Tw = self.wall_temperature.value
         T = self.static_temperature.value
         Taw = self.adiabatic_wall_temperature.value

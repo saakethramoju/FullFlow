@@ -1,88 +1,103 @@
 # Third-Party Licenses
 
-FullFlow depends on or integrates with the following third-party projects and libraries.
+FullFlow depends on or integrates with the following third-party projects and
+libraries.  Users are responsible for complying with all licenses that apply to
+their use, modification, or redistribution of FullFlow and its dependencies.
 
-Users are responsible for complying with the licenses of these projects when using, modifying, or redistributing FullFlow.
+## FullPlot
+
+FullPlot is used for trace objects, command traces, sensor traces, map-generation
+workflows, and HDF5 plotting/inspection workflows.
+
+Project:
+https://github.com/saakethramoju/FullPlot
+
+Package:
+https://pypi.org/project/fullplot/
+
+License:
+See the FullPlot project license.
+
+---
 
 ## ThermoProp
 
-ThermoProp is released under the GNU General Public License version 3 (GPL-3.0).
+ThermoProp is an optional integration used by many FullFlow examples for fluid,
+material, propellant, and chemical-equilibrium properties.  FullFlow's core
+package does not import ThermoProp at top level, but users can install
+`fullflow[thermo]` or `fullflow[examples]` for ThermoProp-backed workflows.
 
 Project:
 https://github.com/saakethramoju/ThermoProp
 
+Package:
+https://pypi.org/project/thermoprop/
+
 License:
-https://github.com/saakethramoju/ThermoProp/blob/main/LICENSE
+ThermoProp is released under the GNU General Public License version 3.
 
 ---
 
-
 ## NumPy
 
-NumPy is released under the BSD 3-Clause License.
+NumPy is used for numerical arrays and scalar/vector calculations.
 
 Project:
 https://numpy.org/
 
 License:
-https://github.com/numpy/numpy/blob/main/LICENSE.txt
+BSD 3-Clause License.
 
 ---
 
 ## SciPy
 
-SciPy is released under the BSD 3-Clause License.
+SciPy is used for nonlinear least-squares solving and interpolation utilities.
 
 Project:
 https://scipy.org/
 
 License:
-https://github.com/scipy/scipy/blob/main/LICENSE.txt
+BSD 3-Clause License.
 
 ---
 
 ## Rich
 
-Rich is released under the MIT License.
+Rich is used for optional terminal diagnostics and solver tables.
 
 Project:
 https://github.com/Textualize/rich
 
 License:
-https://github.com/Textualize/rich/blob/master/LICENSE
+MIT License.
 
 ---
 
 ## h5py
 
-h5py is released under a BSD-style license.
+h5py is used for HDF5 export and result storage.
 
 Project:
 https://www.h5py.org/
 
 License:
-https://github.com/h5py/h5py/blob/master/licenses/license.txt
+BSD-style license.
 
 ---
 
+## Optional and indirect dependencies
 
-
-## Indirect Dependencies
-
-FullFlow obtains thermodynamic and material property support through ThermoProp.
-
-As a result, FullFlow users may also interact with technologies provided by:
-
-* CoolProp
-* PYroMat
-* RocketProps
-
-These projects are documented in ThermoProp's third-party license documentation.
+When users install optional ThermoProp-backed workflows, they may also interact
+with dependencies documented by ThermoProp, including property packages such as
+CoolProp, PYroMat, and RocketProps.  Refer to ThermoProp's third-party license
+file for details.
 
 ---
 
 ## Disclaimer
 
-FullFlow is an independent project and is not affiliated with, endorsed by, or sponsored by ThermoProp, CoolProp, PYroMat, RocketProps, NumPy, SciPy, h5py, or Rich.
-
-All trademarks, copyrights, and licenses remain the property of their respective owners.
+FullFlow is an independent project and is not affiliated with, endorsed by, or
+sponsored by FullPlot, ThermoProp, NumPy, SciPy, h5py, Rich, CoolProp, PYroMat,
+RocketProps, or any other third-party dependency.  All trademarks, copyrights,
+and licenses remain the property of their respective owners.

@@ -7,92 +7,32 @@
 [![Build](https://github.com/saakethramoju/FullFlow/actions/workflows/check.yml/badge.svg)](https://github.com/saakethramoju/FullFlow/actions)
 [![Release](https://github.com/saakethramoju/FullFlow/actions/workflows/release.yml/badge.svg)](https://github.com/saakethramoju/FullFlow/actions)
 
-FullFlow is a Python framework for fluid, thermal, and propulsion network simulation.
+FullFlow is a Python-native framework for building and solving fluid, thermal,
+propulsion, control, and transient network models.
 
-It provides a component-based architecture for constructing and solving engineering systems composed of interconnected fluid, thermal, combustion, turbomachinery, and heat-transfer elements.
+The package is designed around the way engineering system models are usually
+assembled: a network contains components, components share states, and solvers
+adjust selected states until component equations, balances, and dynamic residuals
+are satisfied.  FullFlow is not a CFD solver.  It is a lumped/network modeling
+framework for systems such as feed systems, tanks, valves, pipes, pumps,
+turbines, thrust chambers, heat exchangers, regenerative cooling circuits,
+pressurization systems, virtual test stands, and controller-driven startup
+sequences.
 
-FullFlow is inspired by tools such as:
+FullFlow currently has no separate documentation site.  This README and the
+public API docstrings are therefore intentionally detailed.  In Python, use
+`help(fullflow.SteadyState)`, `help(fullflow.Transient)`,
+`help(fullflow.Volume)`, `help(fullflow.Lookup)`, or any other exported class for
+API-level documentation.
 
-* ROCETS
-* GFSSP
-* NPSS
-* EcosimPro
 
-while remaining fully open-source and Python-native.
+## Status of this release
 
-## Why FullFlow?
-
-Engineering systems are often modeled as networks:
-
-* Fluid networks
-* Thermal networks
-* Feed systems
-* Propulsion systems
-* Turbomachinery systems
-* Heat exchanger systems
-* Regenerative cooling systems
-* Coupled fluid-thermal systems
-
-Traditional network solvers are frequently proprietary, difficult to extend, or difficult to integrate into modern Python workflows.
-
-FullFlow allows engineers to construct simulation networks directly in Python using reusable components and shared states.
-
-For example:
-
-```python
-from fullflow import *
-
-FeedSystem = Network("Feed System")
-
-SourcePressure = State(5e5)
-TankPressure = State(3e5)
-
-FeedLine = DarcyWeisbach(
-    "Feed Line",
-    FeedSystem,
-    upstream_pressure=SourcePressure,
-    downstream_pressure=TankPressure,
-)
-
-solution = SteadyState(FeedSystem).solve()
-```
-
-## 0.1.3 Core Streamline
-
-FullFlow 0.1.3 starts a core cleanup focused on API consistency and speed. The System layer now uses lighter `State`, `Composition`, `Balance`, `Component`, and `Network` internals, cached iteration-variable metadata, safer `StateLike` handling, simpler export paths, and fewer unnecessary imports. The unused `Exceptions` package has been removed in favor of standard Python exceptions.
-
-The solver and component layers were also streamlined. `SteadyState.py` is now a thin public wrapper over the modular `Solvers/steady_state/` implementation, `Network.solve()` is available for simpler scripts, and common scalar branch calculations now avoid unnecessary NumPy calls. Solver runtime plans are keyed to `Network.version`, so repeated residual calls reuse cached metadata until the network structure changes. Lookup components cache dynamic attribute proxies, callable signature metadata, reusable-object update checks, and optional memoized results through `memo_size`, reducing overhead in ThermoProp-heavy networks.
-
-New code may also use the lower-case import aliases `fullflow.core` and `fullflow.components.*`; the existing `fullflow.System.*` imports remain supported.
-
-## Features
-
-* Component-based network architecture
-* Steady-state network solver
-* Fluid, thermal, and propulsion modeling
-* Real fluids, ideal gases, and propellants
-* Temperature-dependent material properties
-* Compressible and incompressible flow
-* Conduction, convection, and radiation
-* Turbomachinery maps
-* Model switching and correlation comparison
-* HDF5 result and statistics export
-* Pure Python implementation
-
-## Example Applications
-
-FullFlow can be used to model:
-
-* Pump-fed liquid rocket engines
-* Pressure-fed propulsion systems
-* Turbomachinery and pump maps
-* Counterflow heat exchangers
-* Regenerative cooling systems
-* Fluid mixture separation and mixing
-* Compressible flow systems
-* Coupled fluid-thermal networks
-* Material thermal response
-* Engineering correlation studies
+FullFlow 2.0.0 is a publish-ready public release.  It consolidates the core
+System API, steady-state solver, transient solver, model-option workflow,
+FullPlot-backed instrumentation, and the current component library into a
+package that can be installed from PyPI.  The release also removes the old local
+FullPlot development dependency and depends on the PyPI package `fullplot>=0.1.0`.
 
 ## Installation
 
@@ -100,108 +40,282 @@ FullFlow can be used to model:
 pip install fullflow
 ```
 
-or
+For examples that use ThermoProp property objects directly:
+
+```bash
+pip install "fullflow[thermo]"
+```
+
+For the full example set:
+
+```bash
+pip install "fullflow[examples]"
+```
+
+With `uv`:
 
 ```bash
 uv add fullflow
+uv add "fullflow[examples]"
 ```
 
-## Core Concepts
+## Required and optional dependencies
 
-FullFlow models engineering systems using three primary concepts:
+Core FullFlow depends on:
 
-### Network
+- `numpy` for numerical arrays and math utilities.
+- `scipy` for nonlinear least-squares solving and interpolation.
+- `rich` for optional terminal diagnostics.
+- `h5py` for HDF5 result export.
+- `fullplot>=0.1.0` for trace objects, command traces, sensor traces, and map-generation workflows.
 
-A `Network` contains the complete engineering system.
+ThermoProp is optional.  FullFlow's core package does not require a specific
+fluid-property backend, because `Lookup` can wrap any callable or class.  Many
+examples use ThermoProp, so install `fullflow[thermo]` or `fullflow[examples]`
+when following those examples.
 
-Networks manage:
+## Design philosophy
 
-* Components
-* States
-* Tracking variables
-* Solver interactions
+FullFlow follows a small set of rules:
+
+1. A model is a `Network`.
+2. A variable is a `State`.
+3. A physical device, correlation, controller, sensor, or helper is a `Component`.
+4. A steady-state solve drives residuals and derivatives to zero.
+5. A transient solve integrates dynamic equations and closes algebraic equations implicitly.
+6. Tabular data, property packages, test data, command schedules, and maps should be usable from Python without a special input-file language.
+
+The API is intentionally direct.  A user can build a model in normal Python:
 
 ```python
-NetworkModel = Network("Example System")
+from fullflow import *
+
+PipeNetwork = Network("Pipe Network")
+
+source_pressure = State(5.0e5)
+node_pressure = State(3.0e5)
+density = State(1000.0)
+friction_factor = State(0.02)
+mass_flow = State(0.1)
+
+Pipe = DarcyWeisbach(
+    "Feed Line",
+    PipeNetwork,
+    mass_flow=mass_flow,
+    upstream_pressure=source_pressure,
+    downstream_pressure=node_pressure,
+    length=5.0,
+    hydraulic_diameter=0.0127,
+    density=density,
+    cross_sectional_area=1.27e-4,
+    friction_factor=friction_factor,
+)
+
+solution = SteadyState(PipeNetwork).solve(verbose=True)
 ```
+
+## Core concepts
 
 ### State
 
-A `State` represents a simulation variable.
-
-Examples include:
-
-* Pressure
-* Temperature
-* Mass flow rate
-* Enthalpy
-* Heat rate
-* Rotor speed
+`State` is the universal scalar container.  Components read and write
+`state.value`.  A state can be initialized with a number, left unassigned with
+`None`, bounded for solver use, or derived from a callable expression.
 
 ```python
-Pressure = State(5e5)
-Temperature = State(300)
+pressure = State(2.0e6)
+temperature = State(300.0)
+mass_flow = State(0.1, bounds=(0.0, None))
 ```
+
+Most component constructors also accept scalars.  `Component.setup()` converts
+plain values into `State` objects, so these two forms are both valid:
+
+```python
+# Explicit state
+pressure = State(2.0e6)
+
+# Constant value automatically wrapped as a State by the component
+pipe_length = 5.0
+```
+
+### Network
+
+`Network` stores components, balances, model options, tracked variables, sensor
+events, sequence state, and the simulation time state.
+
+```python
+Engine = Network("Engine")
+Engine.time.value = 0.0
+```
+
+Important network methods:
+
+- `network.track(name, value, ...)` registers variables for export.
+- `network.save(filename)` writes a solution record to HDF5.
+- `network.solve(...)` is a convenience wrapper around `SteadyState(network).solve(...)`.
+- `network.static_evaluate(...)` evaluates components without nonlinear solving.
 
 ### Component
 
-A `Component` represents a physical device, process, or relationship.
+A component owns equations.  Every built-in component follows the same contract:
 
-Examples include:
+- `evaluate_states()` computes output states, residuals, and derivatives from current input states.
+- `balances` returns algebraic residuals as `(iteration_variable, residual)`.
+- `dynamics` returns transient equations as `(state, derivative)` or `(iteration_state, stored_state, derivative)`.
 
-* Pipes
-* Valves
-* Pumps
-* Tanks
-* Heat transfer elements
-* Sensors
-* Fluid property models
-
-Components define equations that contribute to the overall network solution.
-
-### Custom Components
-
-Custom components should be ordinary Python classes with simple physics in
-`evaluate_states()`.  They expose equations through two clear properties:
-
-* `dynamics` for real storage, inertia, or capacitance. Steady state drives the
-  derivative to zero; transient integrates it.
-* `balances` for algebraic equations that have no storage of their own.
-
-A simple algebraic component looks like this:
+This makes custom components straightforward:
 
 ```python
-class PumpPressureMatch(Component):
-    def __init__(self, name, network, mass_flow, pressure_error=0.0):
-        self.pressure_error = 0.0
+class PressureMatch(Component):
+    def __init__(self, name, network, variable, predicted, target):
+        self.error = State(0.0)
         self.setup()
 
     def evaluate_states(self):
-        self.pressure_error = self.predicted_pressure.value - self.target_pressure.value
+        self.error.value = self.predicted.value - self.target.value
 
     @property
     def balances(self):
-        return [(self.mass_flow, self.pressure_error)]
+        return [(self.variable, self.error)]
 ```
 
-A simple dynamic component looks like this:
+### Balance
+
+`Balance(variable, residual)` is a lightweight user-defined algebraic equation.
+Use it when you need one extra closure equation without creating a component.
+The solver varies `variable` until `residual` is zero.
+
+### Model options
+
+`Model` lets one network contain multiple mutually exclusive component
+configurations.  This is useful for comparing correlations, pump maps, nozzle
+models, heat-transfer models, or property backends.
 
 ```python
-class FirstOrderDecay(Component):
-    def __init__(self, name, network, x=1.0, rate=1.0):
-        self.x_dot = 0.0
-        self.setup()
+PumpModel = Model("Pump Model", Engine)
+PumpModel.add_option("constant density", ConstantDensityPump.model(...))
+PumpModel.add_option("polytropic", PolytropicPump.model(...))
 
-    def evaluate_states(self):
-        self.x_dot = -self.rate.value * self.x.value
-
-    @property
-    def dynamics(self):
-        return [(self.x, self.x_dot)]
+SteadyState(Engine).solve(model="Pump Model", evaluate_all_model_options=True)
 ```
 
-A conservative storage component can solve with a convenient variable while
-integrating a different stored quantity:
+## Solvers
+
+FullFlow has two public solvers: `SteadyState` and `Transient`.
+
+### Static evaluation
+
+`SteadyState(network).static_evaluate(...)` only evaluates component equations.
+It does not adjust iteration variables and it does not require residuals to be
+zero.  Use it to debug inputs, check property lookups, inspect derived values,
+or export an already assigned model state.
+
+```python
+SteadyState(network).static_evaluate(verbose=True)
+```
+
+### Steady-state solve
+
+`SteadyState(network).solve(...)` adjusts iteration variables until all
+component dynamics, component balances, and user balances satisfy the residual
+tolerance.
+
+```python
+SteadyState(network).solve(
+    verbose=True,
+    filename="steady_results.h5",
+    solver_method="trf",
+    jacobian_method="3-point",
+    rtol=1e-2,
+)
+```
+
+Steady-state solver options:
+
+| Option | Meaning |
+| --- | --- |
+| `model` | Name of a model option group to solve. If omitted, the base network is solved. |
+| `evaluate_all_model_options` | Run every option in the selected model and return one result per option. |
+| `filename` | Optional HDF5 file. `.h5` is added when no extension is supplied. |
+| `return_type` | Currently supports record/dict-style output. |
+| `verbose` | Print final solver summary and final network state. |
+| `statistics` | Print or export detailed solver evaluation statistics. |
+| `static` | Run `static_evaluate` instead of a nonlinear solve. |
+| `dt`, `t_final` | When both are supplied, run a quasi-steady time sweep using the transient runtime while forcing dynamic components steady. |
+| `save_dt` | Output interval for quasi-steady time sweeps. |
+| `exceptions` | Dynamic components excluded from forced-steady treatment during quasi-steady sweeps. |
+| `solver_method` | SciPy `least_squares` method. `"trf"` is recommended because it supports bounds. `"lm"` requires an unconstrained system. |
+| `jacobian_method` | Finite-difference Jacobian method passed to SciPy, usually `"2-point"` or `"3-point"`. |
+| `ftol` | SciPy relative cost-function convergence tolerance. |
+| `xtol` | SciPy iteration-variable convergence tolerance. |
+| `gtol` | SciPy gradient convergence tolerance. |
+| `rtol` | FullFlow final residual acceptance tolerance. The solve is accepted only when the maximum absolute residual is below this value. |
+| `state_max_passes` | Maximum repeated component-evaluation passes used to settle derived states during residual evaluation. |
+| `state_tolerance` | Derived-state settling tolerance. |
+| `ignore_balances` | `None`, `"all"`, or selected user balance names to exclude from the solve. Component balances are not affected. |
+
+### Transient solve
+
+`Transient(network).solve(dt, t_final, ...)` advances `network.time` using an
+implicit backward-Euler formulation.  Each accepted step solves dynamic residuals
+and algebraic residuals simultaneously.  When a step fails, the solver rolls
+back and retries smaller half-steps until the step is accepted or the retry floor
+is reached.
+
+```python
+Transient(network).solve(
+    dt=0.001,
+    t_final=0.5,
+    save_dt=0.01,
+    filename="transient_results.h5",
+    verbose=True,
+)
+```
+
+Transient solver options:
+
+| Option | Meaning |
+| --- | --- |
+| `dt` | Nominal timestep in seconds. The solver may shorten steps to hit final time, output times, sequence breakpoints, or retry failed steps. |
+| `t_final` | Final simulation time. The starting time is `network.time.value`. |
+| `model` | Optional model option group to run. |
+| `evaluate_all_model_options` | Run every selected model option as an independent transient from the same initial condition. |
+| `filename` | Optional HDF5 output file. |
+| `return_type` | Output format for saved records. |
+| `verbose` | Print final transient summary and final network state. |
+| `statistics` | Print accepted-step progression while the solve runs. |
+| `solver_method` | SciPy `least_squares` method for each implicit step. `"trf"` is recommended. |
+| `jacobian_method` | SciPy finite-difference Jacobian method. |
+| `ftol`, `xtol` | SciPy convergence tolerances for each implicit step. |
+| `gtol` | SciPy gradient tolerance. The transient default is `None` to avoid false convergence on weak finite-difference gradients. |
+| `rtol` | FullFlow accepted-step residual tolerance. The final recomputed step residual must satisfy this value. |
+| `state_max_passes` | Maximum derived-state settling passes in each residual call. |
+| `state_tolerance` | Derived-state settling tolerance. |
+| `max_step_retries` | Number of automatic half-step retries when a timestep does not satisfy `rtol`. |
+| `minimum_dt` | Smallest automatic retry step. If omitted, the floor is based on the nominal `dt`. |
+| `save_dt` | Output cadence. If omitted, every accepted step is saved. |
+| `ignore_balances` | User balances to exclude from the transient solve. |
+
+### Dynamic equations
+
+Components expose transient equations through `dynamics`.
+
+A direct state equation:
+
+```python
+@property
+def dynamics(self):
+    return [(self.position, self.velocity)]
+```
+
+means:
+
+```text
+d(position)/dt = velocity
+```
+
+A conservative equation with a convenient iteration variable:
 
 ```python
 @property
@@ -209,398 +323,324 @@ def dynamics(self):
     return [(self.pressure, self.mass, self.mass_dot)]
 ```
 
-That means: vary `pressure`, but conserve/integrate `mass`.
+means:
 
-`self.setup()` still handles FullFlow's normal conversion rules: numbers become
-`State` objects, existing state-like objects are preserved, optional output
-States are created when `None` is passed, and the component is registered with
-its network.
-
-## Solvers
-
-### SteadyState
-
-The `SteadyState` solver computes a converged operating point for the network.
-The existing explicit solver API is still supported:
-
-```python
-solution = SteadyState(NetworkModel).solve()
+```text
+The solver iterates pressure, but integrates mass using d(mass)/dt = mass_dot.
 ```
 
-For simpler scripts, a network can now call the steady-state solver directly:
+This is important for fluid volumes because pressure is usually a good nonlinear
+iteration variable, while mass and energy are the conserved quantities.
+
+## HDF5 output
+
+Passing `filename="results.h5"` to a solver writes records to HDF5.  FullFlow
+stores component names, component types, attributes, values, model metadata,
+solver metadata, and transient history when available.  HDF5 output is designed
+to be inspected with FullPlot or with ordinary `h5py` workflows.
 
 ```python
-solution = NetworkModel.solve()
+solution = SteadyState(network).solve(filename="solution.h5")
+history = Transient(network).solve(dt=0.01, t_final=1.0, filename="run.h5")
 ```
 
-Static evaluation is also available without nonlinear iteration:
+## Component catalog
+
+### General flow components
+
+| Component | Purpose | Main solver behavior |
+| --- | --- | --- |
+| `FlowTube` | Finite-length flow path with pressure, friction, gravity, inertia, and optional compressible diagnostics. | Exposes a momentum residual; transient mode can integrate mass flow. |
+| `AdiabaticFlow` | Simple adiabatic gas branch using total enthalpy conservation. | Computes mass flow/total enthalpy diagnostics. |
+| `DarcyWeisbach` | Incompressible pipe/duct branch using Darcy friction factor. | Algebraic pressure-loss relation or dynamic flow-inertia relation when effective area is supplied. |
+| `DischargeCoefficient` | Reversible incompressible CdA/orifice relation. | Computes signed mass flow; optional length enables inertia. |
+| `CavitatingVenturi` | Liquid venturi with cavitating and noncavitating regimes. | Computes mass flow and cavitation flag. |
+| `SeriesCdA` | Equivalent effective area for series restrictions. | Algebraic effective-area helper. |
+| `ParallelCdA` | Equivalent effective area for parallel restrictions. | Algebraic effective-area helper. |
+| `RectanglePoiseuille` | Laminar Poiseuille number for rectangular ducts. | Geometry helper. |
+| `EllipsePoiseuille` | Laminar Poiseuille number for elliptical ducts. | Geometry helper. |
+| `CircularAnnulusPoiseuille` | Laminar Poiseuille number for annular ducts. | Geometry helper. |
+| `HydraulicDiameter` | Computes `4A/Pw`. | Geometry helper. |
+
+### Compressible-flow components
+
+| Component | Purpose | Main outputs |
+| --- | --- | --- |
+| `CompressibleOrifice` | Ideal-gas compressible orifice with choked-flow detection. | `mass_flow`, `choked`, optional total enthalpy. |
+| `IsentropicDiffuser` | Ideal-gas area-change relation between two static states. | `mass_flow`, Mach numbers, downstream temperature, total enthalpy. |
+| `IsentropicNozzle` | Ideal-gas nozzle with choking and normal-shock diagnostics. | `mass_flow`, exit Mach, exit pressure, exit temperature, exit velocity, shock flags. |
+
+### Nodes and storage components
+
+| Component | Purpose | Main solver behavior |
+| --- | --- | --- |
+| `Volume` | Lumped fluid control volume with mass and energy conservation. | Steady mass/energy balances or transient integration of mass and energy. |
+| `Solid` | Lumped thermal solid node. | Steady heat balance or transient temperature integration. |
+| `Composition` | Conservation of arbitrary stream-carried scalar labels. | Steady scalar balance or transient stored-amount integration. |
+
+### Heat-transfer components
+
+| Component | Purpose |
+| --- | --- |
+| `Conduction` | `kA/L` heat transfer between two temperature states. |
+| `Convection` | `hA(T_surface - T_fluid)` convective heat rate. |
+| `Radiation` | Diffuse-gray radiation exchange between two surfaces. |
+| `AmbientRadiation` | Radiation between a surface and large ambient enclosure. |
+| `TemperatureRecoveryFactor` | Laminar or turbulent recovery factor from Prandtl number. |
+| `AdiabaticWallTemperature` | Compressible adiabatic wall temperature. |
+| `EckertReferenceTemperature` | Eckert reference/film temperature for gas-side properties. |
+
+### Convection coefficient correlations
+
+| Component | Purpose |
+| --- | --- |
+| `Gnielinski` | Turbulent internal-flow convection coefficient. |
+| `Petukhov` | Turbulent forced-convection coefficient. |
+| `SiederTate` | Turbulent coefficient with wall/bulk viscosity correction. |
+| `DittusBoelter` | Simple turbulent pipe-flow coefficient. |
+| `Miropolskii` | Film-boiling/two-phase convection helper. |
+| `Bartz` | Rocket thrust-chamber/nozzle gas-side coefficient. |
+| `NaturalConvection` | Generic natural-convection coefficient from dimensionless groups. |
+| `ChurchillChu` | Churchill-Chu natural-convection correlation. |
+
+### Friction-factor correlations
+
+| Component | Purpose |
+| --- | --- |
+| `Colebrook` | Colebrook-White Darcy friction factor with laminar fallback. |
+| `Churchill` | Continuous all-Reynolds-number Darcy friction factor. |
+| `PetukhovFriction` | Petukhov smooth-pipe turbulent friction factor with laminar fallback. |
+
+### Turbomachinery and propulsion components
+
+| Component | Purpose | Main solver behavior |
+| --- | --- | --- |
+| `Rotor` | Rotor speed dynamic from net torque and inertia. | Steady torque balance or transient speed integration. |
+| `GasTurbine` | Simple turbine flow, shaft power, efficiency, and enthalpy change. | Algebraic output component. |
+| `ConstantDensityPump` | Pump pressure rise from density and head. | Varies `mass_flow` until predicted discharge pressure matches the connected pressure. |
+| `PolytropicPump` | Compressible/polytropic pump pressure-rise relation. | Varies `mass_flow` to close predicted discharge pressure. |
+| `SpecificImpulse` | Computes `Isp = thrust / (mdot*g0)`. | Diagnostic output. |
+| `IdealCharacteristicVelocity` | Ideal-gas `c*` estimate. | Diagnostic output. |
+
+### Data, lookup, command, and instrumentation components
+
+| Component | Purpose |
+| --- | --- |
+| `Lookup` | Wraps a callable/class/property object and exposes outputs as state-like attributes. |
+| `LookupAttribute` | State-like proxy for one lookup input or output. |
+| `Map` | N-dimensional interpolation from in-memory data or HDF5 map groups. |
+| `Sensor` | Virtual instrumentation, test-data anchoring, condition traces, redlines, and event detection. |
+| `SensorEvent` | Runtime record for a sensor crossing event. |
+| `SensorCondition` | FullPlot trace attached to a sensor for event detection. |
+| `Sequence` | Time/callable/trace-driven command source and clean abort scheduler. |
+| `SequenceCommand` | One command entry managed by a sequence. |
+| `SequenceCondition` | One sensor condition required by a sequence command or abort. |
+| `SequenceAbort` | One clean transient stop rule. |
+| `PID` | Transient-only PID controller. |
+| `Actuator` | Command-to-position actuator with optional limits and rate limiting. |
+
+## Lookup examples
+
+`Lookup` is how FullFlow connects to ThermoProp or any other property object.
+The wrapped object can be a function, a class, or an already reusable object
+with an `update` method.
 
 ```python
-solution = NetworkModel.static_evaluate()
+from fullflow import *
+from thermoprop import Fluid
+
+Net = Network("Property Example")
+
+Water = Lookup(
+    "Water",
+    Net,
+    Fluid,
+    "Water",
+    pressure=State(1.0e5),
+    temperature=State(300.0),
+)
+
+print(Water.density.value)
 ```
 
-## Component Categories
+Lookup outputs can be passed directly to components:
 
-### Branch Components
+```python
+Pipe = DarcyWeisbach(
+    "Pipe",
+    Net,
+    mass_flow=State(0.1),
+    upstream_pressure=State(3e5),
+    downstream_pressure=State(2e5),
+    length=1.0,
+    hydraulic_diameter=0.01,
+    density=Water.density,
+    cross_sectional_area=7.85e-5,
+    friction_factor=State(0.02),
+)
+```
 
-Branch components model transport processes between nodes.
+## Map examples
 
-Examples include:
+`Map` interpolates tabulated data during a solve:
 
-* Darcy-Weisbach flow elements
-* Discharge coefficients
-* Pumps
-* Turbines
-* Regulators
-* Compressible flow elements
-* Heat transfer elements
+```python
+PumpMap = Map(
+    "Pump Map",
+    Net,
+    inputs={"alpha": State(0.5)},
+    axes={"alpha": [0.0, 0.5, 1.0]},
+    outputs={"cd": [0.0, 0.2, 0.6]},
+)
 
-### Node Components
+print(PumpMap.cd.value)
+```
 
-Node components model storage and accumulation.
+HDF5 maps can be read with `Map.from_hdf5(...)` when they follow FullPlot or
+FullFlow map conventions.
 
-Examples include:
+## Sensors, traces, and test-data anchoring
 
-* Volumes
-* Tanks
-* Combustion chambers
-* Solid thermal nodes
+FullFlow uses FullPlot traces for test-like workflows.  A sensor can simply read
+a simulation state, anchor a state to test data, or check redline/blueline/
+greenline/yellowline traces.
 
-### Lookup Components
+```python
+import fullplot as fplt
+from fullflow import *
 
-Lookup components provide thermodynamic and material properties.
+Net = Network("Anchored Example")
+pressure = State(2.0e6)
 
-Examples include:
+pressure_trace = fplt.Trace(
+    x=[0.0, 1.0, 2.0],
+    y=[2.0e6, 2.1e6, 2.05e6],
+    name="measured pressure",
+    role="data",
+)
 
-* FluidLookup
-* IdealGasLookup
-* PropellantLookup
-* MaterialLookup
+PressureSensor = Sensor(
+    "Chamber Pressure Sensor",
+    Net,
+    reading=pressure,
+    variable=pressure,
+    data=pressure_trace,
+    extend=False,
+)
+```
 
-### Sensors
+When used in a transient solve, the sensor samples the test data at
+`network.time` and exposes a balance between the model variable and the sampled
+trace value.  With `extend=False`, the transient stops cleanly when the trace no
+longer has data.
 
-Sensor components provide instrumentation-style measurements.
+## Sequences, controllers, and actuators
 
-Examples include:
+`Sequence` applies time-based or trace-based commands.  `PID` computes a control
+command during transient solves.  `Actuator` turns the command into a rate-limited
+plant position.
 
-* Thermocouples
-* Pressure transducers
+```python
+Net = Network("Command Example")
+valve_command = State(0.0)
+valve_position = State(0.0)
 
-## Fluid Systems
+OpenValve = Sequence(
+    "Open Valve Command",
+    Net,
+    target=valve_command,
+    times=[0.0, 0.5, 1.0],
+    values=[0.0, 0.5, 1.0],
+)
 
-FullFlow supports modeling of:
+ValveActuator = Actuator(
+    "Valve Actuator",
+    Net,
+    command=valve_command,
+    position=valve_position,
+    minimum=0.0,
+    maximum=1.0,
+    rate_limit=2.0,
+)
+```
 
-* Compressible flow
-* Incompressible flow
-* Real fluids
-* Ideal gases
-* Fluid mixtures
-* Liquid rocket propellants
-* Flow splitting
-* Flow mixing
+Transient timesteps are shortened to land on command breakpoints where possible.
+This avoids stepping past command changes and makes sequence-driven simulations
+behave more like test procedures.
 
-through integration with ThermoProp.
+## Units
 
-## Thermal Systems
+FullFlow does not enforce a global unit system.  Most examples use SI units:
 
-FullFlow supports:
+- Pressure: Pa
+- Temperature: K
+- Mass flow: kg/s
+- Density: kg/m^3
+- Enthalpy/internal energy: J/kg
+- Heat rate/power: W
+- Area: m^2
+- Length: m
+- Time: s
+- Rotor speed: rpm in the current turbomachinery components
 
-* Lumped thermal networks
-* Conduction
-* Convection
-* Radiation
-* Temperature-dependent material properties
-* Coupled fluid-thermal simulation
+The user is responsible for consistency.  If a model uses English units, all
+states and correlations in that model must use compatible English units.
 
-## Propulsion Systems
+## Numerical notes and debugging workflow
 
-FullFlow is designed to support rocket propulsion applications including:
+A good FullFlow debugging workflow is:
 
-* Feed systems
-* Turbopumps
-* Turbines
-* Combustion chambers
-* Nozzles
-* Regenerative cooling systems
-* Integrated propulsion cycles
+1. Build the network with realistic initial guesses.
+2. Run `SteadyState(network).static_evaluate(verbose=True)`.
+3. Inspect component outputs and missing states.
+4. Add balances or component dynamics.
+5. Run `SteadyState(network).solve(verbose=True, statistics=True)`.
+6. Use `filename="debug.h5"` when you want persistent output.
+7. Use transient solves only after the initial state is physically reasonable.
 
-## Dependencies
+Important solver details:
 
-FullFlow builds upon several scientific and aerospace libraries:
-
-* NumPy
-* SciPy
-* ThermoProp
-* Rich
-* h5py
-
-## Project Status
-
-FullFlow is currently under active development.
-
-Current development focuses on:
-
-* Fluid networks
-* Thermal networks
-* Propulsion system modeling
-* Heat transfer
-* Turbomachinery
-* Solver infrastructure
-
-The API may evolve as capabilities continue to expand.
-
-## Roadmap
-
-Planned future capabilities include:
-
-* Unit conversions
-* Advanced combustors
-* Improved transient simulation
-* Two-phase flow support
-* Control system modeling
-* Advanced turbomachinery models
-* Heat exchanger libraries
-* Cycle analysis tools
-* Expanded reporting and visualization
-
-## Documentation
-
-Documentation is currently under development.
-
-Examples, source code, and release history are available on GitHub.
+- The solvers normalize and collect residuals from components and user balances.
+- State bounds are passed to SciPy when a state is used as an iteration variable.
+- Derived states are settled with repeated evaluation passes before residuals are collected.
+- Invalid property-package trial points can be rejected with directional penalty residuals after at least one valid residual exists.
+- Transient solves roll back failed steps before retrying smaller steps.
 
 ## Examples
 
-### Pump-Fed Rocket Engine
+The repository includes examples for:
 
-FullFlow can be used to model complete liquid rocket propulsion systems, including pressurization systems, tanks, pumps, injector manifolds, combustion chambers, and nozzles.
+- Simple steady pipe networks
+- Compressible-flow branches
+- Cavitating venturis
+- Heat exchangers
+- Flow splitters and mixers
+- Turbopump maps
+- Equilibrium nozzle workflows
+- Blowdown transients
+- Pump transients
+- Heat-transfer transients
+- Water hammer
+- Sensor events, commands, and test-data anchoring
+- PID throttle examples
+- Engine startup-style examples
 
-Run the example:
+Examples that import ThermoProp require `fullflow[thermo]` or `fullflow[examples]`.
 
-```bash
-uv run python examples/pump_fed_engine.py
-```
+## Development checks
 
-```python
-from fullflow import *
-
-PumpNetwork = Network("Pumped System")
-
-fuel_shaft_speed = State(25000)
-ox_shaft_speed = State(25000)
-
-FuelTankFluid = FluidLookup(...)
-OxTankFluid = FluidLookup(...)
-
-FuelPump = PolytropicPump(...)
-OxPump = PolytropicPump(...)
-
-MainChamber = MainCombustionChamber(...)
-Nozzle = IsentropicNozzle(...)
-
-solution = SteadyState(PumpNetwork).solve()
-```
-
-See `examples/pump_fed_engine.py` for the complete model.
-
-### Mixture Splitter
-
-FullFlow supports fluid mixtures, composition tracking, mixing, and separation.
-
-Run the example:
+From a local checkout:
 
 ```bash
-uv run python examples/mixture_splitter.py
+python -m compileall -q src tests examples
+PYTHONPATH=src python -m pytest -q
+uv build
 ```
 
-```python
-from fullflow import *
-
-SourceFluid = FluidLookup(
-    "Source Fluid",
-    MixtureNetwork,
-    {"gn2": 0.75, "O2": 0.01, "Ar": 0.24},
-    pressure=3e5,
-    temperature=300,
-)
-
-Separator = FlowSplitter(
-    "Separator",
-    MixtureNetwork,
-    pressure=VolumeFluid.pressure,
-    composition=VolumeFluid.composition,
-    composition_out1=SeparatorOutlet1Composition,
-    composition_out2=SeparatorOutlet2Composition,
-)
-
-solution = SteadyState(MixtureNetwork).solve()
-```
-
-This example demonstrates:
-
-* Multicomponent fluid mixtures
-* Composition tracking
-* Flow splitting
-* Composition balances
-* Mixture thermodynamic property evaluation
-
-See `examples/mixture_splitter.py` for the complete model.
-
-### Counterflow Heat Exchanger
-
-FullFlow supports coupled fluid and thermal simulations, allowing heat exchangers to be modeled using fluid networks, thermal networks, material properties, and heat-transfer correlations within a unified framework.
-
-Run the example:
-
-```bash
-uv run python examples/heat_exchanger.py
-```
-
-```python
-from fullflow import *
-
-HeatExchanger = Network("Heat Exchanger")
-
-LiquidSource = FluidLookup(
-    "Liquid Source",
-    HeatExchanger,
-    "rp-1",
-    pressure=6e5,
-    temperature=1000,
-)
-
-CoolantSource = FluidLookup(
-    "Coolant Source",
-    HeatExchanger,
-    "water",
-    pressure=20e5,
-    temperature=300,
-)
-
-TubeNode1 = Solid(...)
-TubeNode2 = Solid(...)
-
-TubeConduction = Conduction(...)
-
-Liquid1Solid1Convection = Convection(...)
-Coolant2Solid1Convection = Convection(...)
-
-HeatTransferModel = Model(
-    "Heat Transfer Correlation",
-    HeatExchanger,
-    GnielinskiOption,
-    DittusBoelterOption,
-)
-
-solution = SteadyState(HeatExchanger).solve(
-    model="Heat Transfer Correlation"
-)
-```
-
-This example demonstrates:
-
-* Counterflow heat exchanger modeling
-* Coupled fluid and thermal networks
-* Temperature-dependent material properties
-* Conduction and convection
-* Internal and annular flow passages
-* Gnielinski and Dittus-Boelter heat-transfer correlations
-* Model switching with `Model` and `ModelOption`
-
-See `examples/heat_exchanger.py` for the complete model.
-
-### Model Comparison and Correlation Sweeps
-
-FullFlow supports interchangeable physics models through `Model` and `ModelOption`.
-
-This allows multiple component formulations to be evaluated within the same network without rebuilding the system.
-
-Run the example:
-
-```bash
-uv run python examples/model_comparison.py
-```
-
-```python
-from fullflow import *
-
-PumpModel = Model(
-    "Main Pump",
-    PumpNetwork,
-    ConstantDensityPumpOption,
-    PolytropicPumpOption,
-)
-
-solution = SteadyState(PumpNetwork).solve(
-    model="Main Pump",
-    evaluate_all_model_options=True,
-)
-```
-
-This example demonstrates:
-
-* Model switching
-* Alternative component formulations
-* Pump-model comparison
-* Shared turbomachinery maps
-* Correlation sweeps
-* Automated evaluation of multiple model options
-
-See `examples/model_comparison.py` for the complete model.
-
-### Running Examples
-
-Clone the repository:
-
-```bash
-git clone https://github.com/saakethramoju/FullFlow.git
-cd FullFlow
-```
-
-Install dependencies:
-
-```bash
-uv sync
-```
-
-Run an example:
-
-```bash
-uv run python examples/pump_fed_engine.py
-```
-
-or
-
-```bash
-uv run python examples/mixture_splitter.py
-```
-
-or
-
-```bash
-uv run python examples/heat_exchanger.py
-```
-
-or
-
-```bash
-uv run python examples/model_comparison.py
-```
-
-## Contributing
-
-Bug reports, feature requests, discussions, and pull requests are welcome.
-
-Please open an issue if you encounter a problem or would like to propose an enhancement.
-
-## Source Code
-
-GitHub:
-
-https://github.com/saakethramoju/FullFlow
+Before publishing, also inspect the built wheel and sdist to confirm that docs,
+examples, tests, license files, and package source are present.
 
 ## License
 
-FullFlow is released under the GNU General Public License v3.0.
-
-See `LICENSE` for details.
+FullFlow is released under the GNU General Public License version 3.  See
+`LICENSE` and `THIRD_PARTY_LICENSES.md`.

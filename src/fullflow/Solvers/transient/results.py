@@ -27,6 +27,14 @@ class TransientHistory:
     """
 
     def __init__(self) -> None:
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         self.records: list[dict[str, Any]] = []
         self.track_records: list[dict[str, Any]] = []
         self.output_times: list[float] = []

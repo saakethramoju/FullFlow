@@ -16,12 +16,46 @@ class Component:
     # solves.  Command/procedure/controller components can set this to True
     # so steady-state solves leave their outputs at the current value while
     # transient solves evaluate them normally.
+    """Base class for all physical, empirical, control, and helper components.
+
+        A component owns a named piece of model physics and registers itself with a
+        ``Network``.  Subclasses usually implement ``evaluate_states()`` and, when
+        necessary, expose ``balances`` and/or ``dynamics`` properties.  FullFlow
+        deliberately keeps the component contract simple so users can write custom
+        components with normal Python classes instead of a special equation DSL.
+
+        Component authoring pattern
+        ---------------------------
+        ``__init__`` should accept ``name`` and ``network`` first, then physical
+        inputs and optional output ``State`` objects.  The constructor should call
+        ``self.setup()``.  The setup method inspects the constructor signature,
+        converts plain values to ``State`` objects, preserves supplied state-like
+        objects, creates optional output states for ``None`` arguments, and registers
+        the component with the network.
+
+        Solver hooks
+        ------------
+        ``evaluate_states()`` computes outputs and residual values from current
+        inputs.  ``balances`` returns ``[(variable, residual), ...]`` for algebraic
+        closure equations.  ``dynamics`` returns either ``[(state, derivative), ...]``
+        for directly integrated states or ``[(iteration_state, stored_state,
+        derivative), ...]`` when a convenient variable is iterated while a different
+        conserved quantity is integrated.  ``pre_evaluation()`` is called before
+        solver residual collection and is useful for lookups or command schedules."""
     TRANSIENT_ONLY = False
 
     _iteration_variable_names: tuple[str, ...] = ()
     _fullflow_setup_cache: tuple[tuple[str, ...], dict[str, Any]] | None = None
 
     def __init__(self, name: str, network: Network) -> None:
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         self.setup()
 
     @classmethod
@@ -53,6 +87,19 @@ class Component:
         return cache
 
     def setup(self) -> None:
+        """Initialize a subclass instance from its constructor arguments.
+
+        ``setup`` must be called directly from a component constructor that has
+        ``name`` and ``network`` local variables.  It reads the subclass
+        constructor signature, initializes the component identity, converts
+        declared physical inputs and optional outputs into FullFlow-compatible
+        attributes, labels nested states for diagnostics, and registers the
+        component with its network.
+
+        User-written components normally do not need to override this method.
+        They should call ``self.setup()`` at the end of ``__init__`` after any
+        custom pre-setup flags have been assigned.
+        """
         frame = sys._getframe(1)
         local_vars = frame.f_locals
 
@@ -86,6 +133,14 @@ class Component:
         value: State | float | int | str | bool | None = None,
         is_default_value: bool = False,
     ) -> Any:
+        """Convert one constructor argument into the stored component attribute.
+
+        Existing ``State`` objects are preserved.  Objects exposing an
+        ``as_state`` method, such as lookup attributes, are converted through
+        that method.  All other values are wrapped in a new ``State`` so
+        component equations can consistently read ``.value`` regardless of
+        whether the user passed a scalar constant or an explicit state object.
+        """
         if isinstance(value, State):
             return value
 
@@ -97,6 +152,12 @@ class Component:
         return State(value)
 
     def initialize_component(self, name: str, network: Network) -> None:
+        """Store component identity and register the component with a network.
+
+        This method is called by ``setup`` after validating that the constructor
+        supplied a name and network.  It also initializes transient timestep
+        bookkeeping used by components that need ``set_transient_context``.
+        """
         self.name = name
         self.network = network
         self._transient_dt = 0.0
@@ -139,6 +200,13 @@ class Component:
 
     @classmethod
     def model(cls, name: str | None = None, **kwargs: Any) -> ModelOption:
+        """Create a reusable model-option template for this component class.
+
+        Use ``ComponentClass.model(...)`` inside a ``Model`` definition when a
+        solver should be able to build this component as one selectable option.
+        The returned object stores constructor keyword arguments but does not
+        build the component until the model option is selected by a solver.
+        """
         cls._validate_template_arguments("model", name, kwargs)
 
         return ModelOption(
@@ -150,6 +218,10 @@ class Component:
 
     @classmethod
     def template(cls, name: str | None = None, **kwargs: Any) -> ModelOption:
+        """Alias for :meth:`model` kept for readable model-option declarations.
+
+        ``template`` and ``model`` return the same ``ModelOption`` object.
+        """
         cls._validate_template_arguments("template", name, kwargs)
         return cls.model(name, **kwargs)
 
@@ -166,6 +238,11 @@ class Component:
         return True
 
     def pre_evaluation(self) -> None:
+        """Run pre-residual bookkeeping before component evaluation.
+        
+                Solvers call this hook before ordinary ``evaluate_states()`` passes.  It
+                is used by lookups, schedules, and instrumentation components that need
+                to update inputs before residual equations are collected."""
         pass
 
     def evaluate_states(self) -> None:
@@ -212,11 +289,22 @@ class Component:
         return []
 
     def set_transient_context(self, *, dt: float) -> None:
-        """Receive timestep context from the transient solver."""
+        """Receive timestep context from the transient solver.
+
+        The base implementation stores the trial timestep in ``_transient_dt``.
+        Components with rate limits, commands, or time-discrete behavior can
+        override this method, but should usually call ``super()`` first.
+        """
         self._transient_dt = float(dt)
 
     @property
     def ignored_export_attributes(self) -> set[str]:
+        """Attribute names to omit from HDF5/record exports for this component.
+
+        Components can override this property to suppress large arrays, cached
+        helper objects, raw map tables, or internal bookkeeping that should not
+        appear in normal solution records.
+        """
         return set()
 
     @property

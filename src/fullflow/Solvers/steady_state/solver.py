@@ -34,24 +34,33 @@ if TYPE_CHECKING:
 
 
 class SteadyState:
-    """Solve or statically evaluate a FullFlow network.
+    """Steady-state, static-evaluation, model-option, and quasi-steady solver front end.
 
-    Parameters
-    ----------
-    network:
-        The ``Network`` to evaluate. The network remains the source of truth for
-        components, balances, models, and saved outputs. Solver-specific state is
-        stored in this object and in a :class:`RuntimeCache`.
+        ``SteadyState`` is the user-facing wrapper around the modular steady-state
+        runtime.  It can evaluate a network without solving, solve a nonlinear
+        steady balance, run selected model options, evaluate all model options, save
+        HDF5 output, print diagnostics, and perform quasi-steady time sweeps by
+        using the transient runtime with dynamic states forced to derivative = 0.
 
-    Notes
-    -----
-    ``SteadyState`` is intentionally a thin orchestrator. It owns public method
-    signatures, debug snapshots, and printing flags; lower-level files own the
-    actual cache building, state propagation, model fallback, and least-squares
-    call.
-    """
+        Main options in ``solve``
+        -------------------------
+        ``solver_method`` and ``jacobian_method`` are forwarded to
+        ``scipy.optimize.least_squares``.  ``ftol``, ``xtol``, and ``gtol`` control
+        SciPy termination.  ``rtol`` is FullFlow's final residual acceptance
+        tolerance.  ``state_max_passes`` and ``state_tolerance`` control repeated
+        component evaluation used to settle derived states.  ``ignore_balances`` can
+        remove selected user ``Balance`` objects from a solve.  ``dt`` and
+        ``t_final`` request a quasi-steady time sweep."""
 
     def __init__(self, network: Network) -> None:
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         self.network = network
         self.console = Console()
         self.statistics = SolverStatistics(console=self.console)

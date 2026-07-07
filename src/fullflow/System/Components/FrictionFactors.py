@@ -12,7 +12,14 @@ if TYPE_CHECKING:
 
 
 class Colebrook(Component):
-    """Colebrook-White Darcy friction factor correlation."""
+    """Colebrook-White Darcy friction factor with laminar fallback.
+
+        The component computes Reynolds number from mass flow, area, diameter, and
+        dynamic viscosity.  Below ``reynolds_number_threshold`` it uses the supplied
+        laminar Poiseuille-number relation.  Above the threshold it solves/estimates
+        the turbulent Colebrook-White rough-pipe friction factor.  The output is a
+        Darcy friction factor suitable for ``DarcyWeisbach`` and convection
+        correlations."""
     def __init__(
         self,
         name: str,
@@ -27,9 +34,24 @@ class Colebrook(Component):
         reynolds_number: State | float | None = None,
         reynolds_number_threshold: State | float = 2300.0,
     ):
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         self.setup()
 
     def evaluate_states(self):
+        """Evaluate the component for the current network state.
+        
+                Solvers call this method repeatedly while settling derived states and
+                assembling residuals.  It should read input ``State.value`` fields, write
+                output states, and update any residual or derivative attributes exposed
+                through ``balances`` or ``dynamics``.  The method does not advance time;
+                transient integration is handled by the solver."""
         mdot = abs(self.mass_flow.value)
         mu = self.dynamic_viscosity.value
         A = self.cross_sectional_area.value
@@ -71,7 +93,12 @@ class Colebrook(Component):
 
 
 class Churchill(Component):
-    """Churchill Darcy friction factor correlation."""
+    """Churchill all-Reynolds-number Darcy friction factor correlation.
+
+        The Churchill correlation provides a continuous friction-factor estimate
+        from laminar through turbulent regimes and includes roughness effects.  It is
+        useful when a smooth transition is more important than explicitly switching
+        between laminar and turbulent formulas."""
     def __init__(
         self,
         name: str,
@@ -85,10 +112,25 @@ class Churchill(Component):
         poiseuille_number: float = 16,
         reynolds_number: State | float | None = None,
     ):
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         self.setup()
         self.Deff = 16*self.hydraulic_diameter.value / self.poiseuille_number.value
 
     def evaluate_states(self):
+        """Evaluate the component for the current network state.
+        
+                Solvers call this method repeatedly while settling derived states and
+                assembling residuals.  It should read input ``State.value`` fields, write
+                output states, and update any residual or derivative attributes exposed
+                through ``balances`` or ``dynamics``.  The method does not advance time;
+                transient integration is handled by the solver."""
         self.Deff = 16 * self.hydraulic_diameter.value / self.poiseuille_number.value
         self.reynolds_number.value = (
             abs(self.mass_flow.value)
@@ -118,7 +160,12 @@ class Churchill(Component):
 
 
 class PetukhovFriction(Component):
-    """Petukhov smooth-pipe turbulent Darcy friction factor correlation."""
+    """Petukhov smooth-pipe turbulent Darcy friction factor with laminar fallback.
+
+        This component computes Reynolds number and then applies a laminar
+        Poiseuille relation below the threshold and the Petukhov turbulent relation
+        above it.  It is intended for smooth tubes used with Petukhov or similar
+        heat-transfer correlations."""
     def __init__(
         self,
         name: str,
@@ -132,9 +179,24 @@ class PetukhovFriction(Component):
         reynolds_number: State | float | None = None,
         reynolds_number_threshold: State | float = 2300.0,
     ):
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         self.setup()
 
     def evaluate_states(self):
+        """Evaluate the component for the current network state.
+        
+                Solvers call this method repeatedly while settling derived states and
+                assembling residuals.  It should read input ``State.value`` fields, write
+                output states, and update any residual or derivative attributes exposed
+                through ``balances`` or ``dynamics``.  The method does not advance time;
+                transient integration is handled by the solver."""
         mdot = abs(self.mass_flow.value)
         mu = self.dynamic_viscosity.value
         A = self.cross_sectional_area.value

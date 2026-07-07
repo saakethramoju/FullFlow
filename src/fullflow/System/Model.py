@@ -28,6 +28,14 @@ class ModelOption:
         kwargs: dict[str, Any] | None = None,
         component_name: str | None = None,
     ) -> None:
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         self.name = name
         self.component_class = component_class
         self.kwargs = kwargs or {}
@@ -146,23 +154,19 @@ class ModelOption:
 
 
 class Model:
-    """Collection of switchable model options.
+    """Factory for mutually exclusive component configurations.
 
-    Preferred interface:
+        A ``Model`` groups one or more named options that can be built into the same
+        network.  Solvers can run a selected option or evaluate every option from a
+        common initial state.  This is useful for comparing pump maps, heat-transfer
+        correlations, cavitation closures, combustion models, or any other alternate
+        physical representation without rewriting the surrounding network.
 
-        model = Model("Nozzle", network, order=["isentropic", "shock"])
-        model.option("isentropic", IsentropicNozzle.template(...))
-        model.option("shock", IsentropicNozzle.template(..., normal_shock=True))
-
-    If ``order`` is omitted, options are evaluated in the order they are added:
-
-        model = Model("Nozzle", network)
-        model.option("isentropic", IsentropicNozzle.template(...))
-        model.option("shock", IsentropicNozzle.template(..., normal_shock=True))
-
-    Each option may contain one deferred component or several deferred
-    components. Options are built only when a solver selects them.
-    """
+        Notes
+        -----
+        Model options are ordinary callables.  They should create components and
+        return any objects the user wants to keep for later inspection.  FullFlow
+        records which option is active in solver metadata and HDF5 output."""
 
     def __init__(
         self,
@@ -171,6 +175,14 @@ class Model:
         *options: ModelOption,
         order: list[str] | tuple[str, ...] | None = None,
     ) -> None:
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         self.name = name
         self.network = network
         self.options: dict[str, ModelOption] = {}

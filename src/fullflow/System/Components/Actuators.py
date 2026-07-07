@@ -9,27 +9,18 @@ if TYPE_CHECKING:
 
 
 class Actuator(Component):
-    """Simple actuator with optional limits and optional rate limiting.
+    """Command-to-position actuator with optional saturation and rate limiting.
 
-    The actuator reads a commanded value and writes an actual position.
+        The actuator reads ``command`` and writes ``position``.  If ``rate_limit`` is
+        omitted, position follows command exactly after applying optional minimum and
+        maximum limits.  If ``rate_limit`` is supplied, position can only move by
+        ``rate_limit * dt`` per transient step.  Diagnostic states record raw command,
+        limited command, position error, velocity, saturation, and whether rate
+        limiting was active.
 
-        command  -> requested actuator value
-        position -> actual actuator value used by the plant
-
-    If rate_limit is omitted, the actuator is ideal:
-
-        position = command
-
-    If rate_limit is supplied, the actuator moves toward command no faster than:
-
-        abs(position_dot) <= rate_limit
-
-    minimum and maximum are optional hard limits.
-
-    The constructor intentionally only calls setup(). All initialization is done
-    during evaluation so the component follows the normal FullFlow component
-    pattern.
-    """
+        Use this component between controllers/sequences and physical plant states
+        when valve or actuator dynamics should be represented without writing a new
+        valve component."""
 
     def __init__(
         self,
@@ -41,6 +32,14 @@ class Actuator(Component):
         maximum: State | float | None = None,
         rate_limit: State | float | None = None,
     ):
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         self.setup()
 
     def _limits(self):
@@ -109,6 +108,13 @@ class Actuator(Component):
         self.saturated.value = saturated
 
     def evaluate_states(self):
+        """Evaluate the component for the current network state.
+        
+                Solvers call this method repeatedly while settling derived states and
+                assembling residuals.  It should read input ``State.value`` fields, write
+                output states, and update any residual or derivative attributes exposed
+                through ``balances`` or ``dynamics``.  The method does not advance time;
+                transient integration is handled by the solver."""
         if not hasattr(self, "_initialized"):
             self._initialize()
 

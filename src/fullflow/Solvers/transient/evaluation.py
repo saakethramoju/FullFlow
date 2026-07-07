@@ -40,6 +40,14 @@ class TransientStateEvaluator:
     """Repeatedly evaluate component-derived states during a timestep solve."""
 
     def __init__(self, cache_getter: Callable[[], TransientRuntimeCache]) -> None:
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         self._cache_getter = cache_getter
 
     def run(

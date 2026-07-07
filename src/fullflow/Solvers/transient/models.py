@@ -57,6 +57,14 @@ class NetworkStateSnapshot:
             return value
 
     def __init__(self, states: list[State]) -> None:
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         self.states = states
         self.values = {
             state: (
@@ -126,6 +134,14 @@ class TransientModelOptionRunner:
         metadata_solve_type: str | None = None,
         metadata_extra: dict[str, Any] | None = None,
     ) -> None:
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         self.network = network
         self.model_manager = model_manager
         self.printer = printer
@@ -154,6 +170,7 @@ class TransientModelOptionRunner:
         verbose: bool,
         run_once: Callable[..., Any],
     ):
+        """Alias for ``solve`` using the same arguments and return value."""
         selected_model = self.model_manager.get(model)
 
         if selected_model is None:

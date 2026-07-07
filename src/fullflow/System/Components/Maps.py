@@ -91,98 +91,27 @@ def _interpolation_point_value(component_name: str, input_name: str, value: floa
 
 
 class Map(Component):
-    """Generic N-dimensional interpolation component.
+    """Generic N-dimensional interpolation component for tabulated engineering data.
 
-    ``Map`` turns tabulated data into one or more FullFlow output ``State``
-    objects. It is useful for property tables, pump/turbine maps, combustion
-    products maps, lookup tables, and any scalar output that can be represented
-    on a rectangular grid.
+        ``Map`` connects one or more input states to one or more output states using
+        SciPy regular-grid interpolation.  It is designed for pump maps, turbine
+        maps, injector/calibration surfaces, combustion-property tables, and any
+        other HDF5 or in-memory data where the model should read tabulated values at
+        solver time.
 
-    Manual maps
-    -----------
-    Construct a manual map by passing dictionaries for ``inputs``, ``axes``,
-    and ``outputs``::
+        Inputs and axes
+        ---------------
+        ``inputs`` maps input names to states.  ``axes`` maps those names to axis
+        arrays or FullPlot axis objects.  ``outputs`` maps output names to arrays
+        with shape matching the input grid.  ``extrapolate=False`` raises when an
+        input leaves the table; ``True`` allows interpolation outside the tabulated
+        range using SciPy's extrapolation behavior.
 
-        Products = Map(
-            "Products",
-            network,
-            inputs={
-                "pressure": ChamberPressure,
-                "temperature": ChamberTemperature,
-            },
-            axes={
-                "pressure": pressure_values,
-                "temperature": temperature_values,
-            },
-            outputs={
-                "density": density_table,
-                "enthalpy": enthalpy_table,
-            },
-        )
-
-    Input names are the keys in ``inputs``. Every input key must have a matching
-    key in ``axes``. Output state names are the keys in ``outputs``. The example
-    above creates ``Products.density`` and ``Products.enthalpy``.
-
-    HDF5 maps
-    ---------
-    ``Map.from_hdf5`` loads simple rectangular-grid HDF5 maps. FullPlot's
-    ``generate_map`` helper writes one compatible layout, but FullFlow does not
-    require FullPlot and the file does not need to have been created by
-    FullPlot. The generic expected structure is::
-
-        /<map_group>/axes/<axis_name>
-        /<map_group>/outputs/<output_name>
-
-    Every axis is a one-dimensional grid. Every output is a rectangular array
-    whose shape matches the axis lengths in axis order. The optional
-    ``axis_order`` group attribute records that order. If it is omitted,
-    ``Map.from_hdf5`` uses the order of the supplied ``inputs``.
-
-    The required input names come from the HDF5 map axes. For a map with axes
-    ``pressure`` and ``temperature``, load it with::
-
-        Products = Map.from_hdf5(
-            "Products",
-            network,
-            "equilibrium_nozzle",
-            group="products_tp",
-            inputs={
-                "pressure": ChamberPressure,
-                "temperature": ChamberTemperature,
-            },
-        )
-
-    Output naming for HDF5 maps is controlled by the ``outputs`` argument:
-
-    ``outputs=None``
-        Load every dataset in ``/outputs`` and create state names matching the
-        HDF5 dataset names.
-
-    ``outputs=["density", "enthalpy"]``
-        Load only the listed datasets and use those same names for the created
-        states.
-
-    ``outputs={"rho": "density", "h": "enthalpy"}``
-        Create Python-friendly state names from different HDF5 dataset names.
-        The dictionary rule is ``created_state_name: hdf5_dataset_name``. This
-        example creates ``Products.rho`` from dataset ``density`` and
-        ``Products.h`` from dataset ``enthalpy``.
-
-    Axis spacing
-    ------------
-    Axis values are always stored and supplied in physical units. For an axis
-    with ``spacing="log"``, ``Map`` applies ``log`` to both the stored axis
-    values and the runtime input value before interpolation. Users should still
-    pass the physical value, not its logarithm.
-
-    Extrapolation
-    -------------
-    If ``extrapolate=False`` then every runtime input must remain inside the
-    tabulated range. If an input is outside its range, the map raises an error.
-    Set ``extrapolate=True`` to allow SciPy's ``RegularGridInterpolator`` to
-    extrapolate beyond the tabulated bounds.
-    """
+        HDF5 support
+        ------------
+        :meth:`from_hdf5` reads FullPlot/FullFlow-style map groups and legacy map
+        files, creates the same interpolation component, and wires outputs into
+        FullFlow states."""
 
     _reserved_output_names = {
         "name",
@@ -209,6 +138,14 @@ class Map(Component):
         outputs: dict[str, object],
         extrapolate: bool = False,
     ):
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         self.setup()
 
         if not isinstance(self.inputs.value, dict):
@@ -422,6 +359,11 @@ class Map(Component):
         outputs: list[str] | tuple[str, ...] | dict[str, str] | None = None,
         extrapolate: bool = False,
     ):
+        """Construct this object from a supported HDF5 file or group.
+        
+                The method reads metadata, axes, inputs, and output arrays from disk,
+                creates any necessary states, validates requested names, and returns a
+                ready-to-evaluate FullFlow component."""
         filename = hdf5_filename(filename)
 
         with h5py.File(filename, "r") as file:
@@ -633,6 +575,13 @@ class Map(Component):
         return np.asarray(point, dtype=float)
 
     def evaluate_states(self):
+        """Evaluate the component for the current network state.
+        
+                Solvers call this method repeatedly while settling derived states and
+                assembling residuals.  It should read input ``State.value`` fields, write
+                output states, and update any residual or derivative attributes exposed
+                through ``balances`` or ``dynamics``.  The method does not advance time;
+                transient integration is handled by the solver."""
         point = self._point()
 
         for output_name, interpolator in self.interpolators.items():

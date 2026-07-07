@@ -11,36 +11,14 @@ if TYPE_CHECKING:
 
 
 class Solid(Component):
-    """Lumped solid thermal node.
+    """Lumped thermal-capacitance solid node.
 
-    ``Solid`` can be used in two ways:
-
-    1. Thermal storage node
-       Provide ``mass`` and ``specific_heat``.  The component integrates
-       temperature using:
-
-           temperature_dot = heat_rate / (mass * specific_heat)
-
-    2. Algebraic thermal node
-       Omit ``mass`` and ``specific_heat``.  The component has no thermal
-       capacitance, so it cannot store energy.  Instead, it solves the
-       quasi-steady heat balance:
-
-           heat_rate = 0
-
-       This is useful for massless thermal junctions or steady conduction
-       interface temperatures.
-
-    Solver behavior
-    ---------------
-    Steady state:
-        Storage node: drive ``temperature_dot = 0``.
-        Algebraic node: solve ``heat_rate = 0``.
-
-    Transient:
-        Storage node: integrate ``dT/dt = temperature_dot``.
-        Algebraic node: solve ``heat_rate = 0`` at each accepted timestep.
-    """
+        ``Solid`` stores a temperature state and optional mass/specific-heat data.
+        In steady state it drives net heat rate to zero when thermal storage is not
+        active.  In transient mode it integrates temperature according to
+        ``m * cp * dT/dt = heat_rate``.  Optional characteristic length, thermal
+        conductivity, and convection coefficient allow a Biot number diagnostic to be
+        computed for lumped-capacitance validity checks."""
 
     def __init__(
         self,
@@ -55,6 +33,14 @@ class Solid(Component):
         biot_number: State | None = None,
         heat_rate: State | float = 0.0,
     ):
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         self._has_thermal_storage = mass is not None and specific_heat is not None
 
         if (mass is None) != (specific_heat is None):
@@ -74,6 +60,13 @@ class Solid(Component):
         self.setup()
 
     def evaluate_states(self):
+        """Evaluate the component for the current network state.
+        
+                Solvers call this method repeatedly while settling derived states and
+                assembling residuals.  It should read input ``State.value`` fields, write
+                output states, and update any residual or derivative attributes exposed
+                through ``balances`` or ``dynamics``.  The method does not advance time;
+                transient integration is handled by the solver."""
         if self._has_thermal_storage:
             self.temperature_dot = self.heat_rate.value / (self.mass.value * self.specific_heat.value)
         else:
@@ -90,6 +83,12 @@ class Solid(Component):
 
     @property
     def balances(self) -> list[tuple[State, float]]:
+        """Return algebraic equations contributed by this component.
+        
+                Each tuple is ``(iteration_variable, residual)``.  Steady-state and
+                transient solvers vary the iteration variable until the residual is zero.
+                Components without algebraic closure equations return an empty list or do
+                not define this property."""
         if self._has_thermal_storage:
             return []
 
@@ -97,6 +96,13 @@ class Solid(Component):
 
     @property
     def dynamics(self) -> list[tuple[State, float]]:
+        """Return dynamic equations contributed by this component.
+        
+                A two-item tuple ``(state, derivative)`` means the solver integrates that
+                state directly.  A three-item tuple ``(iteration_state, stored_state,
+                derivative)`` means the nonlinear solver iterates a convenient state but
+                conserves/integrates a different stored quantity.  Steady-state solves
+                drive the derivative to zero."""
         if not self._has_thermal_storage:
             return []
 
@@ -112,33 +118,20 @@ class Solid(Component):
 
 
 class Volume(Component):
-    """Lumped fluid control volume.
+    """Lumped fluid control volume with mass and energy conservation.
 
-    ``Volume`` is the only fluid node/storage component. There is no separate
-    ``Junction`` class. The same ``Volume`` can be used in two simple ways:
+        ``Volume`` represents a well-mixed fluid node with pressure, optional volume,
+        enthalpy/internal-energy properties, inlet/outlet mass flow, heat input,
+        work input, and optional moving-boundary work.  It can be used as an
+        algebraic steady node or as a transient storage element.
 
-    1. Storage volume
-       Provide ``volume`` and ``density``. The component stores mass and uses
-       ``dynamics``:
-
-           mass = density * volume
-           mass_dot = mass_flow_in - mass_flow_out
-
-       The mass equation solves pressure.
-
-    2. Algebraic node
-       Omit ``volume`` or ``density``. The component has no storage, so it uses
-       ``balances`` instead:
-
-           mass_flow_in - mass_flow_out = 0
-
-       This supports late connections such as:
-
-           ChamberEnd = Volume(..., mass_flow_in=Pipe.mass_flow)
-           Nozzle(..., mass_flow=ChamberEnd.mass_flow_out)
-
-       The user does not need to create an explicit intermediate State.
-    """
+        Solver behavior
+        ---------------
+        In steady state the component returns mass and energy balance residuals.  In
+        transient mode it integrates mass and total energy while allowing the solver
+        to iterate convenient variables such as pressure and enthalpy.  The
+        ``energy_variable`` option selects whether enthalpy-like or internal-energy
+        data are used for the stored-energy relation."""
 
     def __init__(
         self,
@@ -163,6 +156,14 @@ class Volume(Component):
         volume_derivative: State | None = None,
         boundary_work_rate: State | None = None,
     ):
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         self._energy_variable = self._normalize_energy_variable(name, energy_variable)
 
         self._has_mass_storage = volume is not None and density is not None
@@ -238,6 +239,13 @@ class Volume(Component):
         return aliases[value]
 
     def evaluate_states(self):
+        """Evaluate the component for the current network state.
+        
+                Solvers call this method repeatedly while settling derived states and
+                assembling residuals.  It should read input ``State.value`` fields, write
+                output states, and update any residual or derivative attributes exposed
+                through ``balances`` or ``dynamics``.  The method does not advance time;
+                transient integration is handled by the solver."""
         if self._has_mass_storage:
             self.mass.value = self.density.value * self.volume.value
 
@@ -349,6 +357,12 @@ class Volume(Component):
         # Storage volumes return no algebraic balances because their conservation
         # laws are represented through dynamics. SteadyState will drive those
         # derivatives to zero automatically.
+        """Return algebraic equations contributed by this component.
+        
+                Each tuple is ``(iteration_variable, residual)``.  Steady-state and
+                transient solvers vary the iteration variable until the residual is zero.
+                Components without algebraic closure equations return an empty list or do
+                not define this property."""
         if self._has_mass_storage:
             return []
 
@@ -361,6 +375,13 @@ class Volume(Component):
         # Three-entry dynamics mean:
         #
         #     (solve_variable, stored_quantity, derivative)
+        """Return dynamic equations contributed by this component.
+        
+                A two-item tuple ``(state, derivative)`` means the solver integrates that
+                state directly.  A three-item tuple ``(iteration_state, stored_state,
+                derivative)`` means the nonlinear solver iterates a convenient state but
+                conserves/integrates a different stored quantity.  Steady-state solves
+                drive the derivative to zero."""
         if not self._has_mass_storage:
             return []
 

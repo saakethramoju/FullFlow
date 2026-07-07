@@ -1,5 +1,69 @@
 # Changelog
 
+## 2.0.0
+
+FullFlow 2.0.0 is a publish-ready public release focused on packaging readiness,
+repository documentation, public API documentation, solver documentation, and
+basic release validation.
+
+### Packaging
+
+* Bumped package version to `2.0.0`.
+* Replaced the previous local development dependency on FullPlot with the PyPI dependency `fullplot>=0.1.0`.
+* Updated PyPI metadata, keywords, classifiers, and package description.
+* Added wheel license inclusion through `license-files = ["LICENSE"]`.
+* Added optional dependency groups:
+  * `thermo` for ThermoProp-backed examples and workflows.
+  * `examples` for the full example dependency set.
+  * `dev` for testing and release checks.
+* Added source-distribution inclusion rules for README, changelog, license files, publishing notes, examples, tests, and docs.
+* Cleaned generated files, macOS resource-fork files, `__pycache__`, `.pyc`, `.DS_Store`, virtual-environment artifacts, and build output from the publish-ready archive.
+* Updated the PyPI release workflow so tests run before build and publish.
+
+### Documentation
+
+* Rewrote `README.md` as the primary user guide because FullFlow does not yet have a separate official documentation site.
+* Added detailed README sections covering:
+  * Installation and optional extras.
+  * Dependency model and the new PyPI FullPlot dependency.
+  * Core concepts: `Network`, `State`, `Component`, `Balance`, and `Model`.
+  * Static evaluation, steady-state solving, transient solving, quasi-steady sweeps, and HDF5 output.
+  * Every public solver option for `SteadyState.solve(...)` and `Transient.solve(...)`.
+  * Component authoring and dynamic-equation conventions.
+  * Component catalog grouped by flow, compressible flow, nodes/storage, heat transfer, convection, friction factors, turbomachinery, propulsion, maps, lookups, sensors, sequences, PID controllers, and actuators.
+  * Lookup, map, sensor, sequence, controller, and actuator examples.
+  * Units, debugging workflow, and development checks.
+* Expanded docstrings for core public classes including `State`, `StateLike`, `Balance`, `Component`, `Network`, and `Model`.
+* Expanded docstrings for the public solver front ends `SteadyState` and `Transient`.
+* Added or expanded component docstrings for all currently exported components:
+  * General flow: `FlowTube`, `AdiabaticFlow`, `DarcyWeisbach`, `DischargeCoefficient`, `CavitatingVenturi`, `SeriesCdA`, `ParallelCdA`, `RectanglePoiseuille`, `EllipsePoiseuille`, `CircularAnnulusPoiseuille`, and `HydraulicDiameter`.
+  * Compressible flow: `CompressibleOrifice`, `IsentropicDiffuser`, and `IsentropicNozzle`.
+  * Nodes/storage: `Volume`, `Solid`, and `Composition`.
+  * Heat transfer: `Conduction`, `Convection`, `Radiation`, `AmbientRadiation`, `TemperatureRecoveryFactor`, `AdiabaticWallTemperature`, and `EckertReferenceTemperature`.
+  * Convection coefficients: `Gnielinski`, `Miropolskii`, `Petukhov`, `SiederTate`, `DittusBoelter`, `Bartz`, `NaturalConvection`, and `ChurchillChu`.
+  * Friction factors: `Colebrook`, `Churchill`, and `PetukhovFriction`.
+  * Turbomachinery and propulsion: `Rotor`, `GasTurbine`, `ConstantDensityPump`, `PolytropicPump`, `SpecificImpulse`, and `IdealCharacteristicVelocity`.
+  * Data/control/instrumentation: `Lookup`, `LookupAttribute`, `Map`, `Sensor`, `SensorEvent`, `SensorCondition`, `Sequence`, `SequenceCommand`, `SequenceCondition`, `SequenceAbort`, `PID`, and `Actuator`.
+* Added detailed docstrings for `Component.setup(...)`, component initialization helpers, model-option helpers, and export-control hooks.
+* Expanded FullFlow-specific exception docstrings so user-facing failures are easier to understand from `help(...)` and IDE inspection.
+* Added `PUBLISHING.md` with release-check, build, artifact-inspection, and publishing instructions.
+* Updated `THIRD_PARTY_LICENSES.md` to include FullPlot and the optional ThermoProp integration model.
+
+### Reliability and readiness checks
+
+* Ran compile checks for package source, tests, and examples.
+* Ran the package test suite.
+* Ran import and smoke checks for the public package API.
+* Built wheel and source distribution artifacts.
+* Inspected wheel and source distribution contents for license, README, changelog, docs, tests, examples, and package files.
+* Performed an installed-wheel smoke test from the built artifact.
+
+### Notes
+
+* No component equations, solver equations, or physical correlations were intentionally changed for this release.
+* This release is documentation- and packaging-heavy because the repository currently serves as the primary documentation source.
+
+
 ## 0.1.3
 
 ### System Core

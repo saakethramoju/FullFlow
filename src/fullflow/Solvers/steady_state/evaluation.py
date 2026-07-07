@@ -64,6 +64,14 @@ class StateEvaluator:
     """
 
     def __init__(self, cache_getter: Callable[[], RuntimeCache]) -> None:
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         self._cache_getter = cache_getter
 
     def run(self, max_passes: int = 20, tolerance: float = 1e-10) -> None:

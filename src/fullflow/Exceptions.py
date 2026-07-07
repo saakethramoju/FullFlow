@@ -11,51 +11,91 @@ convergence.
 
 
 class FullFlowError(Exception):
-    """Base class for all FullFlow-specific errors."""
+    """Base exception for all intentional FullFlow user-facing failures.
+
+        Catch this class when application code wants to handle any configuration,
+        state, map, sensor, or solver failure raised by FullFlow without catching
+        unrelated Python exceptions."""
 
 
 class FullFlowConfigurationError(FullFlowError, ValueError):
-    """A model, component, balance, dynamic equation, or solver setup is invalid."""
+    """Raised when a network, component, balance, or solver setup is structurally invalid.
+
+        Typical causes include missing required states, invalid argument
+        combinations, impossible model-option selections, or residual systems that
+        cannot be assembled."""
 
 
 class FullFlowStateError(FullFlowError, ValueError):
-    """A State is missing, invalid, derived incorrectly, or outside allowed bounds."""
+    """Raised when a ``State`` or state-like object is unavailable or invalid.
+
+        This category covers unassigned values, invalid bounds, failed numeric
+        conversion, and derived-state problems that should be shown clearly to the
+        model author."""
 
 
 class UnassignedStateError(FullFlowStateError):
-    """A State was read before it had a value."""
+    """Raised when code reads a ``State`` value before it has been assigned.
+
+        Use this error to distinguish a missing output or missing initial condition
+        from a numerical failure in the solver."""
 
 
 class FullFlowMapError(FullFlowError):
-    """Base class for map loading and interpolation errors."""
+    """Base class for map-loading, map-validation, and map-interpolation errors.
+
+        Catch this class around workflows that load HDF5 maps or interpolate
+        tabulated engineering data."""
 
 
 class MapLoadError(FullFlowMapError, ValueError):
-    """An HDF5 map file or group could not be loaded correctly."""
+    """Raised when a map file, HDF5 group, axis, output, or metadata block cannot be loaded.
+
+        The message is intended to identify the map group and the missing or invalid
+        dataset so the table can be repaired quickly."""
 
 
 class MapRangeError(FullFlowMapError, ValueError):
-    """A map input was outside the tabulated range."""
+    """Raised when map extrapolation is disabled and an input leaves the tabulated domain.
+
+        Either widen the map, change the model initial condition, or construct the
+        map with ``extrapolate=True`` if extrapolation is physically acceptable."""
 
 
 class FullFlowSolverError(FullFlowError, RuntimeError):
-    """Base class for solver failures."""
+    """Base class for intentional steady-state and transient solver failures.
+
+        This class covers setup, convergence, timestep, and clean-stop conditions
+        produced by the solver layer."""
 
 
 class SolverSetupError(FullFlowSolverError):
-    """The nonlinear system cannot be assembled or is underdetermined."""
+    """Raised when a nonlinear residual system cannot be assembled or evaluated.
+
+        Typical causes include inconsistent balance counts, invalid dynamic-equation
+        tuples, missing iteration variables, or component evaluation errors that
+        occur before a valid residual has been collected."""
 
 
 class SolverConvergenceError(FullFlowSolverError):
-    """A steady-state solve failed or converged to unacceptable residuals."""
+    """Raised when SciPy terminates but FullFlow's residual acceptance check fails.
+
+        The attached message usually includes maximum residual, RMS residual, and
+        variable/residual labels to help identify the failed equation."""
 
 
 class TransientStepError(SolverConvergenceError):
-    """A transient timestep failed after the nonlinear solve or timestep retries."""
+    """Raised when a transient timestep cannot be accepted after all retry attempts.
+
+        The timestep is rolled back before this error is raised so the network state
+        remains at the last accepted time."""
 
 
 class SensorDataStop(FullFlowSolverError):
-    """A sensor requested a clean solve stop because test data is unavailable."""
+    """Internal clean-stop signal raised when a sensor with ``extend=False`` runs out of data.
+
+        The transient solver converts this into a normal stop reason instead of
+        treating it as a numerical failure."""
 
 
 __all__ = [

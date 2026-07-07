@@ -10,28 +10,24 @@ if TYPE_CHECKING:
 
 
 class Composition(Component):
-    """
-    Conserves arbitrary quantities carried by mass flow.
+    """Conservation component for arbitrary stream-carried scalar quantities.
 
-    Steady state
-    ------------
-    For each conserved label, one residual is created:
+        ``Composition`` balances labels such as species mass fraction, oxidizer
+        fraction, mixture fraction, tracer concentration, or any scalar carried by
+        mass flow.  Each inlet and outlet is a pair of ``(mass_flow, composition)``.
+        A ``composition`` dictionary maps names to values; ``None`` means the stream
+        uses the unknown composition values supplied in ``solve``.
 
-        sum(mdot_in * x_in) - sum(mdot_out * x_out) = 0
+        Steady state
+        ------------
+        For each label, the residual is ``sum(mdot_in*x_in) - sum(mdot_out*x_out)``.
+        The solver varies the corresponding entry in ``solve``.
 
-    Transient
-    ---------
-    If mass is provided, the nonlinear solver iterates on the composition
-    values in solve={...}, but the integrated states are stored amounts:
-
-        amount_i = mass * x_i
-
-    The transient equation is:
-
-        d(amount_i)/dt = sum(mdot_in * x_in) - sum(mdot_out * x_out)
-
-    This pairs naturally with a transient Volume that exposes node mass.
-    """
+        Transient
+        ---------
+        If ``mass`` is supplied, the component integrates stored amounts ``mass*x``
+        while still iterating the convenient composition values.  This pairs with a
+        transient ``Volume`` that owns the node mass."""
 
     def __init__(
         self,
@@ -43,6 +39,14 @@ class Composition(Component):
         names: tuple[str, ...] | list[str] | str | None = None,
         mass: State | float | None = None,
     ):
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         self._has_transient_storage = mass is not None
 
         self.setup()
@@ -152,6 +156,13 @@ class Composition(Component):
         return self.names.value
 
     def evaluate_states(self) -> None:
+        """Evaluate the component for the current network state.
+        
+                Solvers call this method repeatedly while settling derived states and
+                assembling residuals.  It should read input ``State.value`` fields, write
+                output states, and update any residual or derivative attributes exposed
+                through ``balances`` or ``dynamics``.  The method does not advance time;
+                transient integration is handled by the solver."""
         if not self._has_transient_storage:
             return
 
@@ -165,6 +176,12 @@ class Composition(Component):
         # Without storage mass, composition is an algebraic mixer/splitter.
         # The solver varies the requested composition values until each
         # composition flow-rate balance is zero.
+        """Return algebraic equations contributed by this component.
+        
+                Each tuple is ``(iteration_variable, residual)``.  Steady-state and
+                transient solvers vary the iteration variable until the residual is zero.
+                Components without algebraic closure equations return an empty list or do
+                not define this property."""
         if self._has_transient_storage:
             return []
 
@@ -183,6 +200,13 @@ class Composition(Component):
         #     d(amount_i)/dt = inflow_i - outflow_i
         #
         # SteadyState drives the same derivative to zero.
+        """Return dynamic equations contributed by this component.
+        
+                A two-item tuple ``(state, derivative)`` means the solver integrates that
+                state directly.  A three-item tuple ``(iteration_state, stored_state,
+                derivative)`` means the nonlinear solver iterates a convenient state but
+                conserves/integrates a different stored quantity.  Steady-state solves
+                drive the derivative to zero."""
         return [
             (self.solve.value[name], self._amounts[name], self._composition_flow_rate(name))
             for name in self._transient_names()

@@ -9,30 +9,16 @@ if TYPE_CHECKING:
 
 
 class PID(Component):
-    """Simple PID controller.
+    """Transient-only proportional-integral-derivative controller.
 
-    The controller reads a feedback value and setpoint, then writes a command.
+        ``PID`` reads a feedback state and setpoint, integrates error over transient
+        time, estimates derivative error from previous values, and writes a command
+        state.  The command is ``trim + Kp*error + Ki*integral + Kd*d(error)/dt``
+        with optional minimum/maximum clipping.
 
-        error = setpoint - feedback
-
-        command = command_bias
-                + proportional_gain * error
-                + integral_gain * integral(error)
-                + derivative_gain * d(error)/dt
-
-    PID is transient-only by default. Steady-state solves leave the command at
-    its current value. Transient solves activate the controller.
-
-    Startup behavior is bumpless when trim is omitted and an initialized command
-    State is supplied. In that case, the PID chooses its internal command bias so
-    that the first PID output equals the current command value. This prevents a
-    command kick when the controller first becomes active.
-
-    If trim is supplied, trim is treated as the nominal command.
-
-    If both trim and an initialized command are omitted, the PID cannot know what
-    actuator command to start from, so it raises an error.
-    """
+        The component is meant to be paired with an ``Actuator`` or commanded valve
+        area/Cd state.  It does not expose steady-state balances; steady-state
+        solves should initialize command and trim states before transient operation."""
 
     TRANSIENT_ONLY = True
 
@@ -50,6 +36,14 @@ class PID(Component):
         minimum: float | None = None,
         maximum: float | None = None,
     ):
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         self.setup()
 
         # A transient-only PID is skipped during steady-state solves. If the
@@ -64,6 +58,13 @@ class PID(Component):
         # setup() already converted constructor inputs into State-like
         # attributes, so trim/command/minimum/maximum are State objects even when
         # their values are None.
+        """Evaluate the component for the current network state.
+        
+                Solvers call this method repeatedly while settling derived states and
+                assembling residuals.  It should read input ``State.value`` fields, write
+                output states, and update any residual or derivative attributes exposed
+                through ``balances`` or ``dynamics``.  The method does not advance time;
+                transient integration is handled by the solver."""
         if not hasattr(self, "_initialized"):
             self._initialized = True
 

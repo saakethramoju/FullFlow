@@ -56,6 +56,14 @@ class RuntimeCache:
     """
 
     def __init__(self, network, ignore_balances=None) -> None:
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         self.network = network
         self.ignore_balances = ignore_balances
         self._active_sensor_balance_owner_ids: set[int] = set()

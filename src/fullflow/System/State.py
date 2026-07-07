@@ -21,7 +21,13 @@ __all__ = [
 
 @runtime_checkable
 class StateLike(Protocol):
-    """Runtime shape used by solvers for assignable scalar-like quantities."""
+    """Protocol implemented by objects that behave like FullFlow states.
+
+        FullFlow accepts real ``State`` objects, lookup attributes, and future
+        state-compatible proxies in many places.  A state-like object must expose a
+        readable and writable ``value`` plus enough metadata for bounds, numeric
+        conversion, and assignment checks.  Solver and component internals use this
+        protocol instead of relying on fragile ``hasattr`` probing."""
 
     @property
     def value(self) -> Any: ...
@@ -107,7 +113,37 @@ def is_assignable_state_like(value: Any) -> bool:
 
 
 class State:
-    """Lightweight value container used throughout FullFlow."""
+    """Primary scalar value container used by FullFlow networks.
+
+        A ``State`` is the common representation of pressures, temperatures, mass
+        flow rates, heat rates, control commands, solver iteration variables, and
+        component outputs.  Most component constructor arguments may be passed as
+        either ``State`` objects or plain Python values; ``Component.setup()``
+        converts plain values into ``State`` objects so later equations can use a
+        uniform ``.value`` interface.
+
+        Parameters
+        ----------
+        value : Any, optional
+            Initial value.  Numeric values are immediately available to components.
+            ``None`` creates an unassigned state, which is useful for outputs that a
+            component will calculate during ``evaluate_states()``.
+        lower_bound, upper_bound : float, optional
+            Bounds used when the state becomes a solver iteration variable through a
+            component ``balances`` entry, component ``dynamics`` entry, or user
+            ``Balance``.  Unbounded sides are represented by ``-inf`` or ``inf``.
+        keep_feasible : bool, default=False
+            Passed to SciPy's least-squares bound handling.  It requests that trial
+            points remain feasible for this variable when the selected algorithm can
+            honor that constraint.
+
+        Notes
+        -----
+        A ``State`` can also be derived from a callable expression.  Derived states
+        are recomputed during solver state-settling passes and are not directly
+        varied by the solver.  FullFlow records previous values during transient
+        solves so backward-Euler residuals can be assembled without exposing that
+        bookkeeping to components."""
 
     _fullflow_state_like = True
 
@@ -130,6 +166,18 @@ class State:
         bounds: tuple[float | None, float | None] | None = None,
         keep_feasible: bool = False,
     ) -> None:
+        """Create a scalar state with an optional initial value and solver bounds.
+
+        Parameters
+        ----------
+        value : Any, optional
+            Initial assigned value.  ``None`` leaves the state unassigned until a
+            component or user assignment writes ``state.value``.
+        bounds : tuple[float | None, float | None], optional
+            Lower and upper solver bounds.  ``None`` means unbounded on that side.
+        keep_feasible : bool, default=False
+            Feasibility hint forwarded to bounded SciPy least-squares solves.
+        """
         self._value: Any = None
         self._expr: Callable[[], Any] | None = None
         self._previous: Any = None
@@ -555,6 +603,7 @@ class State:
         return getattr(value, name)
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        """Alias for ``solve`` so solver instances can be called directly."""
         return self.value(*args, **kwargs)
 
     def __array__(self, dtype=None):

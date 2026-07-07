@@ -12,6 +12,28 @@ if TYPE_CHECKING:
 
 class FlowTube(Component):
 
+    """One-dimensional branch with pressure, friction, gravity, inertia, and optional compressible-flow diagnostics.
+
+        ``FlowTube`` represents a finite-length flow path between an upstream and a
+        downstream static pressure.  It is more general than a simple restriction:
+        the component can include Darcy friction, elevation change, density changes
+        between the ends of the tube, and a flow-inertia dynamic term.  Positive
+        ``mass_flow`` is from upstream to downstream.
+
+        Solver behavior
+        ---------------
+        In steady state the component exposes a momentum residual and the solver
+        varies ``mass_flow`` until pressure forces, losses, gravity, and optional
+        momentum terms balance.  In transient mode ``mass_flow`` is treated as a real
+        dynamic state, so the residual integrates flow acceleration instead of
+        instantly enforcing the steady momentum equation.
+
+        Outputs
+        -------
+        The component writes diagnostic states such as total enthalpy when enthalpy
+        inputs are supplied.  If speed of sound and area data are available, the
+        component can also flag approximate normal-shock behavior for diagnostic
+        model development."""
     def __init__(
         self,
         name: str,
@@ -34,9 +56,24 @@ class FlowTube(Component):
         normal_shock: State | bool | None = False,
         shock_mach_number: State | None = 0.0,
     ):
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         self.setup()
 
     def evaluate_states(self):
+        """Evaluate the component for the current network state.
+        
+                Solvers call this method repeatedly while settling derived states and
+                assembling residuals.  It should read input ``State.value`` fields, write
+                output states, and update any residual or derivative attributes exposed
+                through ``balances`` or ``dynamics``.  The method does not advance time;
+                transient integration is handled by the solver."""
         mdot = self.mass_flow.value
 
         p1 = self.upstream_static_pressure.value
@@ -144,6 +181,13 @@ class FlowTube(Component):
     def dynamics(self):
         # Flow inertia is a real dynamic equation.  SteadyState drives
         # mass_flow_dot to zero; Transient integrates mass_flow.
+        """Return dynamic equations contributed by this component.
+        
+                A two-item tuple ``(state, derivative)`` means the solver integrates that
+                state directly.  A three-item tuple ``(iteration_state, stored_state,
+                derivative)`` means the nonlinear solver iterates a convenient state but
+                conserves/integrates a different stored quantity.  Steady-state solves
+                drive the derivative to zero."""
         return [(self.mass_flow, self.mass_flow_dot)]
 
 
@@ -154,24 +198,17 @@ class FlowTube(Component):
 
 
 class AdiabaticFlow(Component):
-    """
-    One-directional adiabatic gas branch.
+    """Adiabatic branch relation based on total enthalpy conservation.
 
-    This branch calculates mass flow from continuity and total enthalpy
-    conservation.
+        The component relates upstream and downstream static enthalpy, density,
+        area, and mass flow through the assumption that total enthalpy is conserved
+        across the branch.  It is intended for simple gas-flow bookkeeping where the
+        user wants an energy relation without detailed losses, heat transfer, or a
+        full compressible nozzle solution.
 
-    If upstream_density and upstream_cross_sectional_area are provided, the
-    upstream state is treated as a finite-area static state:
-
-        h0 = h1 + 0.5*v1**2
-
-    If upstream_density or upstream_cross_sectional_area is omitted, the
-    upstream enthalpy is treated as stagnation enthalpy:
-
-        h0 = h1
-
-    This keeps the user from needing to pass h0 directly.
-    """
+        Positive mass flow is from upstream to downstream.  Optional upstream area
+        and density let the component include velocity on both sides; otherwise only
+        the downstream kinetic-energy correction is used."""
 
     def __init__(
         self,
@@ -186,9 +223,24 @@ class AdiabaticFlow(Component):
         mass_flow: State | None = 0.0,
         total_enthalpy: State | None = 0.0,
     ):
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         self.setup()
 
     def evaluate_states(self):
+        """Evaluate the component for the current network state.
+        
+                Solvers call this method repeatedly while settling derived states and
+                assembling residuals.  It should read input ``State.value`` fields, write
+                output states, and update any residual or derivative attributes exposed
+                through ``balances`` or ``dynamics``.  The method does not advance time;
+                transient integration is handled by the solver."""
         h1 = self.upstream_static_enthalpy.value
         h2 = self.downstream_static_enthalpy.value
         rho2 = self.downstream_density.value
@@ -243,6 +295,19 @@ class AdiabaticFlow(Component):
 
 
 class DarcyWeisbach(Component):
+    """Incompressible Darcy-Weisbach branch with optional flow inertia.
+
+        ``DarcyWeisbach`` computes the mass flow through a pipe-like branch from the
+        pressure difference, density, hydraulic diameter, length, area, friction
+        factor, and optional height change.  It uses the Darcy friction factor, not
+        the Fanning factor.  Positive ``mass_flow`` is from ``upstream_pressure`` to
+        ``downstream_pressure``.
+
+        If ``effective_area`` is supplied the branch includes inertia and returns a
+        transient dynamic equation for ``mass_flow``.  Without inertia it behaves as
+        an algebraic restriction.  This makes the same component useful for quick
+        steady pipe losses and for water-hammer-style transient examples where flow
+        momentum storage matters."""
     def __init__(
         self,
         name: str,
@@ -259,9 +324,24 @@ class DarcyWeisbach(Component):
         height_change: State | float | None = None,
         effective_area: float | None = None,
     ):
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         self.setup()
 
     def evaluate_states(self):
+        """Evaluate the component for the current network state.
+        
+                Solvers call this method repeatedly while settling derived states and
+                assembling residuals.  It should read input ``State.value`` fields, write
+                output states, and update any residual or derivative attributes exposed
+                through ``balances`` or ``dynamics``.  The method does not advance time;
+                transient integration is handled by the solver."""
         mdot = self.mass_flow.value
 
         p1 = self.upstream_pressure.value
@@ -311,6 +391,13 @@ class DarcyWeisbach(Component):
         # Pipe inertia is represented by mass_flow_dot.  In steady state this
         # derivative is driven to zero, which recovers the usual pressure-loss
         # equation.
+        """Return dynamic equations contributed by this component.
+        
+                A two-item tuple ``(state, derivative)`` means the solver integrates that
+                state directly.  A three-item tuple ``(iteration_state, stored_state,
+                derivative)`` means the nonlinear solver iterates a convenient state but
+                conserves/integrates a different stored quantity.  Steady-state solves
+                drive the derivative to zero."""
         return [(self.mass_flow, self.mass_flow_dot)]
 
 
@@ -318,6 +405,13 @@ class DarcyWeisbach(Component):
 
 
 class DischargeCoefficient(Component):
+    """Reversible incompressible orifice/restriction relation using CdA.
+
+        This component computes ``mass_flow`` from upstream pressure, downstream
+        pressure, density, discharge coefficient, and flow area.  It supports reverse
+        flow by preserving the sign of the pressure difference.  When a length is
+        supplied, the component also exposes a flow-inertia dynamic equation so
+        transient solves can integrate acceleration through the restriction."""
     def __init__(
         self,
         name: str,
@@ -330,10 +424,25 @@ class DischargeCoefficient(Component):
         length: float | None = None,
         mass_flow: State | None = None,
     ):
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         self.setup()
 
 
     def evaluate_states(self) -> None:
+        """Evaluate the component for the current network state.
+        
+                Solvers call this method repeatedly while settling derived states and
+                assembling residuals.  It should read input ``State.value`` fields, write
+                output states, and update any residual or derivative attributes exposed
+                through ``balances`` or ``dynamics``.  The method does not advance time;
+                transient integration is handled by the solver."""
         P1 = self.upstream_pressure.value
         P2 = self.downstream_pressure.value
         rho = self.density.value
@@ -363,6 +472,13 @@ class DischargeCoefficient(Component):
         # written explicitly from pressure drop, so no solver equation is added.
         # With length, the branch has flow inertia and mass_flow_dot is a real
         # dynamic equation.
+        """Return dynamic equations contributed by this component.
+        
+                A two-item tuple ``(state, derivative)`` means the solver integrates that
+                state directly.  A three-item tuple ``(iteration_state, stored_state,
+                derivative)`` means the nonlinear solver iterates a convenient state but
+                conserves/integrates a different stored quantity.  Steady-state solves
+                drive the derivative to zero."""
         if self.length.is_assigned:
             return [(self.mass_flow, self.mass_flow_dot)]
         return []
@@ -370,43 +486,16 @@ class DischargeCoefficient(Component):
 
 
 class CavitatingVenturi(Component):
-    """
-    Direct-calculation cavitating liquid venturi.
+    """Liquid venturi/orifice relation with a cavitating and noncavitating branch.
 
-    The component uses pressure recovery factor to estimate the downstream
-    pressure where cavitation begins.
+        The component compares the recovered throat pressure against vapor pressure
+        using ``pressure_recovery_factor``.  In the noncavitating regime it uses the
+        supplied noncavitating discharge coefficient and the actual downstream
+        pressure drop.  In the cavitating regime it limits the effective downstream
+        pressure by vapor pressure and uses the cavitating discharge coefficient.
 
-    Recovery factor:
-
-        R = (P2 - Pt) / (P1 - Pt)
-
-    At incipient cavitation:
-
-        Pt = Pvap
-
-    Therefore:
-
-        P2_critical = Pvap + R * (P1 - Pvap)
-
-    If:
-
-        P2 <= P2_critical
-
-    the venturi is cavitating and the throat pressure is assumed to be vapor
-    pressure:
-
-        Pt = Pvap
-
-    Cavitating flow:
-
-        mdot = Cd_cav A sqrt(2 rho (P1 - Pvap))
-
-    Otherwise, the venturi is treated as a normal restriction:
-
-        mdot = sign(P1 - P2) Cd_noncav A sqrt(2 rho |P1 - P2|)
-
-    This is a direct calculator. It does not add dynamics or balances.
-    """
+        Outputs include ``mass_flow`` and ``is_cavitating`` so users can track or
+        plot when the model switches regimes."""
 
     def __init__(
         self,
@@ -423,9 +512,24 @@ class CavitatingVenturi(Component):
         mass_flow: State | None = None,
         is_cavitating: bool = False,
     ):
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         self.setup()
 
     def evaluate_states(self):
+        """Evaluate the component for the current network state.
+        
+                Solvers call this method repeatedly while settling derived states and
+                assembling residuals.  It should read input ``State.value`` fields, write
+                output states, and update any residual or derivative attributes exposed
+                through ``balances`` or ``dynamics``.  The method does not advance time;
+                transient integration is handled by the solver."""
         P1 = self.upstream_pressure.value
         P2 = self.downstream_pressure.value
         rho = self.density.value
@@ -470,7 +574,13 @@ class CavitatingVenturi(Component):
 
 
 class SeriesCdA(Component):
-    """Equivalent effective area for restrictions in series."""
+    """Equivalent effective area for multiple restrictions in series.
+
+        The input list contains individual effective areas, normally ``Cd * A``
+        values or already-computed effective area states.  The equivalent area is
+        computed with the reciprocal-square relation used for pressure-drop devices
+        in series.  This is useful when a line contains several small restrictions
+        but the surrounding model only needs one lumped effective area."""
     def __init__(
         self,
         name: str,
@@ -478,9 +588,24 @@ class SeriesCdA(Component):
         effective_areas: list[State | float],
         effective_area: State | None = None,
     ):
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         self.setup()
 
     def evaluate_states(self):
+        """Evaluate the component for the current network state.
+        
+                Solvers call this method repeatedly while settling derived states and
+                assembling residuals.  It should read input ``State.value`` fields, write
+                output states, and update any residual or derivative attributes exposed
+                through ``balances`` or ``dynamics``.  The method does not advance time;
+                transient integration is handled by the solver."""
         inverse_area_squared_sum = 0.0
 
         for effective_area in self.effective_areas.value:
@@ -502,7 +627,11 @@ class SeriesCdA(Component):
 
 
 class ParallelCdA(Component):
-    """Equivalent effective area for restrictions in parallel."""
+    """Equivalent effective area for multiple restrictions in parallel.
+
+        The component sums effective areas from parallel branches.  It is intended
+        for injector elements, parallel orifices, or manifolded restrictions whose
+        individual pressure drops are approximately the same."""
     def __init__(
         self,
         name: str,
@@ -510,9 +639,24 @@ class ParallelCdA(Component):
         effective_areas: list[State | float],
         effective_area: State | None = None,
     ):
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         self.setup()
 
     def evaluate_states(self):
+        """Evaluate the component for the current network state.
+        
+                Solvers call this method repeatedly while settling derived states and
+                assembling residuals.  It should read input ``State.value`` fields, write
+                output states, and update any residual or derivative attributes exposed
+                through ``balances`` or ``dynamics``.  The method does not advance time;
+                transient integration is handled by the solver."""
         self.effective_area.value = sum(
             effective_area.value if hasattr(effective_area, "value") else effective_area
             for effective_area in self.effective_areas.value
@@ -523,7 +667,12 @@ class ParallelCdA(Component):
 
 
 class RectanglePoiseuille(Component):
-    """Poiseuille number correlation for rectangular ducts."""
+    """Poiseuille-number helper for laminar rectangular ducts.
+
+        The component computes a geometry-only laminar Poiseuille number from duct
+        height and width.  The result is normally passed into friction-factor
+        components so non-circular laminar friction can be handled without hardcoding
+        the value in the flow model."""
     def __init__(
         self,
         name: str,
@@ -532,6 +681,14 @@ class RectanglePoiseuille(Component):
         width: float,
         poiseuille_number: float | None = None,
     ):
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         if height <= 0.0:
             raise ValueError(f"Rectangle height must be positive. Got length={height}.")
         
@@ -554,7 +711,11 @@ class RectanglePoiseuille(Component):
 
 
 class EllipsePoiseuille(Component):
-    """Poiseuille number correlation for elliptical ducts."""
+    """Poiseuille-number helper for laminar elliptical ducts.
+
+        The component computes the geometry factor for an elliptical passage using
+        the semi-major and semi-minor axes.  The output can be fed into laminar or
+        transitional friction-factor components."""
     def __init__(
         self,
         name: str,
@@ -563,6 +724,14 @@ class EllipsePoiseuille(Component):
         semi_minor_axis: float,
         poiseuille_number: float | None = None,
     ):
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         if semi_major_axis <= 0.0:
             raise ValueError(f"Ellipse semi-major axis must be positive. Got length={semi_major_axis}.")
         
@@ -586,7 +755,11 @@ class EllipsePoiseuille(Component):
 
 
 class CircularAnnulusPoiseuille(Component):
-    """Poiseuille number correlation for circular annuli."""
+    """Poiseuille-number helper for laminar circular annuli.
+
+        The component calculates the laminar annular-duct Poiseuille number from
+        inner and outer diameters.  It is useful for bearings, cooling gaps, seals,
+        and any annular hydraulic passage."""
     def __init__(
         self,
         name: str,
@@ -595,6 +768,14 @@ class CircularAnnulusPoiseuille(Component):
         outer_diameter: float,
         poiseuille_number: float | None = None,
     ):
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         if inner_diameter <= 0.0:
             raise ValueError(f"Annulus inner diameter must be positive. Got length={inner_diameter}.")
         
@@ -625,7 +806,11 @@ class CircularAnnulusPoiseuille(Component):
 
 
 class HydraulicDiameter(Component):
-    """Hydraulic diameter from flow area and wetted perimeter."""
+    """Hydraulic diameter computed from area and wetted perimeter.
+
+        The component writes ``hydraulic_diameter = 4 * area / wetted_perimeter``.
+        It is a convenience node for examples and for models where geometry is built
+        from reusable states rather than constants."""
     def __init__(
         self,
         name: str,
@@ -634,9 +819,24 @@ class HydraulicDiameter(Component):
         wetted_perimeter: State | float,
         hydraulic_diameter: State | None = None,
     ):
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         self.setup()
 
     def evaluate_states(self):
+        """Evaluate the component for the current network state.
+        
+                Solvers call this method repeatedly while settling derived states and
+                assembling residuals.  It should read input ``State.value`` fields, write
+                output states, and update any residual or derivative attributes exposed
+                through ``balances`` or ``dynamics``.  The method does not advance time;
+                transient integration is handled by the solver."""
         A = self.cross_sectional_area.value
         P = self.wetted_perimeter.value
 

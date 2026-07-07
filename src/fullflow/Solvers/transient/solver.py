@@ -40,22 +40,34 @@ from .settings import TransientSettings
 
 
 class Transient:
-    """Fixed-step implicit transient solver for a FullFlow ``Network``.
+    """Backward-Euler transient solver for FullFlow networks.
 
-    Parameters
-    ----------
-    network : Network
-        The network to advance in time.
+        ``Transient`` advances ``network.time`` from its current value to
+        ``t_final``.  Each accepted step solves the coupled implicit residual formed
+        by dynamic equations, component algebraic balances, and user balances.  The
+        solver automatically retries failed steps with smaller half-steps, snaps to
+        final time, output times, sequence command breakpoints, and scheduled abort
+        times, and exports saved histories to HDF5 when requested.
 
-    Notes
-    -----
-    The user chooses the nominal timestep.  The solver may shorten individual
-    steps to land exactly on final time, tabular ``Sequence`` breakpoints, saved
-    output times, or smaller retry steps after a failed nonlinear solve.  It
-    does not automatically grow the timestep.
-    """
+        Main options in ``solve``
+        -------------------------
+        ``dt`` is the nominal timestep.  ``save_dt`` controls output cadence.
+        ``solver_method``/``jacobian_method`` and ``ftol``/``xtol``/``gtol`` are
+        SciPy least-squares controls.  ``rtol`` is the accepted-step residual limit.
+        ``state_max_passes`` and ``state_tolerance`` settle derived states inside
+        residual calls.  ``max_step_retries`` and ``minimum_dt`` control automatic
+        timestep halving.  ``ignore_balances`` removes selected user balances from
+        the transient solve."""
 
     def __init__(self, network) -> None:
+        """Initialize the object and register any FullFlow state wiring.
+        
+                Constructor parameters are documented on the class docstring and in the
+                function signature.  Component constructors normally call
+                ``Component.setup()``, which converts plain scalars to ``State`` objects,
+                preserves supplied state-like objects, creates output states for optional
+                ``None`` arguments, stores metadata, and registers the component with its
+                network."""
         self.network = network
         self.console = Console()
         self._runtime_cache: TransientRuntimeCache | None = None
