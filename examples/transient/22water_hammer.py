@@ -103,6 +103,7 @@ time step, wave speed modeling, and the component equations being used.
 
 from fullflow import *
 from thermoprop import *
+import fullplot as fplt
 
 import numpy as np
 
@@ -437,6 +438,39 @@ for i in range(node_count):
     pipe_nodes.append(node)
 
 
+
+# -----------------------------------------------------------------------------
+# Tracks
+# -----------------------------------------------------------------------------
+
+WaterHammer.track("Valve Area [m2]", valve_area)
+WaterHammer.track("Valve Area [in2]", valve_area / in2_to_m2)
+WaterHammer.track("Outlet Valve Mass Flow [kg/s]", OutletValve.mass_flow)
+WaterHammer.track("Outlet Valve Mass Flow [lbm/s]", OutletValve.mass_flow / lbm_to_kg)
+
+for i in range(node_count):
+    WaterHammer.track(
+        f"Pipe Node {i + 1} Pressure [Pa]",
+        node_pressures[i],
+    )
+
+    WaterHammer.track(
+        f"Pipe Node {i + 1} Pressure [psia]",
+        node_pressures[i] / psi_to_pa,
+    )
+
+for i in range(node_count):
+    WaterHammer.track(
+        f"Pipe Segment {i + 1} Mass Flow [kg/s]",
+        pipe_flows[i],
+    )
+
+    WaterHammer.track(
+        f"Pipe Segment {i + 1} Mass Flow [lbm/s]",
+        pipe_flows[i] / lbm_to_kg,
+    )
+
+
 # -----------------------------------------------------------------------------
 # Solve
 #
@@ -460,3 +494,121 @@ Transient(WaterHammer).solve(
     statistics=True,
     rtol=1.0e-5,
 )
+
+
+
+# -----------------------------------------------------------------------------
+# Plot with FullPlot
+# -----------------------------------------------------------------------------
+
+result = fplt.open(filename).at(
+    "Water_Hammer/transient/runs/base/tracks"
+)
+
+
+# -----------------------------------------------------------------------------
+# Valve area closure
+# -----------------------------------------------------------------------------
+
+valve_area_trace = result.trace(
+    y="Valve Area [in2]",
+    x="time",
+    name="Valve Area",
+    role="command",
+)
+
+result.plot(
+    y=[valve_area_trace],
+    xlabel="Time [s]",
+    ylabel="Valve Area [in2]",
+    title="Water Hammer: Valve Closure",
+)
+
+
+# -----------------------------------------------------------------------------
+# Outlet valve mass flow
+# -----------------------------------------------------------------------------
+
+outlet_mass_flow_trace = result.trace(
+    y="Outlet Valve Mass Flow [lbm/s]",
+    x="time",
+    name="Outlet Valve Mass Flow",
+    role="data",
+)
+
+result.plot(
+    y=[outlet_mass_flow_trace],
+    xlabel="Time [s]",
+    ylabel="Mass Flow [lbm/s]",
+    title="Water Hammer: Outlet Valve Mass Flow",
+)
+
+
+# -----------------------------------------------------------------------------
+# Pipe node pressures
+# -----------------------------------------------------------------------------
+
+pipe_pressure_traces = []
+
+for i in range(node_count):
+    pipe_pressure_traces.append(
+        result.trace(
+            y=f"Pipe Node {i + 1} Pressure [psia]",
+            x="time",
+            name=f"Pipe Node {i + 1}",
+            role="data",
+        )
+    )
+
+result.plot(
+    y=pipe_pressure_traces,
+    xlabel="Time [s]",
+    ylabel="Pressure [psia]",
+    title="Water Hammer: Pipe Node Pressures",
+)
+
+
+# -----------------------------------------------------------------------------
+# Final-node pressure response
+# -----------------------------------------------------------------------------
+
+final_node_pressure_trace = result.trace(
+    y=f"Pipe Node {node_count} Pressure [psia]",
+    x="time",
+    name=f"Pipe Node {node_count}",
+    role="data",
+)
+
+result.plot(
+    y=[final_node_pressure_trace],
+    xlabel="Time [s]",
+    ylabel="Pressure [psia]",
+    title="Water Hammer: Final Node Pressure",
+)
+
+
+# -----------------------------------------------------------------------------
+# Pipe segment mass flows
+# -----------------------------------------------------------------------------
+
+pipe_flow_traces = []
+
+for i in range(node_count):
+    pipe_flow_traces.append(
+        result.trace(
+            y=f"Pipe Segment {i + 1} Mass Flow [lbm/s]",
+            x="time",
+            name=f"Pipe Segment {i + 1}",
+            role="data",
+        )
+    )
+
+result.plot(
+    y=pipe_flow_traces,
+    xlabel="Time [s]",
+    ylabel="Mass Flow [lbm/s]",
+    title="Water Hammer: Pipe Segment Mass Flows",
+)
+
+
+fplt.show()
