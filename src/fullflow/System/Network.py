@@ -124,6 +124,7 @@ class Network:
                         "trace": getattr(trace, "name", "condition"),
                         "role": getattr(condition, "role", getattr(trace, "role", "")),
                         "action": getattr(condition, "action", ""),
+                        "trigger_all": bool(getattr(condition, "trigger_all", False)),
                         "x": getattr(trace, "x", []),
                         "y": getattr(trace, "y", []),
                     }

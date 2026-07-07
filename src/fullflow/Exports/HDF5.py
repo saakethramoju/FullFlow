@@ -629,6 +629,7 @@ def _write_sensor_conditions(parent: h5py.Group, rows: list[dict[str, Any]]) -> 
         trace_name = str(row.get("trace", "condition"))
         role = str(row.get("role", ""))
         action = str(row.get("action", ""))
+        trigger_all = bool(row.get("trigger_all", False))
 
         sensor_group = sensors_group.require_group(safe_group_name(sensor_name))
         sensor_group.attrs["name"] = sensor_name
@@ -639,6 +640,7 @@ def _write_sensor_conditions(parent: h5py.Group, rows: list[dict[str, Any]]) -> 
         trace_group.attrs["name"] = trace_name
         trace_group.attrs["role"] = role
         trace_group.attrs["action"] = action
+        trace_group.attrs["trigger_all"] = trigger_all
         trace_group.attrs["kind"] = "trace"
 
         _write_dataset(trace_group, "time", row.get("x", []), attrs={"name": "time"})
@@ -646,7 +648,7 @@ def _write_sensor_conditions(parent: h5py.Group, rows: list[dict[str, Any]]) -> 
             trace_group,
             "value",
             row.get("y", []),
-            attrs={"name": trace_name, "role": role, "action": action},
+            attrs={"name": trace_name, "role": role, "action": action, "trigger_all": trigger_all},
         )
 
 

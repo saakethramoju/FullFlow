@@ -74,6 +74,8 @@ class SensorCondition:
     previous_reading: float = math.nan
     previous_line_value: float = math.nan
     was_active: bool = False
+    triggered: bool = False
+    trigger_all: bool = False
 
     @property
     def name(self) -> str:
@@ -94,8 +96,12 @@ class Sensor(Component):
     ``conditions`` are FullPlot Trace objects with role ``"redline"``,
     ``"blueline"``, ``"yellowline"``, or ``"greenline"``. Conditions are
     checked after accepted transient steps and logged as sensor events.
-    Redlines are high-severity events, but they do not stop the run by
-    themselves. Abort behavior should be modeled with Sequence commands.
+    Conditions are latched by default: after one crossing event is recorded,
+    later crossings of the same line do not create new events. Pass the same
+    Trace object in ``trigger_all`` to make a specific condition unlatched, so
+    every crossing of that line creates an event. Redlines are high-severity
+    events, but they do not stop the run by themselves. Abort behavior should
+    be modeled with Sequence commands.
     """
 
     def __init__(
@@ -106,12 +112,15 @@ class Sensor(Component):
         variable: State | None = None,
         data: Trace | None = None,
         conditions: Trace | list[Trace] | tuple[Trace, ...] | None = None,
+        trigger_all: Trace | list[Trace] | tuple[Trace, ...] | None = None,
         extend: bool = True,
     ) -> None:
         if data is not None:
             self._validate_data_trace(name, data)
 
         condition_list = self._normalize_conditions(name, conditions)
+        trigger_all_list = self._normalize_trigger_all(name, trigger_all)
+        self._apply_trigger_all(name, condition_list, trigger_all_list)
 
         self.setup()
 
@@ -120,6 +129,7 @@ class Sensor(Component):
         # states. Keep them as the original Trace-backed objects.
         self.data = data
         self.conditions = tuple(condition_list)
+        self.trigger_all = tuple(trigger_all_list)
 
         # Export/cache states. These are updated every evaluate_states() pass
         # and during residual evaluation.
@@ -138,7 +148,7 @@ class Sensor(Component):
         # the component table. The useful sampled values are exported through
         # reading/data_value/error/active/variable_value. Condition traces and
         # sparse condition events are exported through dedicated HDF5 groups.
-        return {"data", "conditions", "extend"}
+        return {"data", "conditions", "trigger_all", "extend"}
 
     @staticmethod
     def _trace_role(trace: Trace) -> str:
@@ -210,6 +220,90 @@ class Sensor(Component):
             )
 
         return normalized
+
+    @classmethod
+    def _normalize_trigger_all(
+        cls,
+        sensor_name: str,
+        trigger_all: Trace | list[Trace] | tuple[Trace, ...] | None,
+    ) -> list[Trace]:
+        if trigger_all is None:
+            return []
+
+        if isinstance(trigger_all, Trace):
+            traces = [trigger_all]
+        else:
+            try:
+                traces = list(trigger_all)
+            except TypeError as exc:
+                raise SolverSetupError(
+                    f"Sensor {sensor_name!r} trigger_all must be a fullplot.Trace object "
+                    "or a list/tuple of fullplot.Trace objects."
+                ) from exc
+
+        normalized: list[Trace] = []
+        for trace in traces:
+            cls._validate_trace_object(sensor_name, trace, purpose="trigger_all")
+            role = cls._trace_role(trace)
+            trace_name = getattr(trace, "name", "<unnamed>")
+
+            if role not in SENSOR_CONDITION_ROLES:
+                valid = ", ".join(repr(item) for item in sorted(SENSOR_CONDITION_ROLES))
+                raise SolverSetupError(
+                    f"Sensor {sensor_name!r} trigger_all traces must have role in {{{valid}}}. "
+                    f"Trace {trace_name!r} has role={role!r}."
+                )
+
+            normalized.append(trace)
+
+        return normalized
+
+    @staticmethod
+    def _same_trace(left: Trace, right: Trace) -> bool:
+        return left is right
+
+    @classmethod
+    def _apply_trigger_all(
+        cls,
+        sensor_name: str,
+        conditions: list[SensorCondition],
+        trigger_all: list[Trace],
+    ) -> None:
+        if not trigger_all:
+            return
+
+        used_condition_ids: set[int] = set()
+
+        for trace in trigger_all:
+            matches = [condition for condition in conditions if cls._same_trace(condition.trace, trace)]
+
+            if not matches:
+                trace_name = str(getattr(trace, "name", "condition"))
+                matches = [condition for condition in conditions if str(condition.name) == trace_name]
+
+            if len(matches) != 1:
+                trace_name = getattr(trace, "name", "<unnamed>")
+                if not matches:
+                    raise SolverSetupError(
+                        f"Sensor {sensor_name!r} trigger_all trace {trace_name!r} must also be "
+                        "present in conditions."
+                    )
+                raise SolverSetupError(
+                    f"Sensor {sensor_name!r} trigger_all trace {trace_name!r} matches multiple "
+                    "conditions by name. Pass the exact condition Trace object instead."
+                )
+
+            condition = matches[0]
+            condition_id = id(condition)
+            if condition_id in used_condition_ids:
+                trace_name = getattr(trace, "name", "<unnamed>")
+                raise SolverSetupError(
+                    f"Sensor {sensor_name!r} trigger_all trace {trace_name!r} was provided more than once."
+                )
+
+            used_condition_ids.add(condition_id)
+            condition.trigger_all = True
+
 
     @staticmethod
     def _resolved(value: Any, default: Any = None) -> Any:
@@ -448,6 +542,7 @@ class Sensor(Component):
             condition.previous_reading = reading
             condition.previous_line_value = self._sample_condition_trace(condition, time_value)
             condition.was_active = False
+            condition.triggered = False
 
     def check_conditions(self, time_value: float | None = None) -> list[SensorEvent]:
         """Return condition-crossing events at the current accepted timestep."""
@@ -479,7 +574,11 @@ class Sensor(Component):
             )
             active = self._crossed(previous_error, current_error, tolerance)
 
-            if active and not condition.was_active:
+            should_emit_event = active and not condition.was_active and (
+                condition.trigger_all or not condition.triggered
+            )
+
+            if should_emit_event:
                 crossing_direction = self._crossing_direction(previous_error, current_error, tolerance)
                 message = (
                     f"{self.name} crossed {condition.name} "
@@ -500,6 +599,7 @@ class Sensor(Component):
                         message=message,
                     )
                 )
+                condition.triggered = True
 
             condition.was_active = active
             condition.previous_reading = reading
