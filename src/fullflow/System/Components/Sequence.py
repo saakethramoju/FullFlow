@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import math
 from typing import TYPE_CHECKING, Callable, Any
 
@@ -19,6 +19,26 @@ SEQUENCE_COMMAND_ROLE = "command"
 SEQUENCE_COMMAND_MISSING = {"hold", "skip", "error"}
 
 
+@dataclass(frozen=True, slots=True)
+class SequenceCondition:
+    """One Sensor condition used to activate a Sequence command or abort."""
+
+    sensor: Any
+    name: str
+
+    @property
+    def sensor_name(self) -> str:
+        return str(getattr(self.sensor, "name", ""))
+
+    @property
+    def key(self) -> tuple[str, str]:
+        return (self.sensor_name, str(self.name))
+
+    @property
+    def label(self) -> str:
+        return f"{self.sensor_name}:{self.name}"
+
+
 @dataclass(slots=True)
 class SequenceCommand:
     """One FullPlot command Trace applied by a Sequence."""
@@ -32,6 +52,9 @@ class SequenceCommand:
     condition: Any = None
     condition_sensor: Any = None
     condition_name: str | None = None
+    condition_terms: tuple[SequenceCondition, ...] = ()
+    satisfied_condition_keys: set[tuple[str, str]] = field(default_factory=set)
+    satisfied_condition_times: dict[tuple[str, str], float] = field(default_factory=dict)
     activation_time: float | None = 0.0
     is_active: bool = True
     last_value: Any = None
@@ -69,6 +92,9 @@ class SequenceAbort:
     condition: Any = None
     condition_sensor: Any = None
     condition_name: str | None = None
+    condition_terms: tuple[SequenceCondition, ...] = ()
+    satisfied_condition_keys: set[tuple[str, str]] = field(default_factory=set)
+    satisfied_condition_times: dict[tuple[str, str], float] = field(default_factory=dict)
     trigger_time: float | None = None
     abort_time: float | None = None
     delay: float = 0.0
@@ -283,8 +309,11 @@ class Sequence(Component):
             sequence.command(FuelValve.area, fuel_abort_command, condition=(CHPT, "High Pc"))
 
         ``condition`` may be ``None`` for an immediate command, a number for an
-        absolute start time, or ``(sensor, condition_name)`` for a Sensor event.
-        Command Trace time is relative to its activation time.
+        absolute start time, ``(sensor, condition_name)`` for one Sensor event,
+        or a list/tuple of ``(sensor, condition_name)`` pairs. Multiple Sensor
+        conditions use all-of semantics: the command activates after every
+        listed condition has occurred. Command Trace time is relative to its
+        activation time.
 
         For normalized commands, use ``scale`` and optional ``offset``::
 
@@ -328,7 +357,7 @@ class Sequence(Component):
             )
 
         self._trace_arrays_for(trace, self.name)
-        condition_sensor, condition_name, activation_time, is_active = self._normalize_command_condition(condition)
+        condition_sensor, condition_name, condition_terms, activation_time, is_active = self._normalize_command_condition(condition)
         label_state_refs(target, f"{self.name}:command:{getattr(trace, 'name', 'command')}")
 
         entry = SequenceCommand(
@@ -341,6 +370,7 @@ class Sequence(Component):
             condition=condition,
             condition_sensor=condition_sensor,
             condition_name=condition_name,
+            condition_terms=condition_terms,
             activation_time=activation_time,
             is_active=is_active,
         )
@@ -368,6 +398,9 @@ class Sequence(Component):
         ``(sensor, condition_name)``
             Abort after that Sensor condition is crossed on an accepted timestep.
 
+        list/tuple of ``(sensor, condition_name)`` pairs
+            Abort after every listed Sensor condition has occurred.
+
         The abort is clean: accepted history is exported normally and the run is
         marked as aborted in transient metadata. Sensor redlines, yellowlines,
         bluelines, and greenlines still only create events; they do not stop the
@@ -381,7 +414,7 @@ class Sequence(Component):
         if not math.isfinite(delay) or delay < 0.0:
             raise SolverSetupError(f"Sequence {self.name!r} abort delay must be finite and non-negative.")
 
-        condition_sensor, condition_name, activation_time, is_active = self._normalize_command_condition(condition)
+        condition_sensor, condition_name, condition_terms, activation_time, is_active = self._normalize_command_condition(condition)
 
         abort_time = None
         trigger_time = None
@@ -396,6 +429,7 @@ class Sequence(Component):
             condition=condition,
             condition_sensor=condition_sensor,
             condition_name=condition_name,
+            condition_terms=condition_terms,
             trigger_time=trigger_time,
             abort_time=abort_time,
             delay=delay,
@@ -489,8 +523,8 @@ class Sequence(Component):
                     "target": self._target_label(entry.target),
                     "missing": entry.missing,
                     "condition": self._condition_label(entry),
-                    "condition_sensor": getattr(entry.condition_sensor, "name", "") if entry.condition_sensor is not None else "",
-                    "condition_name": entry.condition_name or "",
+                    "condition_sensor": self._condition_sensor_label(entry),
+                    "condition_name": self._condition_name_label(entry),
                     "activation_time": math.nan if entry.activation_time is None else float(entry.activation_time),
                     "scale": self._read(entry.scale),
                     "offset": self._read(entry.offset),
@@ -514,54 +548,58 @@ class Sequence(Component):
             return False
 
     def activate_condition_commands(self, events: list[Any]) -> None:
-        """Activate commands whose Sensor condition occurred on an accepted step."""
+        """Activate commands whose Sensor conditions occurred on accepted steps."""
         if not events:
             return
+
+        event_times = self._event_time_map(events)
 
         for entry in self._command_entries:
-            if entry.condition_sensor is None or entry.condition_name is None or entry.is_active:
+            if not entry.condition_terms or entry.is_active:
                 continue
 
-            sensor_name = str(getattr(entry.condition_sensor, "name", ""))
-            for event in events:
-                if str(getattr(event, "sensor", "")) != sensor_name:
-                    continue
-                if str(getattr(event, "trace", "")) != str(entry.condition_name):
-                    continue
-                try:
-                    activation_time = float(getattr(event, "time"))
-                except Exception:
-                    activation_time = self._network_time()
-                entry.activation_time = activation_time
-                entry.is_active = True
-                entry.clear_pending()
-                entry.has_last_value = False
-                entry.last_value = None
-                break
+            self._record_satisfied_conditions(
+                terms=entry.condition_terms,
+                satisfied_keys=entry.satisfied_condition_keys,
+                satisfied_times=entry.satisfied_condition_times,
+                event_times=event_times,
+            )
+
+            if not self._all_conditions_satisfied(entry.condition_terms, entry.satisfied_condition_keys):
+                continue
+
+            activation_time = max(entry.satisfied_condition_times.values(), default=self._network_time())
+            entry.activation_time = activation_time
+            entry.is_active = True
+            entry.clear_pending()
+            entry.has_last_value = False
+            entry.last_value = None
 
     def activate_condition_aborts(self, events: list[Any]) -> None:
-        """Arm clean abort rules whose Sensor condition occurred on an accepted step."""
+        """Arm clean abort rules whose Sensor conditions occurred on accepted steps."""
         if not events:
             return
 
+        event_times = self._event_time_map(events)
+
         for entry in self._abort_entries:
-            if entry.condition_sensor is None or entry.condition_name is None or entry.is_triggered:
+            if not entry.condition_terms or entry.is_triggered:
                 continue
 
-            sensor_name = str(getattr(entry.condition_sensor, "name", ""))
-            for event in events:
-                if str(getattr(event, "sensor", "")) != sensor_name:
-                    continue
-                if str(getattr(event, "trace", "")) != str(entry.condition_name):
-                    continue
-                try:
-                    trigger_time = float(getattr(event, "time"))
-                except Exception:
-                    trigger_time = self._network_time()
-                entry.trigger_time = trigger_time
-                entry.abort_time = trigger_time + float(entry.delay)
-                entry.is_triggered = True
-                break
+            self._record_satisfied_conditions(
+                terms=entry.condition_terms,
+                satisfied_keys=entry.satisfied_condition_keys,
+                satisfied_times=entry.satisfied_condition_times,
+                event_times=event_times,
+            )
+
+            if not self._all_conditions_satisfied(entry.condition_terms, entry.satisfied_condition_keys):
+                continue
+
+            trigger_time = max(entry.satisfied_condition_times.values(), default=self._network_time())
+            entry.trigger_time = trigger_time
+            entry.abort_time = trigger_time + float(entry.delay)
+            entry.is_triggered = True
 
     def next_abort_time(self, current_time: float | None = None) -> float | None:
         """Return the next clean abort time requested by this Sequence."""
@@ -609,19 +647,41 @@ class Sequence(Component):
             "trigger_time": math.nan if entry.trigger_time is None else float(entry.trigger_time),
             "delay": float(entry.delay),
             "condition": self._abort_condition_label(entry),
-            "condition_sensor": getattr(entry.condition_sensor, "name", "") if entry.condition_sensor is not None else "",
-            "condition_name": entry.condition_name or "",
+            "condition_sensor": self._abort_condition_sensor_label(entry),
+            "condition_name": self._abort_condition_name_label(entry),
             "message": entry.message or f"Sequence {self.name!r} requested abort.",
         }
+
+    def reset_command_history(self) -> None:
+        """Reset one-run command activation memory without changing configured commands."""
+        for entry in self._command_entries:
+            entry.clear_pending()
+            entry.has_last_value = False
+            entry.last_value = None
+            entry.satisfied_condition_keys.clear()
+            entry.satisfied_condition_times.clear()
+
+            if entry.condition_terms:
+                entry.is_active = False
+                entry.activation_time = None
+            elif entry.activation_time is None:
+                entry.activation_time = 0.0
+                entry.is_active = True
+            elif float(entry.activation_time) == 0.0:
+                entry.is_active = True
+            else:
+                entry.is_active = False
 
     def reset_abort_history(self) -> None:
         """Reset one-run abort state without changing configured abort rules."""
         for entry in self._abort_entries:
             entry.has_aborted = False
-            if entry.condition_sensor is not None:
+            if entry.condition_terms:
                 entry.is_triggered = False
                 entry.trigger_time = None
                 entry.abort_time = None
+                entry.satisfied_condition_keys.clear()
+                entry.satisfied_condition_times.clear()
             else:
                 start_time = 0.0 if entry.trigger_time is None else float(entry.trigger_time)
                 entry.trigger_time = start_time
@@ -630,45 +690,122 @@ class Sequence(Component):
 
     @staticmethod
     def _abort_condition_label(entry: SequenceAbort) -> str:
-        if entry.condition_sensor is not None and entry.condition_name is not None:
-            return f"{getattr(entry.condition_sensor, 'name', 'sensor')}:{entry.condition_name}"
+        if entry.condition_terms:
+            if len(entry.condition_terms) == 1:
+                return entry.condition_terms[0].label
+            labels = ", ".join(term.label for term in entry.condition_terms)
+            return f"all({labels})"
         if entry.trigger_time is not None and float(entry.trigger_time) != 0.0:
             return f"time:{float(entry.trigger_time):.9g}"
         return "immediate"
 
-    def _normalize_command_condition(self, condition: Any) -> tuple[Any, str | None, float | None, bool]:
+    @staticmethod
+    def _abort_condition_sensor_label(entry: SequenceAbort) -> str:
+        return ",".join(term.sensor_name for term in entry.condition_terms)
+
+    @staticmethod
+    def _abort_condition_name_label(entry: SequenceAbort) -> str:
+        return ",".join(str(term.name) for term in entry.condition_terms)
+
+    @staticmethod
+    def _is_single_sensor_condition(condition: Any) -> bool:
+        if not isinstance(condition, (tuple, list)) or len(condition) != 2:
+            return False
+        sensor, _ = condition
+        return callable(getattr(type(sensor), "has_condition", None))
+
+    def _make_condition_term(self, item: Any) -> SequenceCondition:
+        if not self._is_single_sensor_condition(item):
+            raise SolverSetupError(
+                f"Sequence {self.name!r} condition entries must be (Sensor, condition_name). "
+                f"Got {type(item).__name__}."
+            )
+
+        sensor, condition_name = item
+        condition_name = str(condition_name)
+        has_condition = getattr(type(sensor), "has_condition", None)
+        if not has_condition(sensor, condition_name):
+            raise SolverSetupError(
+                f"Sequence {self.name!r} command condition {condition_name!r} was not found on "
+                f"Sensor {getattr(sensor, 'name', '<unnamed>')!r}."
+            )
+        return SequenceCondition(sensor=sensor, name=condition_name)
+
+    def _normalize_condition_terms(self, condition: Any) -> tuple[SequenceCondition, ...]:
+        if self._is_single_sensor_condition(condition):
+            return (self._make_condition_term(condition),)
+
+        if isinstance(condition, (tuple, list)) and condition:
+            terms = tuple(self._make_condition_term(item) for item in condition)
+            seen: set[tuple[str, str]] = set()
+            for term in terms:
+                if term.key in seen:
+                    raise SolverSetupError(
+                        f"Sequence {self.name!r} condition {term.label!r} was listed more than once."
+                    )
+                seen.add(term.key)
+            return terms
+
+        raise SolverSetupError(
+            f"Sequence {self.name!r} command condition must be None, a start time, "
+            "(Sensor, condition_name), or a list/tuple of (Sensor, condition_name) pairs."
+        )
+
+    def _normalize_command_condition(self, condition: Any) -> tuple[Any, str | None, tuple[SequenceCondition, ...], float | None, bool]:
         if condition is None:
-            return None, None, 0.0, True
+            return None, None, (), 0.0, True
 
         if isinstance(condition, (int, float, np.integer, np.floating)):
             start_time = float(condition)
             if not math.isfinite(start_time):
                 raise SolverSetupError(f"Sequence {self.name!r} command condition time must be finite.")
-            return None, None, start_time, False
+            return None, None, (), start_time, False
 
-        if isinstance(condition, (tuple, list)) and len(condition) == 2:
-            sensor, condition_name = condition
-            condition_name = str(condition_name)
-            has_condition = getattr(type(sensor), "has_condition", None)
-            if not callable(has_condition):
-                raise SolverSetupError(
-                    f"Sequence {self.name!r} command condition must be (Sensor, condition_name). "
-                    f"Got {type(sensor).__name__}."
-                )
-            if not has_condition(sensor, condition_name):
-                raise SolverSetupError(
-                    f"Sequence {self.name!r} command condition {condition_name!r} was not found on "
-                    f"Sensor {getattr(sensor, 'name', '<unnamed>')!r}."
-                )
-            return sensor, condition_name, None, False
+        terms = self._normalize_condition_terms(condition)
+        if len(terms) == 1:
+            return terms[0].sensor, terms[0].name, terms, None, False
+        return None, None, terms, None, False
 
-        raise SolverSetupError(
-            f"Sequence {self.name!r} command condition must be None, a start time, "
-            "or (Sensor, condition_name)."
-        )
+    @staticmethod
+    def _event_time_map(events: list[Any]) -> dict[tuple[str, str], float]:
+        event_times: dict[tuple[str, str], float] = {}
+        for event in events:
+            key = (str(getattr(event, "sensor", "")), str(getattr(event, "trace", "")))
+            try:
+                event_time = float(getattr(event, "time"))
+            except Exception:
+                event_time = math.nan
+            if not math.isfinite(event_time):
+                continue
+            previous = event_times.get(key)
+            if previous is None or event_time > previous:
+                event_times[key] = event_time
+        return event_times
+
+    @staticmethod
+    def _record_satisfied_conditions(
+        *,
+        terms: tuple[SequenceCondition, ...],
+        satisfied_keys: set[tuple[str, str]],
+        satisfied_times: dict[tuple[str, str], float],
+        event_times: dict[tuple[str, str], float],
+    ) -> None:
+        for term in terms:
+            event_time = event_times.get(term.key)
+            if event_time is None:
+                continue
+            satisfied_keys.add(term.key)
+            satisfied_times[term.key] = event_time
+
+    @staticmethod
+    def _all_conditions_satisfied(
+        terms: tuple[SequenceCondition, ...],
+        satisfied_keys: set[tuple[str, str]],
+    ) -> bool:
+        return all(term.key in satisfied_keys for term in terms)
 
     def _command_is_active(self, entry: SequenceCommand, time_value: float) -> bool:
-        if entry.condition_sensor is not None:
+        if entry.condition_terms:
             return bool(entry.is_active and entry.activation_time is not None)
 
         if entry.activation_time is None:
@@ -681,11 +818,22 @@ class Sequence(Component):
 
     @staticmethod
     def _condition_label(entry: SequenceCommand) -> str:
-        if entry.condition_sensor is not None and entry.condition_name is not None:
-            return f"{getattr(entry.condition_sensor, 'name', 'sensor')}:{entry.condition_name}"
+        if entry.condition_terms:
+            if len(entry.condition_terms) == 1:
+                return entry.condition_terms[0].label
+            labels = ", ".join(term.label for term in entry.condition_terms)
+            return f"all({labels})"
         if entry.activation_time is not None and float(entry.activation_time) != 0.0:
             return f"time:{float(entry.activation_time):.9g}"
         return "immediate"
+
+    @staticmethod
+    def _condition_sensor_label(entry: SequenceCommand) -> str:
+        return ",".join(term.sensor_name for term in entry.condition_terms)
+
+    @staticmethod
+    def _condition_name_label(entry: SequenceCommand) -> str:
+        return ",".join(str(term.name) for term in entry.condition_terms)
 
     def _apply_command(self, entry: SequenceCommand, time_value: float) -> None:
         if not self._command_is_active(entry, time_value):

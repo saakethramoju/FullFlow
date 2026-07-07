@@ -162,11 +162,15 @@ class Network:
                 activate_abort(sequence, events)
 
     def reset_sequence_aborts(self) -> None:
-        """Reset one-run Sequence abort history before a transient run."""
+        """Reset one-run Sequence command and abort history before a transient run."""
         for sequence in self.sequence_components():
-            reset = getattr(type(sequence), "reset_abort_history", None)
-            if callable(reset):
-                reset(sequence)
+            reset_commands = getattr(type(sequence), "reset_command_history", None)
+            if callable(reset_commands):
+                reset_commands(sequence)
+
+            reset_aborts = getattr(type(sequence), "reset_abort_history", None)
+            if callable(reset_aborts):
+                reset_aborts(sequence)
 
     def next_sequence_abort_time(self, current_time: float | None = None) -> float | None:
         """Return the next clean abort time requested by any Sequence."""

@@ -33,7 +33,11 @@ sum is always the physical injector CdA.
 
 The only command traces in this model are the upstream main valve CdA commands.
 """
+filename = 'test'
+generate_combustion_map = False
 
+mixture_ratio_map_min = 0.5
+mixture_ratio_map_max = 6.0
 
 # -----------------------------------------------------------------------------
 # Constants
@@ -81,6 +85,56 @@ injector_wet_start = 0.90
 injector_wet_end = 0.99
 
 
+
+
+
+if generate_combustion_map:
+    map_fuel = Propellant("rp-1", temperature=fuel_temperature)
+    map_ox = Propellant("lox", temperature=ox_temperature)
+
+    def rp1_lox_products(chamber_pressure, mixture_ratio):
+        reactants = Reactants(
+            fuels=map_fuel,
+            oxidizers=map_ox,
+            mixture_ratio=mixture_ratio,
+        )
+
+        gas = Equilibrium(
+            reactants=reactants,
+            pressure=chamber_pressure,
+        )
+
+        return {
+            "temperature": gas.temperature,
+            "gamma": gas.gamma,
+            "gas_constant": gas.gas_constant,
+            "density": gas.density,
+        }
+
+    fplt.generate_map(
+        filename,
+        group="products",
+        axes=[
+            fplt.Axis.linear(
+                "chamber_pressure",
+                start=ambient_pressure,
+                stop=500.0 * psia_to_pa,
+                count=36,
+                units="Pa",
+            ),
+            fplt.Axis.linear(
+                "mixture_ratio",
+                start=mixture_ratio_map_min,
+                stop=mixture_ratio_map_max,
+                count=36,
+            ),
+        ],
+        evaluate=rp1_lox_products,
+        overwrite=True,
+        raise_errors=True,
+    )
+
+
 # -----------------------------------------------------------------------------
 # Helpers
 # -----------------------------------------------------------------------------
@@ -126,6 +180,9 @@ def smoothstep_state(x):
 # -----------------------------------------------------------------------------
 
 Priming = Network("Dual Propellant Priming")
+
+
+
 Startup = Sequence("Startup Sequence", Priming)
 
 
@@ -425,6 +482,36 @@ OxInterfacePressureBalance = Balance(
 )
 
 
+FIPT_blueline = fplt.Trace(
+    x=[0.0, t_final],
+    y=[180.0, 180.0],
+    name="FIPT Ignition Blueline",
+    role="blueline",
+)
+
+OIPT_blueline = fplt.Trace(
+    x=[0.0, t_final],
+    y=[90.0, 90.0],
+    name="OIPT Ignition Blueline",
+    role="blueline",
+)
+
+
+FIPT = Sensor(
+    "FIPT",
+    Priming,
+    reading=FuelPrimingLiquid.pressure / psia_to_pa,
+    conditions=FIPT_blueline,
+)
+
+OIPT = Sensor(
+    "OIPT",
+    Priming,
+    reading=OxPrimingLiquid.pressure / psia_to_pa,
+    conditions=OIPT_blueline,
+)
+
+
 mixture_ratio = OxInjectorLiquidOutlet.mass_flow / FuelInjectorLiquidOutlet.mass_flow
 
 
@@ -470,7 +557,6 @@ Priming.track("Mixture Ratio", mixture_ratio)
 # -----------------------------------------------------------------------------
 # Solve
 # -----------------------------------------------------------------------------
-filename = 'test'
 
 
 SteadyState(Priming).solve(
