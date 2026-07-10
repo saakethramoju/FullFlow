@@ -13,43 +13,27 @@ propulsion, control, and transient network models.
 The package is designed around the way engineering system models are usually
 assembled: a network contains components, components share states, and solvers
 adjust selected states until component equations, balances, and dynamic residuals
-are satisfied.  FullFlow is not a CFD solver.  It is a lumped/network modeling
-framework for systems such as feed systems, tanks, valves, pipes, pumps,
-turbines, thrust chambers, heat exchangers, regenerative cooling circuits,
-pressurization systems, virtual test stands, and controller-driven startup
-sequences.
-
-FullFlow currently has no separate documentation site.  This README and the
-public API docstrings are therefore intentionally detailed.  In Python, use
-`help(fullflow.SteadyState)`, `help(fullflow.Transient)`,
-`help(fullflow.Volume)`, `help(fullflow.Lookup)`, or any other exported class for
-API-level documentation.
-
-
-## Status of this release
-
-FullFlow 2.0.0 is a publish-ready public release.  It consolidates the core
-System API, steady-state solver, transient solver, model-option workflow,
-FullPlot-backed instrumentation, and the current component library into a
-package that can be installed from PyPI.  The release also removes the old local
-FullPlot development dependency and depends on the PyPI package `fullplot>=0.1.0`.
+are satisfied.  FullFlow is not a Navier-Stokes CFD solver.  It is a 
+lumped/network modeling framework for systems such as feed systems, tanks, valves, 
+pipes, pumps,turbines, thrust chambers, heat exchangers, regenerative cooling circuits,
+pressurization systems, virtual test stands, and controller-driven startup sequences.
 
 ## Installation
 
 ```bash
-pip install fullflow
+pip3 install fullflow
 ```
 
 For examples that use ThermoProp property objects directly:
 
 ```bash
-pip install "fullflow[thermo]"
+pip3 install "fullflow[thermo]"
 ```
 
 For the full example set:
 
 ```bash
-pip install "fullflow[examples]"
+pip3 install "fullflow[examples]"
 ```
 
 With `uv`:
@@ -67,7 +51,7 @@ Core FullFlow depends on:
 - `scipy` for nonlinear least-squares solving and interpolation.
 - `rich` for optional terminal diagnostics.
 - `h5py` for HDF5 result export.
-- `fullplot>=0.1.0` for trace objects, command traces, sensor traces, and map-generation workflows.
+- `fullplot` for trace objects, command traces, sensor traces, and map-generation workflows.
 
 ThermoProp is optional.  FullFlow's core package does not require a specific
 fluid-property backend, because `Lookup` can wrap any callable or class.  Many
@@ -627,18 +611,19 @@ The repository includes examples for:
 
 Examples that import ThermoProp require `fullflow[thermo]` or `fullflow[examples]`.
 
-## Development checks
+# Documentation
 
-From a local checkout:
+Full documentation:
 
-```bash
-python -m compileall -q src tests examples
-PYTHONPATH=src python -m pytest -q
-uv build
-```
+https://saakethramoju.github.io/softwares/fullflow/
 
-Before publishing, also inspect the built wheel and sdist to confirm that docs,
-examples, tests, license files, and package source are present.
+Source code:
+
+https://github.com/saakethramoju/FullFlow
+
+PyPI:
+
+https://pypi.org/project/fullflow/
 
 ## License
 
