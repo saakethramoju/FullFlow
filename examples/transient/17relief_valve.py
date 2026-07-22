@@ -30,10 +30,11 @@ This example keeps the model intentionally simple:
 4. The fill valve is always open.
 5. The relief valve opens when tank pressure exceeds the relief open pressure.
 6. The relief valve closes when tank pressure falls below the relief close pressure.
-7. No custom components are used.
+7. The valve may open and close repeatedly during one simulation.
+8. No custom components are used.
 
-The relief valve uses a Sequence that reads TankPressure and changes the
-discharge coefficient of a CompressibleOrifice.
+The relief valve uses a Sequence that reads the previous accepted pressure and
+valve command, then changes the discharge coefficient of a CompressibleOrifice.
 """
 
 from fullflow import *
@@ -53,7 +54,7 @@ source_temperature = 300.0
 initial_tank_pressure = 14.7 * psi_to_pa
 initial_tank_temperature = 300.0
 
-# Use a low relief pressure so the valve opens during this short example.
+# Use a low relief pressure so the valve cycles during this short example.
 relief_open_pressure = 100.0 * psi_to_pa
 relief_close_pressure = 90.0 * psi_to_pa
 
@@ -70,39 +71,6 @@ fill_valve_area = 1.0e-6
 # Make the relief valve larger than the fill valve so it can actually reduce
 # tank pressure after it opens.
 relief_valve_area = 1.5e-5
-
-
-# -----------------------------------------------------------------------------
-# Relief valve schedule
-# -----------------------------------------------------------------------------
-
-def make_relief_valve_schedule():
-    """
-    Create a simple hysteresis relief-valve schedule.
-
-    The valve opens when tank pressure rises above relief_open_pressure.
-    The valve closes when tank pressure falls below relief_close_pressure.
-
-    The hysteresis prevents rapid open/closed chatter.
-    """
-
-    relief_is_open = False
-
-    def relief_valve_schedule(t, tank_pressure):
-        nonlocal relief_is_open
-
-        if tank_pressure >= relief_open_pressure:
-            relief_is_open = True
-
-        if tank_pressure <= relief_close_pressure:
-            relief_is_open = False
-
-        if relief_is_open:
-            return 1.0
-
-        return 0.0
-
-    return relief_valve_schedule
 
 
 # -----------------------------------------------------------------------------
@@ -139,14 +107,28 @@ ReliefMassFlow = State(0.0)
 # Relief valve command.
 ReliefValveCd = State(0.0)
 
+
+def relief_valve_schedule(t, tank_pressure, previous_relief_valve_cd):
+    """Open and close the relief valve with pressure hysteresis."""
+
+    if tank_pressure >= relief_open_pressure:
+        return 1.0
+
+    if tank_pressure <= relief_close_pressure:
+        return 0.0
+
+    return previous_relief_valve_cd
+
+
+# Sequence inputs come from the previous accepted timestep, so hysteresis keeps
+# its prior valve position without hidden closure state during solver retries.
 ReliefValveSequence = Sequence(
     "Relief Valve Cd Schedule",
     GasTankNetwork,
     target=ReliefValveCd,
-    function=make_relief_valve_schedule(),
-    inputs=[TankPressure],
+    function=relief_valve_schedule,
+    inputs=[TankPressure, ReliefValveCd],
 )
-
 
 # Fill orifice from source to tank.
 FillValve = CompressibleOrifice(

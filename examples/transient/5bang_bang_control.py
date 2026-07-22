@@ -60,6 +60,7 @@ conservation.
 """
 
 import numpy as np
+import fullplot as fplt
 
 from fullflow import *
 from thermoprop import *
@@ -194,13 +195,13 @@ COPV = Volume(
 # Bang-bang tank pressure controller
 # ---------------------------------------------------------------------------
 
-def bang_bang_condition(t, pressure):
+def bang_bang_condition(t, pressure, previous_cda):
     """
     Simple bang-bang controller for the pressurization valve.
 
     If the tank pressure is above the upper deadband, the valve closes.
     If the tank pressure is below the lower deadband, the valve opens.
-    Inside the deadband, the valve keeps its previous value.
+    Inside the deadband, the valve keeps its previous accepted value.
     """
 
     if pressure > tank_set_pressure + 5 * psi_to_pa:
@@ -209,15 +210,17 @@ def bang_bang_condition(t, pressure):
     if pressure < tank_set_pressure - 5 * psi_to_pa:
         return 1.0
 
-    return bang_bang_cda.value
+    return previous_cda
 
 
+# Sequence inputs come from the previous accepted timestep, so hysteresis can
+# repeat without storing hidden Python state during nonlinear solver retries.
 BangBangSequence = Sequence(
     "Bang Bang Cd",
     BangBangSim,
     target=bang_bang_cda,
     function=bang_bang_condition,
-    inputs=[ullage_pressure],
+    inputs=[ullage_pressure, bang_bang_cda],
 )
 
 
@@ -245,13 +248,13 @@ BangBangValve = CompressibleOrifice(
 # Relief valve schedule
 # ---------------------------------------------------------------------------
 
-def relief_valve_condition(t, pressure):
+def relief_valve_condition(t, pressure, previous_cd):
     """
     Simple relief valve schedule.
 
     If the ullage pressure rises above the opening pressure, the relief valve
     opens. If the ullage pressure falls below the closing pressure, it closes.
-    Inside the band, it keeps its previous value.
+    Inside the band, it keeps its previous accepted value.
     """
 
     if pressure > relief_valve_open_pressure:
@@ -260,15 +263,17 @@ def relief_valve_condition(t, pressure):
     if pressure < relief_valve_close_pressure:
         return 0.0
 
-    return relief_valve_cd.value
+    return previous_cd
 
 
+# The previous accepted valve command provides repeatable hysteresis without a
+# closure latch that could survive a rejected transient timestep.
 ReliefValveSequence = Sequence(
     "Relief Valve Cd",
     BangBangSim,
     target=relief_valve_cd,
     function=relief_valve_condition,
-    inputs=[ullage_pressure],
+    inputs=[ullage_pressure, relief_valve_cd],
 )
 
 
@@ -409,45 +414,42 @@ main_valve_cd = State(0.0)
 
 main_valve_ramp_time = 0.5
 
+# The greenline creates an event when the accepted ullage-pressure history
+# reaches the tank pressure setpoint.
+main_valve_open_condition = fplt.Trace(
+    x=[0.0, 22.5],
+    y=[tank_set_pressure, tank_set_pressure],
+    name="Tank Set Pressure Reached",
+    role="greenline",
+)
 
-def make_main_valve_sequence():
-    """
-    Create a stateful valve-opening schedule.
+TankPressureSensor = Sensor(
+    "Tank Pressure Sensor",
+    BangBangSim,
+    reading=ullage_pressure,
+    conditions=main_valve_open_condition,
+)
 
-    The main valve remains closed until tank pressure reaches the set pressure.
-    Once triggered, it ramps from Cd = 0 to Cd = 0.6 over
-    main_valve_ramp_time seconds.
-    """
-
-    opened = False
-    open_time = None
-
-    def main_valve_sequence(t, tank_pressure):
-        nonlocal opened, open_time
-
-        if not opened and tank_pressure >= tank_set_pressure:
-            opened = True
-            open_time = t
-
-        if not opened:
-            return 0.0
-
-        ramp_fraction = (t - open_time) / main_valve_ramp_time
-
-        if ramp_fraction >= 1.0:
-            return 0.6
-
-        return 0.6 * max(0.0, ramp_fraction)
-
-    return main_valve_sequence
-
+# Command time is relative to the Sensor event, so the valve ramps from closed
+# to Cd = 0.6 over main_valve_ramp_time seconds after the trigger.
+main_valve_open_command = fplt.Trace(
+    x=[0.0, main_valve_ramp_time, 22.5],
+    y=[0.0, 0.6, 0.6],
+    name="Main Valve Open Command",
+    role="command",
+)
 
 MainValveSequence = Sequence(
     "Main Valve Cd",
     BangBangSim,
-    target=main_valve_cd,
-    function=make_main_valve_sequence(),
-    inputs=[ullage_pressure],
+)
+
+# A Sensor command triggers only from an accepted timestep, so a rejected
+# nonlinear trial cannot leave a hidden opening time latched in user code.
+MainValveSequence.command(
+    main_valve_cd,
+    main_valve_open_command,
+    condition=(TankPressureSensor, "Tank Set Pressure Reached"),
 )
 
 
