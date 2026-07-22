@@ -1,6 +1,6 @@
 [project]
 name = "fullflow"
-version = "2.0.0"
+version = "2.0.1"
 description = "Python-native fluid, thermal, propulsion, control, and transient network simulation."
 readme = "README.md"
 license = "GPL-3.0-only"

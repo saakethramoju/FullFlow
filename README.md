@@ -1754,6 +1754,66 @@ Transient timesteps are shortened to land on command breakpoints where possible.
 This avoids stepping past command changes and makes sequence-driven simulations
 behave more like test procedures.
 
+### PID startup, trim, and integral dynamics
+
+`PID` remains transient-only: a steady-state solve leaves the initialized command
+alone, then the controller takes over when transient integration begins. Existing
+constructor usage is unchanged:
+
+```python
+pressure_command = State(0.35)
+pressure_setpoint = State(3.0e6)
+
+PressurePID = PID(
+    "Pressure PID",
+    Net,
+    feedback=measured_pressure,
+    setpoint=pressure_setpoint,
+    proportional_gain=2.0e-7,
+    integral_gain=5.0e-8,
+    derivative_gain=0.0,
+    trim=feed_forward_command,
+    command=pressure_command,
+    minimum=0.0,
+    maximum=1.0,
+)
+```
+
+At transient initialization, the PID calculates a public `command_bias` so the
+first output equals the command already established by the user or steady-state
+model. Startup is therefore bumpless both with and without `trim`. After startup,
+`trim` remains a live feed-forward contribution, so later trim changes still
+produce immediate requested-command changes.
+
+The accumulated error is a normal FullFlow dynamic State:
+
+```text
+d(integral_error)/dt = integral_error_dot
+integral_error_dot   = error          # normal integration
+integral_error_dot   = 0              # anti-windup hold
+```
+
+FullFlow integrates this state implicitly with the physical network. The PID uses
+accepted `State.previous` history for its derivative calculation, so repeated
+nonlinear evaluations within one timestep do not consume or overwrite controller
+history. Public diagnostics include `error`, `integral_error`,
+`integral_error_dot`, `proportional`, `integral`, `derivative`, `command_bias`,
+`raw_command`, and `saturated`.
+
+The derivative acts on error, so a setpoint step can produce derivative kick when
+`derivative_gain` is nonzero. Physical valve or motor rate limits should normally
+be modeled with `Actuator`; PID `minimum` and `maximum` clamp only the requested
+command.
+
+### One-time events versus repeating hysteresis
+
+Use a Sensor-triggered `Sequence.command(...)` when the control statement is
+"once this accepted event occurs, begin this command trace." Use a function-based
+`Sequence` with the target command State included in `inputs` when the logic must
+open, close, and reopen repeatedly. Inside the hysteresis band, return the
+previous accepted command input. This keeps all memory in FullFlow-managed State
+history and avoids hidden mutable closure variables during timestep retries.
+
 ## Units
 
 FullFlow does not enforce a global unit system.  Most examples use SI units:

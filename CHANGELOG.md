@@ -1,5 +1,43 @@
 # Changelog
 
+## 2.0.1
+
+### PID controller
+
+* Reworked PID integral action as a normal public FullFlow dynamic State instead
+  of advancing controller history inside repeated nonlinear residual evaluations.
+* Added ``integral_error`` and ``integral_error_dot`` as the PID dynamic pair so
+  the implicit transient solver integrates accumulated error with the rest of the
+  network.
+* Changed derivative history to use the previous accepted ``error`` and network
+  time through the public ``State.previous`` interface.
+* Made transient takeover bumpless whether ``trim`` is omitted or supplied.
+  The initialized command now defines the first PID output in both cases.
+* Kept ``trim`` as a live feed-forward contribution after startup, so later trim
+  changes still move the requested command immediately.
+* Improved conditional-integration anti-windup so it considers the direction of
+  the integral contribution and supports either sign of integral gain.
+* Added public controller diagnostics for proportional, integral, derivative,
+  raw command, saturation status, and startup command bias.
+* Added clear validation for reversed command limits and derived, non-writable
+  command States.
+* Kept the PID transient-only so steady-state solves preserve the user-established
+  plant command and the controller takes over when transient integration begins.
+* Did not add or remove PID constructor arguments.
+
+### Sequence examples
+
+* Replaced hidden mutable closure state in the bang-bang tank main-valve example
+  with an accepted-timestep Sensor-triggered command for the one-time opening
+  event.
+* Updated bang-bang and relief-valve hysteresis examples to retain their previous
+  accepted command through explicit State inputs rather than hidden Python
+  closure variables.
+* Preserved repeated relief-valve open/close/reopen behavior within one transient
+  simulation.
+* Added comments explaining when to use a one-time Sensor command versus
+  repeatable State-based hysteresis.
+
 ## 2.0.0
 
 FullFlow 2.0.0 is a publish-ready public release focused on packaging readiness,
