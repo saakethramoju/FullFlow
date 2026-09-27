@@ -1,6 +1,6 @@
 [project]
 name = "fullflow"
-version = "2.0.1"
+version = "2.0.2"
 description = "Python-native fluid, thermal, propulsion, control, and transient network simulation."
 readme = "README.md"
 license = "GPL-3.0-only"
@@ -50,7 +50,7 @@ dependencies = [
     "scipy>=1.11",
     "rich>=13.7",
     "h5py>=3.10",
-    "fullplot>=0.1.0",
+    "fullplot>=0.1.1",
 ]
 
 [project.optional-dependencies]

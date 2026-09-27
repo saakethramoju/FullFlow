@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.0.2
+
+* Updated the FullPlot dependency to `fullplot>=0.1.1`.
+* Updated Sensor missing-data documentation to match current `extend` behavior.
+* Updated the test-data anchoring example to use shared `TimeAxis.window(...)` windowing.
+
 ## 2.0.1
 
 ### PID controller

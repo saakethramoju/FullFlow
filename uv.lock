@@ -390,7 +390,7 @@ wheels = [
 
 [[package]]
 name = "fullflow"
-version = "2.0.1"
+version = "2.0.2"
 source = { editable = "." }
 dependencies = [
     { name = "fullplot" },
@@ -426,7 +426,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "build", marker = "extra == 'dev'", specifier = ">=1.2" },
-    { name = "fullplot", specifier = ">=0.1.0" },
+    { name = "fullplot", specifier = ">=0.1.1" },
     { name = "h5py", specifier = ">=3.10" },
     { name = "matplotlib", marker = "extra == 'examples'", specifier = ">=3.8" },
     { name = "numpy", specifier = ">=1.26" },
@@ -448,7 +448,7 @@ dev = [
 
 [[package]]
 name = "fullplot"
-version = "0.1.0"
+version = "0.1.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "h5py" },
@@ -458,11 +458,6 @@ dependencies = [
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "scipy", version = "1.18.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/3c/48/da3f46cac6039d54bff5d45f75faf43788ce85a1575fc08d3e980f5c6b56/fullplot-0.1.0.tar.gz", hash = "sha256:f6f04ab82996b1cf6fa92ae98412b5b3182a8f702f0a851f8ad3c909011e62ac", size = 74411, upload-time = "2026-07-07T23:14:59.468Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/d3/23/85e6a9c11294dc86c267346989bd56db9247b601638d77fbbc9e86dc559a/fullplot-0.1.0-py3-none-any.whl", hash = "sha256:6372d4064807d1a66fb715a5259c01495f9b47dbe6130dda3321543e14651a0d", size = 51066, upload-time = "2026-07-07T23:14:58.364Z" },
-]
-
 [[package]]
 name = "h5py"
 version = "3.16.0"

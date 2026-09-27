@@ -1698,12 +1698,15 @@ from fullflow import *
 Net = Network("Anchored Example")
 pressure = State(2.0e6)
 
+time = fplt.TimeAxis([0.0, 1.0, 2.0], name="Time")
 pressure_trace = fplt.Trace(
-    x=[0.0, 1.0, 2.0],
+    x=time,
     y=[2.0e6, 2.1e6, 2.05e6],
     name="measured pressure",
     role="data",
 )
+
+time.window(0.5, 2.0)
 
 PressureSensor = Sensor(
     "Chamber Pressure Sensor",
@@ -1711,14 +1714,16 @@ PressureSensor = Sensor(
     reading=pressure,
     variable=pressure,
     data=pressure_trace,
-    extend=False,
 )
 ```
 
 When used in a transient solve, the sensor samples the test data at
 `network.time` and exposes a balance between the model variable and the sampled
-trace value.  With `extend=False`, the transient stops cleanly when the trace no
-longer has data.
+trace value. A shared FullPlot `TimeAxis` can window all attached traces at once.
+With the default `extend=True`, an anchor is inactive when no finite data is
+available and the solve continues; an otherwise unconstrained anchored variable
+retains its last accepted value. With `extend=False`, the transient stops cleanly
+when data is unavailable.
 
 ## Sequences, controllers, and actuators
 

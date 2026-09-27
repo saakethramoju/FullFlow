@@ -103,10 +103,11 @@ class Sensor(Component):
 
         Missing data
         ------------
-        ``extend=True`` holds the nearest data value outside the trace range.
-        ``extend=False`` requests a clean transient stop when no data value is
-        available.  This lets simulations end naturally when the test-data window is
-        exhausted."""
+        ``extend=True`` allows the solve to continue when no finite data value is
+        available.  The sensor anchor is inactive during those times; if its
+        variable would otherwise be unconstrained, FullFlow retains the last
+        accepted value.  ``extend=False`` requests a clean transient stop when no
+        data value is available."""
 
     def __init__(
         self,

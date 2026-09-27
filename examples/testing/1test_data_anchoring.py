@@ -155,13 +155,12 @@ fflow = data.trace(y="FUEL_MDOT", x=time, name="Fuel Flow Test Data", role="data
 
 # A user can process a test-data trace before anchoring to it. The filtered trace
 # keeps the same role as the source trace, so it is still valid Sensor.data.
-ftpt_filtered = ftpt_raw.filter("moving_average", window=0.04)
-fipt_filtered = fipt_raw.filter("moving_average", window=0.04)
+ftpt = ftpt_raw.filter("moving_average", window=0.04) * psia_to_pa
+fipt = fipt_raw.filter("moving_average", window=0.04) * psia_to_pa
 
-# Only use the useful part of the test. Windowing keeps the trace role too.
-ftpt = ftpt_filtered.window(start=0.0, stop=6.5) * psia_to_pa
-fipt = fipt_filtered.window(start=0.0, stop=6.5) * psia_to_pa
-fflow = fflow.window(start=0.0, stop=6.5)
+# All three traces share this TimeAxis, so one window selects the useful part of
+# the test for every attached trace.
+time.window(start=0.0, stop=6.5)
 
 # Conditions are optional in this example. They demonstrate that a Sensor can
 # both anchor to data and log line-crossing events during the same run.
