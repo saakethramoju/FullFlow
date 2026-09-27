@@ -458,6 +458,11 @@ dependencies = [
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "scipy", version = "1.18.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
 ]
+sdist = { url = "https://files.pythonhosted.org/packages/e2/f5/25ed02122c1511eddc4efb7450f29fbaedab1e3a24cb65432a33eeabea84/fullplot-0.1.1.tar.gz", hash = "sha256:c5ecd8ef6f217b496cb2659392fe119c92c32bf8d69d8c72e27fb7cf9ae2ccc9", size = 77373, upload-time = "2026-09-27T20:40:53.189Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/00/df/09c56b2b88a4407c28bc4b1191c16888fbf37b56207ac38480c45e525fe6/fullplot-0.1.1-py3-none-any.whl", hash = "sha256:03b2e7de452eee0f3c788657f034846ee65cd4e88470e3b4b04de9714cacee38", size = 52688, upload-time = "2026-09-27T20:40:51.858Z" },
+]
+
 [[package]]
 name = "h5py"
 version = "3.16.0"
