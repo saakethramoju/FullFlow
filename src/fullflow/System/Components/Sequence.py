@@ -930,17 +930,29 @@ class Sequence(Component):
         return np.interp(t, self.times.value, self.values.value)
 
     @staticmethod
-    def _normalize_inputs(inputs):
+    def _normalize_input(value):
+        if isinstance(value, State):
+            return value
+
+        as_state = getattr(type(value), "as_state", None)
+        if callable(as_state):
+            return as_state(value)
+
+        return value
+
+    @classmethod
+    def _normalize_inputs(cls, inputs):
         if inputs is None:
             return []
 
         if is_state_like(inputs):
-            return [inputs]
+            inputs = [inputs]
+        elif isinstance(inputs, (list, tuple)):
+            inputs = list(inputs)
+        else:
+            inputs = [inputs]
 
-        if isinstance(inputs, (list, tuple)):
-            return list(inputs)
-
-        return [inputs]
+        return [cls._normalize_input(value) for value in inputs]
 
     def _network_time(self):
         if not hasattr(self.network, "time"):

@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.0.3
+
+### Sequence inputs
+
+* Normalized State-like `Sequence(function=..., inputs=...)` values through their
+  canonical `.as_state()` representation when available.
+* Fixed Lookup input attributes used by function-based Sequences so controller
+  logic reads the previous accepted timestep value instead of the current
+  nonlinear trial value.
+* Preserved existing behavior for direct `State` inputs, plain constants, and
+  list/tuple input containers.
+
 ## 2.0.2
 
 * Updated the FullPlot dependency to `fullplot>=0.1.1`.
