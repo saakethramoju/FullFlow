@@ -127,6 +127,10 @@ class Map(Component):
         "axis_interpolation_values",
         "output_maps",
         "interpolators",
+        "_combined_output_names",
+        "_combined_interpolator",
+        "_last_interpolation_point",
+        "_last_interpolation_values",
     }
 
     def __init__(
@@ -263,6 +267,18 @@ class Map(Component):
                 fill_value=None,
             )
             setattr(self, output_name, State())
+
+        # A single vector-valued interpolator shares the axis search and
+        # interpolation weights across every output of this arbitrary N-D Map.
+        self._combined_output_names = tuple(self.output_maps)
+        self._combined_interpolator = RegularGridInterpolator(
+            [self.axis_interpolation_values[name] for name in self.input_names],
+            np.stack([self.output_maps[name] for name in self._combined_output_names], axis=-1),
+            bounds_error=False,
+            fill_value=None,
+        )
+        self._last_interpolation_point = None
+        self._last_interpolation_values = None
 
     def _validate_output_name(self, output_name: str) -> None:
         if not isinstance(output_name, str) or not output_name.strip():
@@ -583,9 +599,17 @@ class Map(Component):
                 through ``balances`` or ``dynamics``.  The method does not advance time;
                 transient integration is handled by the solver."""
         point = self._point()
+        point_key = tuple(point)
+        if point_key != self._last_interpolation_point:
+            self._last_interpolation_values = np.asarray(
+                self._combined_interpolator(point), dtype=float
+            ).reshape(-1)
+            self._last_interpolation_point = point_key
 
-        for output_name, interpolator in self.interpolators.items():
-            getattr(self, output_name).value = float(np.asarray(interpolator(point)).item())
+        # Reassign output States on every call, including cached calls, so
+        # externally modified outputs are restored like in the original Map.
+        for output_name, value in zip(self._combined_output_names, self._last_interpolation_values):
+            getattr(self, output_name).value = float(value)
 
     @property
     def export_attributes(self) -> dict[str, State]:

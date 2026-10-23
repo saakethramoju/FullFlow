@@ -67,16 +67,18 @@ class TransientStateEvaluator:
         last_deferred_errors: dict[Callable[[], None], BaseException] = {}
 
         for _ in range(max_passes):
-            old_values = cache.collect_state_values()
+            old_values = cache._collect_state_values_compact()
             pending: list[Callable[[], None]] = []
             evaluated_count = 0
 
+            # Restore the trial vector after each component, so even custom
+            # components that write into solver variables cannot modify the
+            # next component's inputs. The finally block also restores on
+            # exceptions, eliminating redundant pre/except restoration calls.
             for evaluate_states in all_callables:
-                cache.restore_iteration_variables(iteration_snapshot)
                 try:
                     evaluate_states()
                 except Exception as error:
-                    cache.restore_iteration_variables(iteration_snapshot)
                     if _is_unassigned_state_error(error):
                         pending.append(evaluate_states)
                         last_deferred_errors[evaluate_states] = error
@@ -87,8 +89,8 @@ class TransientStateEvaluator:
 
                 evaluated_count += 1
 
-            new_values = cache.collect_state_values()
-            if not pending and cache.max_state_change(old_values, new_values) < tolerance:
+            new_values = cache._collect_state_values_compact()
+            if not pending and cache._max_compact_state_change(old_values, new_values) < tolerance:
                 return
 
             if pending:

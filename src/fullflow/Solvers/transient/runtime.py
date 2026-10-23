@@ -148,6 +148,15 @@ class TransientRuntimeCache:
         )
         self.model_list = tuple(self.network.model_list)
 
+        # Generic solver hooks: discover class methods once per network version
+        # and keep the same component ordering and invocation convention.
+        self._transient_context_hooks = tuple(
+            component.set_transient_context for component in self.component_list
+        )
+        self._apply_command_hooks = self._collect_component_hooks("apply_commands")
+        self._commit_command_hooks = self._collect_component_hooks("commit_commands")
+        self._clear_command_hooks = self._collect_component_hooks("clear_command_pending")
+
         # Command traces define model inputs for the current transient time.
         # Apply them before equation discovery so downstream components can use
         # command-driven States even when those States were not initialized by
@@ -200,7 +209,13 @@ class TransientRuntimeCache:
             component.evaluate_states for component in self.component_list
         )
 
-        self.algebraic_residual_owners = self.component_list
+        # Only components that override Component.balances can produce
+        # component-owned algebraic equations. Keep their balances properties
+        # dynamic: this caches *membership*, not equations or residual values.
+        self.algebraic_residual_owners = tuple(
+            component for component in self.component_list
+            if getattr(type(component), "balances", None) is not Component.balances
+        )
         self.balance_residual_owners = self.balance_list
 
         # These references are used only to decide whether repeated
@@ -213,6 +228,7 @@ class TransientRuntimeCache:
         # states, and network time so a rejected timestep cannot leave partial
         # residual-call mutations behind.
         self.all_state_refs = self._collect_all_state_refs()
+        self._history_state_refs = self._states_with_history()
         self.version = self.network.version
 
     @staticmethod
@@ -307,10 +323,16 @@ class TransientRuntimeCache:
             except Exception:
                 self._set_sensor_state(component, "error", math.nan)
 
+        membership_changed = (
+            not self._sensor_balance_configured
+            or active_ids != self._active_sensor_balance_owner_ids
+            or direct_ids != self._direct_sensor_balance_owner_ids
+        )
         self._active_sensor_balance_owner_ids = active_ids
         self._direct_sensor_balance_owner_ids = direct_ids
         self._sensor_balance_configured = True
-        self._rebuild_iteration_metadata()
+        if membership_changed:
+            self._rebuild_iteration_metadata()
 
     def _component_balance_equations(self, component: Any):
         """Return algebraic balances active for the current solve."""
@@ -346,6 +368,7 @@ class TransientRuntimeCache:
 
         self.state_refs = self._collect_state_refs()
         self.all_state_refs = self._collect_all_state_refs()
+        self._history_state_refs = self._states_with_history()
 
     def _cache_component_transient_lists(self) -> None:
         """Cache dynamic variable/state lists once per network version."""
@@ -782,9 +805,19 @@ class TransientRuntimeCache:
             return self.state_label(owner, derivative)
         return f"{owner.name}:dynamics[{index}]"
 
-    def _current_derivative(self, item: TransientItem) -> Any:
-        """Read the derivative value/property for ``item`` at the current state."""
-        derivatives = self._component_transient_derivatives(item.owner)
+    def _current_derivative(
+        self,
+        item: TransientItem,
+        derivatives_by_owner: dict[int, list[Any]] | None = None,
+    ) -> Any:
+        """Read a derivative, optionally reusing this residual call's component list."""
+        if derivatives_by_owner is None:
+            derivatives = self._component_transient_derivatives(item.owner)
+        else:
+            owner_id = id(item.owner)
+            if owner_id not in derivatives_by_owner:
+                derivatives_by_owner[owner_id] = self._component_transient_derivatives(item.owner)
+            derivatives = derivatives_by_owner[owner_id]
 
         if len(derivatives) <= item.derivative_index:
             raise SolverSetupError(
@@ -1017,6 +1050,15 @@ class TransientRuntimeCache:
         for state, value in snapshot:
             state.value = value
 
+    def _collect_component_hooks(self, method_name: str) -> tuple[tuple[Any, Any], ...]:
+        """Cache any callable class hook without class/type-specific branching."""
+        hooks = []
+        for component in self.component_list:
+            method = getattr(type(component), method_name, None)
+            if callable(method):
+                hooks.append((component, method))
+        return tuple(hooks)
+
     def run_pre_evaluation(self) -> None:
         """Run all component ``pre_evaluation()`` hooks in network order."""
         for pre_evaluation in self.pre_evaluation_callables:
@@ -1030,29 +1072,24 @@ class TransientRuntimeCache:
             except Exception:
                 time_value = 0.0
 
-        for component in self.component_list:
-            apply_commands = getattr(type(component), "apply_commands", None)
-            if callable(apply_commands):
-                apply_commands(component, float(time_value))
+        current_time = float(time_value)
+        for component, apply_commands in self._apply_command_hooks:
+            apply_commands(component, current_time)
 
     def commit_sequence_commands(self) -> None:
         """Commit command samples after a timestep is accepted."""
-        for component in self.component_list:
-            commit_commands = getattr(type(component), "commit_commands", None)
-            if callable(commit_commands):
-                commit_commands(component)
+        for component, commit_commands in self._commit_command_hooks:
+            commit_commands(component)
 
     def clear_sequence_command_pending(self) -> None:
         """Clear unaccepted command samples after a failed timestep."""
-        for component in self.component_list:
-            clear_pending = getattr(type(component), "clear_command_pending", None)
-            if callable(clear_pending):
-                clear_pending(component)
+        for component, clear_pending in self._clear_command_hooks:
+            clear_pending(component)
 
     def set_transient_context(self, *, dt: float) -> None:
         """Pass timestep context to every component before evaluation."""
-        for component in self.component_list:
-            component.set_transient_context(dt=dt)
+        for set_context in self._transient_context_hooks:
+            set_context(dt=dt)
 
     def _states_with_history(self) -> tuple[Any, ...]:
         """States whose accepted previous values should be available next step.
@@ -1080,22 +1117,26 @@ class TransientRuntimeCache:
 
     def store_previous_values(self) -> None:
         """Store accepted values after initialization or an accepted timestep."""
-        for state in self._states_with_history():
+        for state in self._history_state_refs:
             state.store_previous()
 
     def clear_previous_values(self) -> None:
         """Clear stored accepted-step history."""
-        for state in self._states_with_history():
+        for state in self._history_state_refs:
             state.clear_previous()
 
-    def _derivative_value(self, item: TransientItem) -> float:
-        """Return the current numeric derivative for ``item``.
+    def _derivative_value(
+        self,
+        item: TransientItem,
+        derivatives_by_owner: dict[int, list[Any]] | None = None,
+    ) -> float:
+        """Return a derivative evaluated at the current nonlinear trial state.
 
-        The derivative is re-read from the owning component every time this is
-        called.  That is what makes direct expression properties behave like
-        derivative States: both are evaluated at the current new-time guess.
+        A per-residual cache avoids reconstructing a component's entire
+        ``dynamics`` list for each equation.  The cache is never shared between
+        different SciPy trial evaluations.
         """
-        return resolve_numeric(self._current_derivative(item))
+        return resolve_numeric(self._current_derivative(item, derivatives_by_owner))
 
     @staticmethod
     def flatten_residuals(residual_source: Any) -> list[float]:
@@ -1155,9 +1196,13 @@ class TransientRuntimeCache:
         steady-state solver's dynamic trim equations.
         """
         residuals: list[float] = []
+        # Local to this residual evaluation: every new SciPy trial recomputes
+        # component dynamics, while equations owned by the same component
+        # share a single newly constructed dynamics list.
+        derivatives_by_owner: dict[int, list[Any]] = {}
 
         for item in self.transient_items:
-            derivative = self._derivative_value(item)
+            derivative = self._derivative_value(item, derivatives_by_owner)
 
             if item.force_steady:
                 residuals.append(derivative)
@@ -1173,8 +1218,9 @@ class TransientRuntimeCache:
                 residuals.extend(self.flatten_residuals(equation.residual))
 
         for balance in self.balance_residual_owners:
-            for equation in balance_object_equations(balance):
-                residuals.extend(self.flatten_residuals(equation.residual))
+            # balance_object_equations() builds a temporary wrapper around the
+            # current _residual. Read the live value instead of caching it.
+            residuals.extend(self.flatten_residuals(balance._residual))
 
         return np.array(residuals, dtype=float)
 
@@ -1285,6 +1331,48 @@ class TransientRuntimeCache:
                 continue
 
         return values
+
+    def _collect_state_values_compact(self) -> list[float | None]:
+        """Snapshot non-iteration States in cached reference order.
+
+        ``None`` means unassigned or nonnumeric, just as those States are
+        omitted from ``collect_state_values()``.  The reference list is
+        already deduplicated and stays fixed during each residual evaluation.
+        """
+        values: list[float | None] = []
+        append = values.append
+
+        for state in self.state_refs:
+            try:
+                if state.is_assigned:
+                    append(float(state.value))
+                else:
+                    append(None)
+            except Exception:
+                append(None)
+
+        return values
+
+    @staticmethod
+    def _max_compact_state_change(
+        old: list[float | None],
+        new: list[float | None],
+    ) -> float:
+        """Use the original fixed-point metric without dictionary allocations.
+
+        Previously unassigned States use their absolute new value, matching
+        ``max_state_change``; States unassigned in the new pass are skipped.
+        """
+        max_change = 0.0
+        for old_value, new_value in zip(old, new):
+            if new_value is None:
+                continue
+            if old_value is None:
+                max_change = max(max_change, abs(new_value))
+                continue
+            scale = max(abs(new_value), 1.0)
+            max_change = max(max_change, abs(new_value - old_value) / scale)
+        return max_change
 
     @staticmethod
     def max_state_change(old: dict[int, float], new: dict[int, float]) -> float:

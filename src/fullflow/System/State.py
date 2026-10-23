@@ -405,6 +405,11 @@ class State:
 
         if isinstance(value, bool):
             pass
+        elif isinstance(value, (int, float)):
+            # Common solver scalar values bypass the abstract numbers.Real
+            # instance check; other Real implementations still use the fallback.
+            value = float(value)
+            self._validate_bounds(value)
         elif isinstance(value, Real):
             value = float(value)
             self._validate_bounds(value)
