@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.constants import *
 
 from fullflow import *
 from thermoprop import *
@@ -83,19 +84,19 @@ the trapped air.
 
 
 # -----------------------------------------------------------------------------
+# Run options
+# -----------------------------------------------------------------------------
+
+dt = 0.01
+t_final = 2.0
+filename = 'sudden_valve_opening'
+
+
+# -----------------------------------------------------------------------------
 # Network
 # -----------------------------------------------------------------------------
 
 ValveOpeningSim = Network("Sudden Valve Opening")
-
-
-# -----------------------------------------------------------------------------
-# Unit conversions
-# -----------------------------------------------------------------------------
-
-psi_to_pa = 6894.757293168
-ft_to_m = 0.3048
-inch_to_m = 0.0254
 
 
 # -----------------------------------------------------------------------------
@@ -120,8 +121,8 @@ initial_air_temperature = 300.0
 # Pipe geometry
 # -----------------------------------------------------------------------------
 
-total_line_length = 20.0 * ft_to_m
-pipe_diameter = 0.50 * inch_to_m
+total_line_length = 20.0 * foot
+pipe_diameter = 0.50 * inch
 pipe_area = (np.pi / 4.0) * pipe_diameter**2
 line_volume = pipe_area * total_line_length
 
@@ -503,11 +504,11 @@ ValveOpeningSim.track("Valve Mass Flow [kg/s]", OpeningValve.mass_flow)
 for i in range(fixed_node_count):
     ValveOpeningSim.track(
         f"Pipe Node {i + 1} Pressure [psia]",
-        node_pressures[i] / psi_to_pa,
+        node_pressures[i] / psi,
     )
 
-ValveOpeningSim.track("Terminal Water Pressure [psia]", TerminalWaterFluid.pressure / psi_to_pa)
-ValveOpeningSim.track("Terminal Air Pressure [psia]", TerminalAirFluid.pressure / psi_to_pa)
+ValveOpeningSim.track("Terminal Water Pressure [psia]", TerminalWaterFluid.pressure / psi)
+ValveOpeningSim.track("Terminal Air Pressure [psia]", TerminalAirFluid.pressure / psi)
 ValveOpeningSim.track("Terminal Air Temperature [K]", TerminalAirFluid.temperature)
 
 ValveOpeningSim.track("Terminal Water Volume [m3]", terminal_water_volume)
@@ -528,13 +529,10 @@ ValveOpeningSim.track("Air Boundary Work Rate [W]", TerminalAir.boundary_work_ra
 # Solve
 # -----------------------------------------------------------------------------
 
-filename = "sudden_valve_opening"
 
 # This timestep is chosen to resolve the oscillation in this example at a
 # practical runtime. This is not intended to enforce an exact MOC-style Courant
 # number.
-dt = 0.01
-t_final = 2.0
 
 # Steady initialization:
 #

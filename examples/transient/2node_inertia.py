@@ -63,6 +63,15 @@ from thermoprop import *
 
 
 # -----------------------------------------------------------------------------
+# Run options
+# -----------------------------------------------------------------------------
+
+dt = 0.01
+t_final = 5
+filename = '2node_inertia'
+
+
+# -----------------------------------------------------------------------------
 # Create network
 # -----------------------------------------------------------------------------
 
@@ -282,7 +291,6 @@ Pipe2 = DischargeCoefficient(
 # the transient solve then opens the valve according to ValveCdSequence.
 # -----------------------------------------------------------------------------
 
-filename = "2node_inertia"
 
 SteadyState(PipeNetwork).solve(
     verbose=True,
@@ -290,8 +298,8 @@ SteadyState(PipeNetwork).solve(
 )
 
 Transient(PipeNetwork).solve(
-    t_final=5,
-    dt=0.01,
+    t_final=t_final,
+    dt=dt,
     verbose=True,
     filename=filename,
 )

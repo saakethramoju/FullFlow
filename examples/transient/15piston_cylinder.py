@@ -34,36 +34,36 @@ to the gas.
 """
 
 import math
+from scipy.constants import *
 
 from fullflow import *
 from thermoprop import *
 
 
 # -----------------------------------------------------------------------------
-# Unit conversions
+# Run options
 # -----------------------------------------------------------------------------
 
-IN_TO_M = 0.0254
-PSIA_TO_PA = 6894.757293
-F_TO_K_OFFSET = 459.67
-R_TO_K = 5.0 / 9.0
+dt = 0.0001
+t_final = 0.1
+filename = '15piston_cylinder'
 
 
 # -----------------------------------------------------------------------------
 # GFSSP Example 9 style inputs
 # -----------------------------------------------------------------------------
 
-diameter = 3.0 * IN_TO_M
+diameter = 3.0 * inch
 area = math.pi / 4.0 * diameter**2
 
-mean_length = 4.0 * IN_TO_M
-stroke_amplitude = 3.0 * IN_TO_M
+mean_length = 4.0 * inch
+stroke_amplitude = 3.0 * inch
 
 rpm = 1200.0
-omega = 2.0 * math.pi * rpm / 60.0
+omega = 2.0 * math.pi * rpm / minute
 
-initial_pressure = 14.7 * PSIA_TO_PA
-initial_temperature = (75.0 + F_TO_K_OFFSET) * R_TO_K
+initial_pressure = 14.7 * psi
+initial_temperature = convert_temperature(75.0, "Fahrenheit", "Kelvin")
 
 initial_length = mean_length + stroke_amplitude
 initial_volume = area * initial_length
@@ -152,9 +152,8 @@ PistonCylinder.track("Boundary Work Rate [W]", Cylinder.boundary_work_rate)
 # At t=0, pressure and temperature are the initial condition, not the result of
 # a steady-flow balance.
 Transient(PistonCylinder).solve(
-    dt=1.0e-4,
-    t_final=0.10,
-    save_dt=1.0e-4,
-    filename="15piston_cylinder",
+    dt=dt,
+    t_final=t_final,
+    filename=filename,
     verbose=True,
 )

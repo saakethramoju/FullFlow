@@ -80,6 +80,15 @@ import numpy as np
 from fullflow import *
 
 
+# -----------------------------------------------------------------------------
+# Run options
+# -----------------------------------------------------------------------------
+
+dt = 0.01
+t_final = 15.0
+filename = '8flow_splitter'
+
+
 # ---------------------------------------------------------------------------
 # Network
 # ---------------------------------------------------------------------------
@@ -91,7 +100,6 @@ SplitterNetwork = Network("Transient Particulate Splitter")
 # Output file
 # ---------------------------------------------------------------------------
 
-filename = "8flow_splitter"
 
 
 # ---------------------------------------------------------------------------
@@ -591,8 +599,8 @@ SteadyState(SplitterNetwork).solve(
 # The control Balance adjusts the concentrate outlet area to keep the
 # concentrate stream at 20% particulate by mass.
 Transient(SplitterNetwork).solve(
-    dt=0.01,
-    t_final=15.0,
+    dt=dt,
+    t_final=t_final,
     filename=filename,
     statistics=True,
 )

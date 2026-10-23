@@ -35,6 +35,14 @@ combustion, nozzles, turbomachinery, etc. The Sequence API is the same.
 """
 
 
+# -----------------------------------------------------------------------------
+# Run options
+# -----------------------------------------------------------------------------
+
+dt = 0.01
+t_final = 5.0
+
+
 HERE = Path(__file__).resolve().parent
 RESULT_FILE = HERE / "sequence_commands_abort_result.h5"
 
@@ -182,8 +190,8 @@ Test.track("Chamber Pressure", chamber_pressure)
 # ---------------------------------------------------------------------------
 
 Transient(Test).solve(
-    dt=0.01,
-    t_final=5.0,
+    dt=dt,
+    t_final=t_final,
     verbose=True,
     filename=str(RESULT_FILE),
 )

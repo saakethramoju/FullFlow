@@ -65,58 +65,46 @@ not intended to be a one-to-one reproduction of the GFSSP model.
 """
 
 import numpy as np
+from scipy.constants import *
 
 from fullflow import *
 from fullplot import Axis, generate_map
 from thermoprop import *
 
 
+# -----------------------------------------------------------------------------
+# Run options
+# -----------------------------------------------------------------------------
+
+dt = 0.01
+t_final = 6.0
+filename = '6pump_transient'
+
+
 # ---------------------------------------------------------------------------
 # Output file
 # ---------------------------------------------------------------------------
 
-filename = "6pump_transient"
-
-
-# ---------------------------------------------------------------------------
-# Unit conversions
-# ---------------------------------------------------------------------------
-
-psi_to_pa = 6894.76
-
-ft_to_m = 0.3048
-inch_to_m = 0.0254
-
-lbm_to_kg = 0.45359237
-kg_s_to_lbm_s = 1.0 / lbm_to_kg
-
-gallon_to_m3 = 0.003785411784
-minute_to_second = 60.0
-
-gpm_to_m3_s = gallon_to_m3 / minute_to_second
-m3_s_to_gpm = 1.0 / gpm_to_m3_s
 
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-g = 9.80665
-
-water_density_value = 62.4 * lbm_to_kg / ft_to_m**3
+water_density_value = 62.4 * pound / foot**3
 water_dynamic_viscosity_value = 1.12e-3
 
-source_pressure_value = 14.7 * psi_to_pa
-receiver_pressure_value = 14.7 * psi_to_pa
+source_pressure_value = 14.7 * psi
+receiver_pressure_value = 14.7 * psi
 
-pipe_length = 1500 * ft_to_m
-pipe_diameter = 6 * inch_to_m
+pipe_length = 1500 * foot
+pipe_diameter = 6 * inch
 pipe_area = (np.pi / 4) * pipe_diameter**2
 
 pipe_relative_roughness = 0.005
 pipe_roughness = pipe_relative_roughness * pipe_diameter
 
-receiver_height_change = 150 * ft_to_m
+receiver_height_change = 150 * foot
 
 # Rotor speed is arbitrary in this example because torque is not assigned to
 # ConstantDensityPump. The pump only uses head_rise to calculate pressure rise.
@@ -175,7 +163,7 @@ def pump_curve(flow_rate):
 
     head_rise_ft = np.polyval(pump_curve_coefficients, flow_rate)
 
-    head_rise = head_rise_ft * ft_to_m
+    head_rise = head_rise_ft * foot
     pressure_rise = water_density_value * g * head_rise
 
     return {
@@ -260,7 +248,7 @@ pipe_mass_flow = State(0.01)
 #
 # The pump discharge guess is near shutoff pressure. The pipe inlet guess is
 # near the receiver pressure plus static elevation head.
-pump_discharge_pressure = State(source_pressure_value + water_density_value * g * 495.0 * ft_to_m)
+pump_discharge_pressure = State(source_pressure_value + water_density_value * g * 495.0 * foot)
 pipe_inlet_pressure = State(receiver_pressure_value + water_density_value * g * receiver_height_change)
 
 pipe_friction_factor = State(0.03)
@@ -272,7 +260,7 @@ pipe_friction_factor = State(0.03)
 
 # Convert the pump mass flow to volumetric flow in gallons per minute for the
 # pump map input.
-pump_flow_rate = pump_mass_flow / water_density * m3_s_to_gpm
+pump_flow_rate = pump_mass_flow / water_density * (minute / gallon)
 
 PumpCurve = Map.from_hdf5(
     "Pump Curve",
@@ -448,15 +436,15 @@ Pipe = DarcyWeisbach(
 PumpSystem.track("Valve Cd [-]", valve_cd)
 
 PumpSystem.track("Pump Flow Rate [gpm]", pump_flow_rate)
-PumpSystem.track("Pump Mass Flow [lbm/s]", pump_mass_flow * kg_s_to_lbm_s)
-PumpSystem.track("Valve Mass Flow [lbm/s]", valve_mass_flow * kg_s_to_lbm_s)
-PumpSystem.track("Pipe Mass Flow [lbm/s]", pipe_mass_flow * kg_s_to_lbm_s)
+PumpSystem.track("Pump Mass Flow [lbm/s]", pump_mass_flow * (1.0 / pound))
+PumpSystem.track("Valve Mass Flow [lbm/s]", valve_mass_flow * (1.0 / pound))
+PumpSystem.track("Pipe Mass Flow [lbm/s]", pipe_mass_flow * (1.0 / pound))
 
-PumpSystem.track("Pump Head Rise [ft]", PumpCurve.head_rise / ft_to_m)
-PumpSystem.track("Pump Pressure Rise [psi]", PumpCurve.pressure_rise / psi_to_pa)
+PumpSystem.track("Pump Head Rise [ft]", PumpCurve.head_rise / foot)
+PumpSystem.track("Pump Pressure Rise [psi]", PumpCurve.pressure_rise / psi)
 
-PumpSystem.track("Pump Discharge Pressure [psia]", pump_discharge_pressure / psi_to_pa)
-PumpSystem.track("Pipe Inlet Pressure [psia]", pipe_inlet_pressure / psi_to_pa)
+PumpSystem.track("Pump Discharge Pressure [psia]", pump_discharge_pressure / psi)
+PumpSystem.track("Pipe Inlet Pressure [psia]", pipe_inlet_pressure / psi)
 
 PumpSystem.track("Pipe Friction Factor [-]", pipe_friction_factor)
 
@@ -476,8 +464,8 @@ SteadyState(PumpSystem).solve(
 # and the discharge pressure evolves as the system moves to the open-valve
 # operating point.
 Transient(PumpSystem).solve(
-    dt=0.01,
-    t_final=6.0,
+    dt=dt,
+    t_final=t_final,
     filename=filename,
     statistics=True,
 )

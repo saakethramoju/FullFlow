@@ -2,6 +2,7 @@ from fullflow import *
 import fullplot as fplt
 from thermoprop import *
 import math
+from scipy.constants import *
 
 
 """
@@ -121,15 +122,13 @@ Important modeling notes
 """
 
 
-# ---------------------------------------------------------------------------
-# Unit conversions
-# ---------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# Run options
+# -----------------------------------------------------------------------------
 
-psia_to_pa = 6894.76
-in_to_m = 1 / 39.37
-in2_to_m2 = 1 / 1550
-in3_to_m3 = in_to_m**3
-lbf_to_n = 4.44822
+dt = 0.01
+t_final = 5.0
+filename = '23pid_throttle'
 
 
 # ---------------------------------------------------------------------------
@@ -137,7 +136,6 @@ lbf_to_n = 4.44822
 # ---------------------------------------------------------------------------
 
 # FullPlot writes maps and FullFlow solver results into this HDF5 file.
-filename = "23pid_throttle"
 
 # Set this True only when the combustion-products map needs to be regenerated.
 # This can take longer than running the transient example.
@@ -186,8 +184,8 @@ if generate_combustion_map:
         axes=[
             fplt.Axis.linear(
                 "chamber_pressure",
-                start=250 * psia_to_pa,
-                stop=420 * psia_to_pa,
+                start=250 * psi,
+                stop=420 * psi,
                 count=30,
                 units="Pa",
             ),
@@ -230,12 +228,12 @@ if generate_throttle_map:
 
     MR_target = 2.0
 
-    Pc_min = 250.0 * psia_to_pa
-    Pc_max = 310.0 * psia_to_pa
+    Pc_min = 250.0 * psi
+    Pc_max = 310.0 * psi
 
     # Residual scaling for the calibration balances.
     # These make the Pc and MR residuals numerically comparable.
-    pc_scale = 5.0 * psia_to_pa
+    pc_scale = 5.0 * psi
     mr_scale = 0.01
 
     # Main-line geometry used by the calibration model.
@@ -275,15 +273,15 @@ if generate_throttle_map:
 
         EngineMap = Network("Throttle Map Engine")
 
-        fuel_map = Fluid("RP1", pressure=450 * psia_to_pa, temperature=300)
-        ox_map = Fluid("LOX", pressure=400 * psia_to_pa, quality=0.0)
+        fuel_map = Fluid("RP1", pressure=450 * psi, temperature=300)
+        ox_map = Fluid("LOX", pressure=400 * psi, quality=0.0)
 
         InjFuelMap = Lookup(
             "Injector Manifold Fuel",
             EngineMap,
             Propellant,
             "rp-1",
-            pressure=350 * psia_to_pa,
+            pressure=350 * psi,
             temperature=300,
         )
 
@@ -292,7 +290,7 @@ if generate_throttle_map:
             EngineMap,
             Propellant,
             "lox",
-            pressure=350 * psia_to_pa,
+            pressure=350 * psi,
             temperature=90,
         )
 
@@ -398,10 +396,10 @@ if generate_throttle_map:
             EngineMap,
             upstream_total_pressure=ChamberMap.pressure,
             upstream_total_temperature=ChamberGasMap.temperature,
-            ambient_pressure=14.67 * psia_to_pa,
+            ambient_pressure=14.67 * psi,
             specific_heat_ratio=ChamberGasMap.gamma,
             gas_constant=ChamberGasMap.gas_constant,
-            throat_area=6.05 * in2_to_m2,
+            throat_area=6.05 * inch**2,
             expansion_ratio=4.7,
             mass_flow=ChamberMap.mass_flow_out,
         )
@@ -497,8 +495,8 @@ ox_main_cd = ox_throttle_cda / runline_area
 # Propellant boundary conditions
 # ---------------------------------------------------------------------------
 
-fuel = Fluid("RP1", pressure=450 * psia_to_pa, temperature=300)
-ox = Fluid("LOX", pressure=400 * psia_to_pa, quality=0.0)
+fuel = Fluid("RP1", pressure=450 * psi, temperature=300)
+ox = Fluid("LOX", pressure=400 * psi, quality=0.0)
 
 
 # ---------------------------------------------------------------------------
@@ -510,7 +508,7 @@ InjFuel = Lookup(
     Engine,
     Propellant,
     "rp-1",
-    pressure=350 * psia_to_pa,
+    pressure=350 * psi,
     temperature=300,
 )
 
@@ -519,7 +517,7 @@ InjOx = Lookup(
     Engine,
     Propellant,
     "lox",
-    pressure=350 * psia_to_pa,
+    pressure=350 * psi,
     temperature=90,
 )
 
@@ -528,7 +526,7 @@ InjOx = Lookup(
 # Chamber gas lookup
 # ---------------------------------------------------------------------------
 
-chamber_pressure = State(300 * psia_to_pa)
+chamber_pressure = State(300 * psi)
 mixture_ratio = State(2.0)
 
 ChamberGas = Map.from_hdf5(
@@ -590,7 +588,7 @@ alpha_cmd = State(alpha_initial)
 PcController = PID(
     "Pc Controller",
     Engine,
-    feedback=chamber_pressure / psia_to_pa,
+    feedback=chamber_pressure / psi,
     setpoint=pc_setpoint,
     command=alpha_cmd,
     trim=alpha_trim,
@@ -762,10 +760,10 @@ Nozzle = IsentropicNozzle(
     Engine,
     upstream_total_pressure=Chamber.pressure,
     upstream_total_temperature=ChamberGas.temperature,
-    ambient_pressure=14.67 * psia_to_pa,
+    ambient_pressure=14.67 * psi,
     specific_heat_ratio=ChamberGas.gamma,
     gas_constant=ChamberGas.gas_constant,
-    throat_area=6.05 * in2_to_m2,
+    throat_area=6.05 * inch**2,
     expansion_ratio=4.7,
     mass_flow=Chamber.mass_flow_out,
 )
@@ -782,16 +780,16 @@ F = Nozzle.mass_flow * Nozzle.exit_velocity + (Nozzle.exit_static_pressure - Noz
 # Tracked outputs
 # ---------------------------------------------------------------------------
 
-Engine.track("Fuel Injector Pressure [psia]", InjFuel.pressure / psia_to_pa)
-Engine.track("Ox Injector Pressure [psia]", InjOx.pressure / psia_to_pa)
-Engine.track("Chamber Pressure [psia]", Chamber.pressure / psia_to_pa)
+Engine.track("Fuel Injector Pressure [psia]", InjFuel.pressure / psi)
+Engine.track("Ox Injector Pressure [psia]", InjOx.pressure / psi)
+Engine.track("Chamber Pressure [psia]", Chamber.pressure / psi)
 
 Engine.track("Pc Setpoint [psia]", pc_setpoint)
 
 Engine.track("Alpha Trim", alpha_trim)
 Engine.track("Alpha Command", alpha_cmd)
 
-Engine.track("Throttle Map Pc [psia]", ThrottleMap.chamber_pressure / psia_to_pa)
+Engine.track("Throttle Map Pc [psia]", ThrottleMap.chamber_pressure / psi)
 
 Engine.track("Fuel Cd Command", ThrottleMap.fuel_main_cd)
 Engine.track("Ox Cd Command", ThrottleMap.ox_main_cd)
@@ -803,7 +801,7 @@ Engine.track("Mixture Ratio", mixture_ratio)
 Engine.track("Fuel Mass Flow [kg/s]", FuelOrf.mass_flow)
 Engine.track("Ox Mass Flow [kg/s]", OxOrf.mass_flow)
 
-Engine.track("Thrust [lbf]", F / lbf_to_n)
+Engine.track("Thrust [lbf]", F / pound_force)
 
 
 # ---------------------------------------------------------------------------
@@ -826,8 +824,8 @@ SteadyState(Engine).solve(
 # The transient solve activates the sequence, PID controller, actuators, line
 # inertia, manifold volumes, chamber volume, and nozzle response.
 Transient(Engine).solve(
-    dt=0.01,
-    t_final=5.0,
+    dt=dt,
+    t_final=t_final,
     verbose=True,
     statistics=True,
     filename=filename,

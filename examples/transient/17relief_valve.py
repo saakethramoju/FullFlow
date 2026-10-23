@@ -37,26 +37,36 @@ The relief valve uses a Sequence that reads the previous accepted pressure and
 valve command, then changes the discharge coefficient of a CompressibleOrifice.
 """
 
+from scipy.constants import *
+
 from fullflow import *
+
+
+# -----------------------------------------------------------------------------
+# Run options
+# -----------------------------------------------------------------------------
+
+dt = 0.01
+t_final = 25.0
+filename = '17relief_valve'
 
 
 # -----------------------------------------------------------------------------
 # Constants
 # -----------------------------------------------------------------------------
 
-psi_to_pa = 6894.76
 
-ambient_pressure = 14.7 * psi_to_pa
+ambient_pressure = 14.7 * psi
 
-source_pressure = 1000.0 * psi_to_pa
+source_pressure = 1000.0 * psi
 source_temperature = 300.0
 
-initial_tank_pressure = 14.7 * psi_to_pa
+initial_tank_pressure = 14.7 * psi
 initial_tank_temperature = 300.0
 
 # Use a low relief pressure so the valve cycles during this short example.
-relief_open_pressure = 100.0 * psi_to_pa
-relief_close_pressure = 90.0 * psi_to_pa
+relief_open_pressure = 100.0 * psi
+relief_close_pressure = 90.0 * psi
 
 tank_volume = 0.05
 
@@ -186,7 +196,7 @@ Tank = Volume(
 # -----------------------------------------------------------------------------
 
 GasTankNetwork.track("Tank Pressure [Pa]", TankPressure)
-GasTankNetwork.track("Tank Pressure [psia]", TankPressure / psi_to_pa)
+GasTankNetwork.track("Tank Pressure [psia]", TankPressure / psi)
 GasTankNetwork.track("Tank Temperature [K]", TankTemperature)
 GasTankNetwork.track("Tank Density [kg/m3]", TankDensity)
 GasTankNetwork.track("Fill Mass Flow [kg/s]", FillValve.mass_flow)
@@ -199,9 +209,8 @@ GasTankNetwork.track("Relief Valve Cd [-]", ReliefValveCd)
 # -----------------------------------------------------------------------------
 
 Transient(GasTankNetwork).solve(
-    dt=0.01,
-    t_final=25.0,
-    save_dt=0.01,
-    filename="17relief_valve",
+    dt=dt,
+    t_final=t_final,
+    filename=filename,
     verbose=True,
 )

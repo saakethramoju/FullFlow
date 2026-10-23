@@ -59,12 +59,20 @@ from fullflow import *
 from thermoprop import *
 
 
+# -----------------------------------------------------------------------------
+# Run options
+# -----------------------------------------------------------------------------
+
+dt = 1.0
+t_final = 900.0
+filename = '11heat_transfer'
+
+
 # ---------------------------------------------------------------------------
 # Network
 # ---------------------------------------------------------------------------
 HeatTransferNetwork = Network("Solid Heat Transfer Transient")
 
-filename = "11heat_transfer"
 
 
 # ---------------------------------------------------------------------------
@@ -203,8 +211,8 @@ HeatTransferNetwork.track("Biot Number", biot_number)
 # Transient solve
 # ---------------------------------------------------------------------------
 Transient(HeatTransferNetwork).solve(
-    dt=1.0,
-    t_final=900.0,
+    dt=dt,
+    t_final=t_final,
     filename=filename,
     save_dt=5.0,
     verbose=True,

@@ -115,6 +115,7 @@ user-generated performance maps rather than detailed hardware-calibrated maps.
 """
 
 import numpy as np
+from scipy.constants import *
 
 from fullflow import *
 from fullplot import Axis, generate_map
@@ -131,8 +132,6 @@ Turbopump = Network("Turbopump")
 # -----------------------------------------------------------------------------
 # Units
 # -----------------------------------------------------------------------------
-
-bar = 100000.0
 
 
 # -----------------------------------------------------------------------------
@@ -210,8 +209,6 @@ Preburner = Equilibrium(
 # using density * g * head.
 
 LOX = Propellant("lox", temperature=90)
-
-g = 9.80665
 
 LOXPumpDensity = State(LOX.density)
 LOXPumpDesignVolumetricFlow = LOXPumpDesignMassFlow / LOX.density

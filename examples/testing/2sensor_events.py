@@ -32,6 +32,14 @@ Sequence commands and aborts can respond to those events.
 """
 
 
+# -----------------------------------------------------------------------------
+# Run options
+# -----------------------------------------------------------------------------
+
+dt = 0.02
+t_final = 5.2
+
+
 HERE = Path(__file__).resolve().parent
 RESULT_FILE = HERE / "sensor_events_result.h5"
 
@@ -109,8 +117,8 @@ Test.track("CHPT", chamber_pressure)
 # ---------------------------------------------------------------------------
 
 Transient(Test).solve(
-    dt=0.02,
-    t_final=5.2,
+    dt=dt,
+    t_final=t_final,
     verbose=True,
     filename=str(RESULT_FILE),
 )

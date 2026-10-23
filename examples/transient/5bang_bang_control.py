@@ -61,9 +61,19 @@ conservation.
 
 import numpy as np
 import fullplot as fplt
+from scipy.constants import *
 
 from fullflow import *
 from thermoprop import *
+
+
+# -----------------------------------------------------------------------------
+# Run options
+# -----------------------------------------------------------------------------
+
+dt = 0.01
+t_final = 22.5
+filename = '5bang_bang_control'
 
 
 # ---------------------------------------------------------------------------
@@ -77,18 +87,17 @@ BangBangSim = Network("Bang Bang Simulation")
 # Constants and initial conditions
 # ---------------------------------------------------------------------------
 
-psi_to_pa = 6894.76
 
-initial_copv_pressure = 5500 * psi_to_pa
+initial_copv_pressure = 5500 * psi
 initial_copv_temperature = 300
 
-tank_set_pressure = 450 * psi_to_pa
+tank_set_pressure = 450 * psi
 
 # Relief valve command settings.
 # The relief valve is independent of the bang-bang pressurization valve.
 # It opens only if ullage pressure rises above the relief band.
-relief_valve_open_pressure = 475 * psi_to_pa
-relief_valve_close_pressure = 465 * psi_to_pa
+relief_valve_open_pressure = 475 * psi
+relief_valve_close_pressure = 465 * psi
 relief_valve_area = 0.005 / 1550
 relief_valve_open_cd = 0.6
 
@@ -96,8 +105,6 @@ tank_volume = 125 / 1000
 initial_liquid_volume = 110 / 1000
 
 tank_cross_sectional_area = (np.pi / 4) * (12 / 39.37)**2
-
-g = 9.80665
 
 
 # ---------------------------------------------------------------------------
@@ -204,10 +211,10 @@ def bang_bang_condition(t, pressure, previous_cda):
     Inside the deadband, the valve keeps its previous accepted value.
     """
 
-    if pressure > tank_set_pressure + 5 * psi_to_pa:
+    if pressure > tank_set_pressure + 5 * psi:
         return 0.0
 
-    if pressure < tank_set_pressure - 5 * psi_to_pa:
+    if pressure < tank_set_pressure - 5 * psi:
         return 1.0
 
     return previous_cda
@@ -486,7 +493,6 @@ BangBangSim.track("Main Valve Mass Flow [kg/s]", MainValve.mass_flow)
 # Solve
 # ---------------------------------------------------------------------------
 
-filename = "5bang_bang_control"
 
 # The interface pressure balance is ignored only during steady initialization.
 # This keeps liquid_volume at its user-provided initial fill level instead of
@@ -501,8 +507,8 @@ SteadyState(BangBangSim).solve(
 # pressure is forced to match the ullage pressure, and liquid_volume evolves
 # from the transient mass conservation equations.
 Transient(BangBangSim).solve(
-    dt=0.01,
-    t_final=22.5,
+    dt=dt,
+    t_final=t_final,
     statistics=True,
     filename=filename,
 )

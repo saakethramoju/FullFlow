@@ -48,6 +48,15 @@ monotonically drains.
 from fullflow import *
 
 
+# -----------------------------------------------------------------------------
+# Run options
+# -----------------------------------------------------------------------------
+
+dt = 0.05
+t_final = 20.0
+filename = '10custom_component'
+
+
 # ---------------------------------------------------------------------------
 # Custom component 1: tank dynamics
 # ---------------------------------------------------------------------------
@@ -159,8 +168,8 @@ TankNetwork.track("Outlet Flow", outlet_flow)
 # Transient solve
 # ---------------------------------------------------------------------------
 Transient(TankNetwork).solve(
-    dt=0.05,
-    t_final=20.0,
-    filename="10custom_component",
+    dt=dt,
+    t_final=t_final,
+    filename=filename,
     verbose=True,
 )

@@ -104,6 +104,7 @@ Approximate cross section:
 """
 
 import numpy as np
+from scipy.constants import *
 
 from fullflow import *
 from thermoprop import *
@@ -233,22 +234,21 @@ gasoline_specific_heat_cp = (
 # The current network uses three hydraulic tube elements per side, so Nseg is 3.
 # -----------------------------------------------------------------------------
 
-IN_TO_M = 0.0254
 
 # Total heat-exchanger length and length of each model segment.
-L_total = 40.0 * IN_TO_M
+L_total = 40.0 * inch
 Nseg = 3
 L = L_total / Nseg
 
 # Inner-tube inside diameter. This is the hot-fluid flow diameter.
-D_inner = 0.50 * IN_TO_M
+D_inner = 0.50 * inch
 
 # Tube wall thickness and resulting tube outside diameter.
-wall_thickness = 0.035 * IN_TO_M
+wall_thickness = 0.035 * inch
 D_tube_outer = D_inner + 2.0 * wall_thickness
 
 # Outer diameter of the annulus. Coolant flows between D_tube_outer and this ID.
-D_annulus_outer = 0.875 * IN_TO_M
+D_annulus_outer = 0.875 * inch
 
 # Basic geometry check to avoid a negative annular area.
 if D_tube_outer >= D_annulus_outer:
@@ -952,15 +952,14 @@ CoolantNode2.heat_rate = -Coolant2Solid1Convection.heat_rate
 # exchanger.
 # -----------------------------------------------------------------------------
 
-PA_TO_PSIA = 1.0 / 6894.757293
 
-HeatExchanger.track("Hot Fluid Source Pressure [psia]", hot_fluid_source_pressure * PA_TO_PSIA)
-HeatExchanger.track("Hot Fluid Node 1 Pressure [psia]", hot_fluid_node1_pressure * PA_TO_PSIA)
-HeatExchanger.track("Hot Fluid Node 2 Pressure [psia]", hot_fluid_node2_pressure * PA_TO_PSIA)
+HeatExchanger.track("Hot Fluid Source Pressure [psia]", hot_fluid_source_pressure * (1.0 / psi))
+HeatExchanger.track("Hot Fluid Node 1 Pressure [psia]", hot_fluid_node1_pressure * (1.0 / psi))
+HeatExchanger.track("Hot Fluid Node 2 Pressure [psia]", hot_fluid_node2_pressure * (1.0 / psi))
 
-HeatExchanger.track("Coolant Source Pressure [psia]", CoolantSource.pressure * PA_TO_PSIA)
-HeatExchanger.track("Coolant Node 1 Pressure [psia]", CoolantNode1Fluid.pressure * PA_TO_PSIA)
-HeatExchanger.track("Coolant Node 2 Pressure [psia]", CoolantNode2Fluid.pressure * PA_TO_PSIA)
+HeatExchanger.track("Coolant Source Pressure [psia]", CoolantSource.pressure * (1.0 / psi))
+HeatExchanger.track("Coolant Node 1 Pressure [psia]", CoolantNode1Fluid.pressure * (1.0 / psi))
+HeatExchanger.track("Coolant Node 2 Pressure [psia]", CoolantNode2Fluid.pressure * (1.0 / psi))
 
 HeatExchanger.track("Hot Fluid Source Temperature [K]", hot_fluid_source_temperature)
 HeatExchanger.track("Hot Fluid Node 1 Temperature [K]", hot_fluid_node1_temperature)

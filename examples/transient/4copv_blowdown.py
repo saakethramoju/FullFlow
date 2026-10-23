@@ -41,9 +41,19 @@ Assumptions
 """
 
 import numpy as np
+from scipy.constants import *
 
 from fullflow import *
 from thermoprop import *
+
+
+# -----------------------------------------------------------------------------
+# Run options
+# -----------------------------------------------------------------------------
+
+dt = 0.01
+t_final = 30.0
+filename = '4copv_blowdown'
 
 
 # ---------------------------------------------------------------------------
@@ -54,20 +64,13 @@ COPVBlowdown = Network("COPV Blowdown")
 
 
 # ---------------------------------------------------------------------------
-# Unit conversions
-# ---------------------------------------------------------------------------
-
-psi_to_pa = 6894.76
-
-
-# ---------------------------------------------------------------------------
 # Boundary conditions
 # ---------------------------------------------------------------------------
 
-initial_copv_pressure = 6000 * psi_to_pa
+initial_copv_pressure = 6000 * psi
 initial_copv_temperature = 300
 
-downstream_pressure = 3000 * psi_to_pa
+downstream_pressure = 3000 * psi
 
 
 # ---------------------------------------------------------------------------
@@ -155,8 +158,8 @@ Valve = CompressibleOrifice(
 # history to COPVBlowdown.h5.
 
 Transient(COPVBlowdown).solve(
-    dt=0.01,
-    t_final=30.0,
-    filename="4copv_blowdown",
+    dt=dt,
+    t_final=t_final,
+    filename=filename,
     verbose=True,
 )

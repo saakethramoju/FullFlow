@@ -71,6 +71,7 @@ Demonstrates
 """
 
 import numpy as np
+from scipy.constants import *
 
 from fullflow import *
 from thermoprop import *
@@ -235,7 +236,7 @@ class CustomPump(Component):
         density: State,
         upstream_pressure: State,
         discharge_pressure: State,
-        gravitational_acceleration: float = 9.80665
+        gravitational_acceleration: float = g
     ):
         # The balances property below reads pressure_error.  Initialize it once
         # so the component is safe to inspect before the first evaluate_states()

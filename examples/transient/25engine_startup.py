@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.constants import *
 
 from fullflow import *
 from thermoprop import *
@@ -110,9 +111,17 @@ The combustion map is stored in the same HDF5 file used for results. Set
 ``generate_combustion_map = True`` once to generate the map, then set it back to
 ``False`` for normal runs.
 """
+
+
+# -----------------------------------------------------------------------------
+# Run options
+# -----------------------------------------------------------------------------
+
+dt = 0.001
+t_final = 0.35
+filename = '25engine_startup'
 # Output HDF5 file stem. FullFlow and FullPlot will use this file for both
 # generated map data and transient results.
-filename = "25engine_startup"
 
 # Set this to True only when the RP-1/LOX product-property map needs to be
 # regenerated. Normal example runs should leave it False so startup simulation
@@ -130,23 +139,16 @@ mixture_ratio_map_max = 6.0
 # represent a specific engine; they produce a compact startup transient with
 # visible priming, ignition, chamber-pressure rise, and nozzle-flow response.
 
-# Unit conversions used only to keep the example readable.
-psia_to_pa = 6894.76
-in_to_m = 1.0 / 39.37
-in3_to_m3 = in_to_m**3
-
 # Transient integration settings. The timestep is small enough to resolve the
 # valve opening, line filling, and ignition response in this example.
-dt = 0.001
-t_final = 0.35
 
 # Ambient pressure is also the initial chamber and injector outlet pressure.
-ambient_pressure = 14.67 * psia_to_pa
+ambient_pressure = 14.67 * psi
 
 # Simple fixed source pressures. The tanks/regulators are not modeled here;
 # they are treated as ideal upstream pressure boundaries.
-fuel_source_pressure = 450.0 * psia_to_pa
-ox_source_pressure = 400.0 * psia_to_pa
+fuel_source_pressure = 450.0 * psi
+ox_source_pressure = 400.0 * psi
 
 # Propellant and trapped-air temperatures. The line priming model is isothermal
 # on each side; the chamber gas temperature comes from the combustion map.
@@ -163,7 +165,7 @@ line_volume = line_area * line_length
 
 # Manifold volume is lumped together with the line volume for the liquid/air
 # fill-fraction calculation.
-manifold_volume = 20.0 * in3_to_m3
+manifold_volume = 20.0 * inch**3
 total_downstream_volume = line_volume + manifold_volume
 
 # Fully open main-valve effective areas. The command traces ramp these from
@@ -251,7 +253,7 @@ if generate_combustion_map:
             fplt.Axis.linear(
                 "chamber_pressure",
                 start=ambient_pressure,
-                stop=500.0 * psia_to_pa,
+                stop=500.0 * psi,
                 count=36,
                 units="Pa",
             ),
@@ -785,14 +787,14 @@ OIPT_blueline = fplt.Trace(
 FIPT = Sensor(
     "FIPT",
     Priming,
-    reading=FuelPrimingLiquid.pressure / psia_to_pa,
+    reading=FuelPrimingLiquid.pressure / psi,
     conditions=FIPT_blueline,
 )
 
 OIPT = Sensor(
     "OIPT",
     Priming,
-    reading=OxPrimingLiquid.pressure / psia_to_pa,
+    reading=OxPrimingLiquid.pressure / psi,
     conditions=OIPT_blueline,
 )
 
@@ -998,11 +1000,11 @@ Chamber = Volume(
 Priming.track("Fuel Main Valve CdA Command [m2]", FuelMainValveCdaCommand)
 Priming.track("Ox Main Valve CdA Command [m2]", OxMainValveCdaCommand)
 
-Priming.track("Fuel Valve Outlet Pressure [psia]", fuel_valve_outlet_pressure / psia_to_pa)
-Priming.track("Fuel Injector Pressure [psia]", FuelPrimingLiquid.pressure / psia_to_pa)
-Priming.track("Ox Valve Outlet Pressure [psia]", ox_valve_outlet_pressure / psia_to_pa)
-Priming.track("Ox Injector Pressure [psia]", OxPrimingLiquid.pressure / psia_to_pa)
-Priming.track("Chamber Pressure [psia]", chamber_pressure / psia_to_pa)
+Priming.track("Fuel Valve Outlet Pressure [psia]", fuel_valve_outlet_pressure / psi)
+Priming.track("Fuel Injector Pressure [psia]", FuelPrimingLiquid.pressure / psi)
+Priming.track("Ox Valve Outlet Pressure [psia]", ox_valve_outlet_pressure / psi)
+Priming.track("Ox Injector Pressure [psia]", OxPrimingLiquid.pressure / psi)
+Priming.track("Chamber Pressure [psia]", chamber_pressure / psi)
 
 Priming.track("Fuel Inlet Mass Flow [kg/s]", FuelWetLiquidLine.mass_flow)
 Priming.track("Fuel Injector Air Outlet Mass Flow [kg/s]", FuelInjectorAirOutlet.mass_flow)
@@ -1018,8 +1020,8 @@ Priming.track("Unreacted Propellant Mass Flow [kg/s]", unreacted_propellant_mass
 Priming.track("Effective Exit Mass Flow [kg/s]", effective_exit_mass_flow)
 Priming.track("Nozzle Mass Flow [kg/s]", Nozzle.mass_flow)
 
-Priming.track("Fuel Filled Volume [in3]", fuel_liquid_volume / in3_to_m3)
-Priming.track("Ox Filled Volume [in3]", ox_liquid_volume / in3_to_m3)
+Priming.track("Fuel Filled Volume [in3]", fuel_liquid_volume / inch**3)
+Priming.track("Ox Filled Volume [in3]", ox_liquid_volume / inch**3)
 
 Priming.track("Fuel Total Fill Fraction [-]", fuel_total_fill_fraction)
 Priming.track("Fuel Wetted Line Fraction [-]", fuel_wetted_line_fraction)

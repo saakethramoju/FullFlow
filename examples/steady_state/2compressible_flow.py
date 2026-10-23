@@ -74,6 +74,7 @@ Demonstrates
 """
 
 import numpy as np
+from scipy.constants import *
 
 from fullflow import *
 from thermoprop import *
@@ -125,11 +126,10 @@ NodeFluid = Lookup(
 # These values are only the initial geometry guesses / fixed downstream geometry.
 # -----------------------------------------------------------------------------
 
-IN_TO_M = 0.0254
 
-D_diff_in = 0.75 * IN_TO_M
-D_diff_out = 1.00 * IN_TO_M
-D_nozzle = 0.75 * IN_TO_M
+D_diff_in = 0.75 * inch
+D_diff_out = 1.00 * inch
+D_nozzle = 0.75 * inch
 
 A_diff_in = np.pi * D_diff_in**2 / 4.0
 A_diff_out = np.pi * D_diff_out**2 / 4.0

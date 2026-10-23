@@ -40,6 +40,15 @@ from fullflow import *
 from thermoprop import *
 
 
+# -----------------------------------------------------------------------------
+# Run options
+# -----------------------------------------------------------------------------
+
+dt = 0.01
+t_final = 5
+filename = '1simple_pipe'
+
+
 # ---------------------------------------------------------------------------
 # Network
 # ---------------------------------------------------------------------------
@@ -140,8 +149,8 @@ PipeNetwork.track("Pipe Reynolds Number [-]", PipeFriction.reynolds_number)
 # For this simple example, the pipe starts from zero flow and approaches its
 # steady-state flow rate as pressure force and friction loss come into balance.
 Transient(PipeNetwork).solve(
-    t_final=5,
-    dt=0.01,
+    t_final=t_final,
+    dt=dt,
     verbose=True,
-    filename="1simple_pipe",
+    filename=filename,
 )

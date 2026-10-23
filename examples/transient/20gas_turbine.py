@@ -77,10 +77,20 @@ are intended to be smooth, finite, and startup-safe.
 """
 
 import numpy as np
+from scipy.constants import *
 
 from fullflow import *
 from fullplot import Axis, generate_map
 from thermoprop import *
+
+
+# -----------------------------------------------------------------------------
+# Run options
+# -----------------------------------------------------------------------------
+
+dt = 0.002
+t_final = 3.0
+filename = '20gas_turbine'
 
 
 # -----------------------------------------------------------------------------
@@ -93,8 +103,6 @@ Turbopump = Network("Transient Turbopump Startup")
 # -----------------------------------------------------------------------------
 # Units
 # -----------------------------------------------------------------------------
-
-bar = 100000.0
 
 
 # -----------------------------------------------------------------------------
@@ -131,7 +139,6 @@ RotorPolarMomentOfInertia = 1.0             # kg*m^2, demonstration shaft inerti
 #
 # Set force_regenerate_maps=True when changing the map definitions.
 
-filename = "20gas_turbine"
 
 # Keep this True while developing/changing the map definitions. After the map
 # exists and the definitions are stable, set it to False to skip regeneration.
@@ -617,8 +624,8 @@ Turbopump.track("Ideal Total Enthalpy Change [J/kg]", TurbineMap.ideal_total_ent
 # gas-generator startup command.
 
 Transient(Turbopump).solve(
-    dt=0.002,
-    t_final=3.0,
+    dt=dt,
+    t_final=t_final,
     verbose=True,
     statistics=True,
     filename=filename,

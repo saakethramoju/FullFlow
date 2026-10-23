@@ -46,6 +46,16 @@ from thermoprop import *
 
 
 # -----------------------------------------------------------------------------
+# Run options
+# -----------------------------------------------------------------------------
+
+dt = 0.1
+t_final = 20.0
+dynamic_filename = "dynamic_solid_example"
+force_steady_filename = "13force_steady_heat_transfer"
+
+
+# -----------------------------------------------------------------------------
 # Shared settings
 # -----------------------------------------------------------------------------
 
@@ -153,14 +163,13 @@ DynamicNetwork, DynamicMetalNode = build_network("Dynamic Solid Example")
 
 SteadyState(DynamicNetwork).solve(
     verbose=True,
-    filename="dynamic_solid_example",
+    filename=dynamic_filename,
 )
 
 Transient(DynamicNetwork).solve(
-    dt=0.1,
-    t_final=20.0,
-    save_dt=0.1,
-    filename="dynamic_solid_example",
+    dt=dt,
+    t_final=t_final,
+    filename=dynamic_filename,
     verbose=True,
 )
 
@@ -173,13 +182,12 @@ ForceSteadyNetwork, ForceSteadyMetalNode = build_network("Force Steady Solid Exa
 
 SteadyState(ForceSteadyNetwork).solve(
     verbose=True,
-    filename="13force_steady_heat_transfer",
+    filename=force_steady_filename,
 )
 
 SteadyState(ForceSteadyNetwork).solve(
-    dt=0.1,
-    t_final=20.0,
-    save_dt=0.1,
-    filename="13force_steady_heat_transfer",
+    dt=dt,
+    t_final=t_final,
+    filename=force_steady_filename,
     verbose=True,
 )

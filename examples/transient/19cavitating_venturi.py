@@ -93,6 +93,7 @@ venturi is cavitating.
 """
 
 import math
+from scipy.constants import *
 
 from fullflow import *
 from fullplot import Axis, generate_map
@@ -100,16 +101,22 @@ from thermoprop import *
 
 
 # -----------------------------------------------------------------------------
-# Unit conversions and filenames
+# Run options
 # -----------------------------------------------------------------------------
 
-psi_to_pa = 6894.76
-pa_to_psi = 1.0 / psi_to_pa
+dt = 0.002
+t_final = 1.2
+
+
+# -----------------------------------------------------------------------------
+# Filenames and constants
+# -----------------------------------------------------------------------------
+
 
 map_filename = "19cavitating_venturi"
 results_filename = "19cavitating_venturi"
 
-ambient_pressure = 14.7 * psi_to_pa
+ambient_pressure = 14.7 * psi
 
 
 # -----------------------------------------------------------------------------
@@ -148,7 +155,7 @@ if generate_combustion_map:
         map_filename,
         group="products",
         axes=[
-            Axis.linear("chamber_pressure", start=50 * psi_to_pa, stop=800 * psi_to_pa, count=20, units="Pa"),
+            Axis.linear("chamber_pressure", start=50 * psi, stop=800 * psi, count=20, units="Pa"),
             Axis.linear("mixture_ratio", start=0.8, stop=5.0, count=20),
         ],
         evaluate=rp1_lox_products_map,
@@ -170,8 +177,8 @@ FeedSystem = Network("Transient Cavitating Feed System")
 # The sources are fixed thermodynamic boundary states. The feed lines and nodes
 # downstream of them are dynamic.
 
-fuel_source_pressure = State(450.0 * psi_to_pa)
-ox_source_pressure = State(450.0 * psi_to_pa)
+fuel_source_pressure = State(450.0 * psi)
+ox_source_pressure = State(450.0 * psi)
 
 FuelSource = Lookup(
     "Fuel Source",
@@ -199,13 +206,13 @@ OxSource = Lookup(
 # FullFlow drives their mass derivatives to zero. In transient, FullFlow
 # integrates the stored mass and solves pressure from the updated inventory.
 
-fuel_venturi_upstream_pressure = State(448.0 * psi_to_pa)
-fuel_manifold_pressure = State(435.0 * psi_to_pa)
+fuel_venturi_upstream_pressure = State(448.0 * psi)
+fuel_manifold_pressure = State(435.0 * psi)
 
-ox_venturi_upstream_pressure = State(448.0 * psi_to_pa)
-ox_manifold_pressure = State(435.0 * psi_to_pa)
+ox_venturi_upstream_pressure = State(448.0 * psi)
+ox_manifold_pressure = State(435.0 * psi)
 
-chamber_pressure = State(150.0 * psi_to_pa)
+chamber_pressure = State(150.0 * psi)
 
 # Initial guess only. This State is converted to a derived State after the
 # injector mass flows exist so the combustion map sees the live mixture ratio.
@@ -622,7 +629,7 @@ FuelVenturiCriticalPressure = State._derived(
 FuelVenturiThroatPressure = State._derived(
     lambda: getattr(FuelVenturi, "throat_pressure", FuelVenturiUpstreamPlenum.pressure.value)
 )
-FuelCavitationMargin = (FuelVenturiCriticalPressure - FuelManifold.pressure) * pa_to_psi
+FuelCavitationMargin = (FuelVenturiCriticalPressure - FuelManifold.pressure) * (1.0 / psi)
 FuelCavitating = State._derived(lambda: 1.0 if FuelCavitationMargin.value >= 0.0 else 0.0)
 
 OxVenturiCriticalPressure = State._derived(
@@ -631,7 +638,7 @@ OxVenturiCriticalPressure = State._derived(
 OxVenturiThroatPressure = State._derived(
     lambda: getattr(OxVenturi, "throat_pressure", OxVenturiUpstreamPlenum.pressure.value)
 )
-OxCavitationMargin = (OxVenturiCriticalPressure - OxManifold.pressure) * pa_to_psi
+OxCavitationMargin = (OxVenturiCriticalPressure - OxManifold.pressure) * (1.0 / psi)
 OxCavitating = State._derived(lambda: 1.0 if OxCavitationMargin.value >= 0.0 else 0.0)
 
 
@@ -640,19 +647,19 @@ OxCavitating = State._derived(lambda: 1.0 if OxCavitationMargin.value >= 0.0 els
 # -----------------------------------------------------------------------------
 # These are the most useful signals to plot from the HDF5 file.
 
-FeedSystem.track("Fuel Source Pressure [psia]", FuelSource.pressure * pa_to_psi)
-FeedSystem.track("Fuel Venturi Upstream Pressure [psia]", FuelVenturiUpstreamPlenum.pressure * pa_to_psi)
-FeedSystem.track("Fuel Manifold Pressure [psia]", FuelManifold.pressure * pa_to_psi)
-FeedSystem.track("Fuel Venturi Critical Downstream Pressure [psia]", FuelVenturiCriticalPressure * pa_to_psi)
-FeedSystem.track("Fuel Venturi Throat Pressure [psia]", FuelVenturiThroatPressure * pa_to_psi)
+FeedSystem.track("Fuel Source Pressure [psia]", FuelSource.pressure * (1.0 / psi))
+FeedSystem.track("Fuel Venturi Upstream Pressure [psia]", FuelVenturiUpstreamPlenum.pressure * (1.0 / psi))
+FeedSystem.track("Fuel Manifold Pressure [psia]", FuelManifold.pressure * (1.0 / psi))
+FeedSystem.track("Fuel Venturi Critical Downstream Pressure [psia]", FuelVenturiCriticalPressure * (1.0 / psi))
+FeedSystem.track("Fuel Venturi Throat Pressure [psia]", FuelVenturiThroatPressure * (1.0 / psi))
 FeedSystem.track("Fuel Cavitation Margin [psid]", FuelCavitationMargin)
 FeedSystem.track("Fuel Cavitating Flag [-]", FuelCavitating)
 
-FeedSystem.track("Ox Source Pressure [psia]", OxSource.pressure * pa_to_psi)
-FeedSystem.track("Ox Venturi Upstream Pressure [psia]", OxVenturiUpstreamPlenum.pressure * pa_to_psi)
-FeedSystem.track("Ox Manifold Pressure [psia]", OxManifold.pressure * pa_to_psi)
-FeedSystem.track("Ox Venturi Critical Downstream Pressure [psia]", OxVenturiCriticalPressure * pa_to_psi)
-FeedSystem.track("Ox Venturi Throat Pressure [psia]", OxVenturiThroatPressure * pa_to_psi)
+FeedSystem.track("Ox Source Pressure [psia]", OxSource.pressure * (1.0 / psi))
+FeedSystem.track("Ox Venturi Upstream Pressure [psia]", OxVenturiUpstreamPlenum.pressure * (1.0 / psi))
+FeedSystem.track("Ox Manifold Pressure [psia]", OxManifold.pressure * (1.0 / psi))
+FeedSystem.track("Ox Venturi Critical Downstream Pressure [psia]", OxVenturiCriticalPressure * (1.0 / psi))
+FeedSystem.track("Ox Venturi Throat Pressure [psia]", OxVenturiThroatPressure * (1.0 / psi))
 FeedSystem.track("Ox Cavitation Margin [psid]", OxCavitationMargin)
 FeedSystem.track("Ox Cavitating Flag [-]", OxCavitating)
 
@@ -667,7 +674,7 @@ FeedSystem.track("Ox Line Mass Flow [kg/s]", OxLine.mass_flow)
 FeedSystem.track("Ox Venturi Mass Flow [kg/s]", OxVenturi.mass_flow)
 FeedSystem.track("Ox Injector Mass Flow [kg/s]", OxInjector.mass_flow)
 
-FeedSystem.track("Chamber Pressure [psia]", Chamber.pressure * pa_to_psi)
+FeedSystem.track("Chamber Pressure [psia]", Chamber.pressure * (1.0 / psi))
 FeedSystem.track("Chamber Temperature [K]", ChamberMap.chamber_temperature)
 FeedSystem.track("Mixture Ratio [-]", mixture_ratio)
 FeedSystem.track("Nozzle Mass Flow [kg/s]", Nozzle.mass_flow)
@@ -695,8 +702,8 @@ SteadyState(FeedSystem).solve(
 # smoother system response.
 
 Transient(FeedSystem).solve(
-    dt=0.002,
-    t_final=1.20,
+    dt=dt,
+    t_final=t_final,
     verbose=True,
     statistics=True,
     filename=results_filename,

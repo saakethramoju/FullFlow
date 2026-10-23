@@ -97,12 +97,18 @@ from thermoprop import *
 
 
 # -----------------------------------------------------------------------------
+# Run options
+# -----------------------------------------------------------------------------
+
+filename = '4cavitating_venturi'
+
+
+# -----------------------------------------------------------------------------
 # Map file settings
 # -----------------------------------------------------------------------------
 # The chamber gas property map is expected to live in RP1_LOX.h5. The map is
 # generated separately from the solve because equilibrium calculations are much
 # more expensive than interpolation during each network evaluation.
-filename = "4cavitating_venturi"
 
 
 # -----------------------------------------------------------------------------

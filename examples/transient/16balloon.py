@@ -38,6 +38,15 @@ from fullflow import *
 
 
 # -----------------------------------------------------------------------------
+# Run options
+# -----------------------------------------------------------------------------
+
+dt = 0.001
+t_final = 1.0
+filename = '16balloon'
+
+
+# -----------------------------------------------------------------------------
 # Constants
 # -----------------------------------------------------------------------------
 
@@ -165,9 +174,8 @@ BalloonNetwork.track("Balloon Boundary Work Rate [W]", Balloon.boundary_work_rat
 BalloonSolver = Transient(BalloonNetwork)
 
 BalloonSolver.solve(
-    dt=0.001,
-    t_final=1.0,
-    save_dt=0.001,
-    filename="16balloon",
+    dt=dt,
+    t_final=t_final,
+    filename=filename,
     verbose=True,
 )

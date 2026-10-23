@@ -3,6 +3,7 @@ import math
 
 import h5py
 import numpy as np
+from scipy.constants import *
 
 from fullflow import *
 import fullplot as fplt
@@ -51,6 +52,14 @@ loss, heat input, etc.
 """
 
 
+# -----------------------------------------------------------------------------
+# Run options
+# -----------------------------------------------------------------------------
+
+dt = 0.02
+t_final = 6.5
+
+
 # ---------------------------------------------------------------------------
 # User options
 # ---------------------------------------------------------------------------
@@ -63,7 +72,6 @@ HERE = Path(__file__).resolve().parent
 TEST_DATA_FILE = HERE / "test_data_anchoring_hotfire.h5"
 RESULT_FILE = HERE / "test_data_anchoring_result.h5"
 
-psia_to_pa = 6894.76
 
 
 # ---------------------------------------------------------------------------
@@ -112,7 +120,7 @@ def generate_test_data(filename):
     density = 810.0
     area = (math.pi / 4.0) * (0.25 / 39.37) ** 2
     true_cd = 0.18 + 0.54 * run_level
-    pressure_drop = np.maximum((ftpt - fipt) * psia_to_pa, 0.0)
+    pressure_drop = np.maximum((ftpt - fipt) * psi, 0.0)
     fuel_mdot = true_cd * area * np.sqrt(2.0 * density * pressure_drop)
     fuel_mdot += rng.normal(0.0, 0.006, len(time))
     fuel_mdot = np.maximum(fuel_mdot, 0.0)
@@ -155,8 +163,8 @@ fflow = data.trace(y="FUEL_MDOT", x=time, name="Fuel Flow Test Data", role="data
 
 # A user can process a test-data trace before anchoring to it. The filtered trace
 # keeps the same role as the source trace, so it is still valid Sensor.data.
-ftpt = ftpt_raw.filter("moving_average", window=0.04) * psia_to_pa
-fipt = fipt_raw.filter("moving_average", window=0.04) * psia_to_pa
+ftpt = ftpt_raw.filter("moving_average", window=0.04) * psi
+fipt = fipt_raw.filter("moving_average", window=0.04) * psi
 
 # All three traces share this TimeAxis, so one window selects the useful part of
 # the test for every attached trace.
@@ -181,7 +189,7 @@ fflow_redline = fplt.Trace.constant(
 # Plot the imported data before building the model. This is the normal first
 # sanity check when working with test data.
 data.plot(
-    y=[ftpt / psia_to_pa, fipt / psia_to_pa],
+    y=[ftpt / psi, fipt / psi],
     y2=[fflow, fflow_warning, fflow_redline],
     xlabel="Time [s]",
     ylabel="Pressure [psia]",
@@ -255,8 +263,8 @@ Test.track("Estimated Fuel Cd", Line.discharge_coefficient)
 # ---------------------------------------------------------------------------
 
 Transient(Test).solve(
-    dt=0.02,
-    t_final=6.5,
+    dt=dt,
+    t_final=t_final,
     verbose=True,
     filename=str(RESULT_FILE),
 )

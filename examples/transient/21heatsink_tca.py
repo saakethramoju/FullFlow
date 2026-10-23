@@ -112,20 +112,28 @@ reliably on Windows and macOS, and it is also safe on Linux.
 from concurrent.futures import ProcessPoolExecutor
 import os
 import numpy as np
+from scipy.constants import *
 
 from fullflow import *
 from fullplot import Axis, generate_map
 from thermoprop import *
 
 
+# -----------------------------------------------------------------------------
+# Run options
+# -----------------------------------------------------------------------------
+
+dt = 0.1
+t_final = 10.0
+filename = '21heatsink_tca'
+
+
 # ---------------------------------------------------------------------------
 # Constants and script options
 # ---------------------------------------------------------------------------
 
-psia_to_pa = 6894.76
 
 # All generated map groups are stored in this HDF5 file.
-filename = "21heatsink_tca"
 
 # Set this to True only when the maps need to be regenerated.
 make_map = False
@@ -328,7 +336,7 @@ if __name__ == "__main__":
     # -----------------------------------------------------------------------
 
     mixture_ratio = State(2.3)
-    chamber_pressure = State(400 * psia_to_pa)
+    chamber_pressure = State(400 * psi)
     ambient_pressure = State(101325.0)
 
     fuel = Propellant("rp-1", temperature=298.15)
@@ -378,8 +386,8 @@ if __name__ == "__main__":
             axes=[
                 Axis.log(
                     "pressure",
-                    start=1 * psia_to_pa,
-                    stop=430 * psia_to_pa,
+                    start=1 * psi,
+                    stop=430 * psi,
                     count=50,
                     units="Pa",
                 ),
@@ -414,8 +422,8 @@ if __name__ == "__main__":
             axes=[
                 Axis.log(
                     "pressure",
-                    start=1 * psia_to_pa,
-                    stop=500 * psia_to_pa,
+                    start=1 * psi,
+                    stop=500 * psi,
                     count=18,
                     units="Pa",
                 ),
@@ -456,8 +464,8 @@ if __name__ == "__main__":
     # -----------------------------------------------------------------------
 
     # These are initial guesses for the algebraic nozzle solve.
-    throat_pressure = State(229.427 * psia_to_pa)
-    exit_pressure = State(10.4529 * psia_to_pa)
+    throat_pressure = State(229.427 * psi)
+    exit_pressure = State(10.4529 * psi)
 
     # Throat area and exit area.
     throat_area = 6 / 1550
@@ -618,10 +626,10 @@ if __name__ == "__main__":
     # Nozzle tracked outputs
     # -----------------------------------------------------------------------
 
-    Heatsink.track("Chamber Pressure [psia]", Chamber.pressure / psia_to_pa)
-    Heatsink.track("Throat Pressure [psia]", throat_pressure / psia_to_pa)
-    Heatsink.track("Exit Pressure [psia]", exit_pressure / psia_to_pa)
-    Heatsink.track("Ambient Pressure [psia]", ambient_pressure / psia_to_pa)
+    Heatsink.track("Chamber Pressure [psia]", Chamber.pressure / psi)
+    Heatsink.track("Throat Pressure [psia]", throat_pressure / psi)
+    Heatsink.track("Exit Pressure [psia]", exit_pressure / psi)
+    Heatsink.track("Ambient Pressure [psia]", ambient_pressure / psi)
 
     Heatsink.track("Chamber Temperature [K]", Chamber.temperature)
     Heatsink.track("Throat Temperature [K]", ThroatMap.temperature)
@@ -1017,8 +1025,8 @@ if __name__ == "__main__":
     # -----------------------------------------------------------------------
 
     Transient(Heatsink).solve(
-        dt=0.1,
-        t_final=10.0,
+        dt=dt,
+        t_final=t_final,
         verbose=True,
         statistics=True,
         filename=filename,

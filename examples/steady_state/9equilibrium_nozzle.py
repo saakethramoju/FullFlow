@@ -97,6 +97,7 @@ from concurrent.futures import ProcessPoolExecutor
 import os
 
 import numpy as np
+from scipy.constants import *
 
 from fullflow import *
 from fullplot import Axis, generate_map
@@ -107,7 +108,6 @@ from thermoprop import *
 # Constants and script options
 # ---------------------------------------------------------------------------
 
-psia_to_pa = 6894.76
 
 # All generated map groups are stored in this one HDF5 file.
 filename = "9equilibrium_nozzle"
@@ -325,7 +325,7 @@ if __name__ == "__main__":
     # -----------------------------------------------------------------------
 
     mixture_ratio = State(2.3)
-    injector_face_pressure = State(400 * psia_to_pa)
+    injector_face_pressure = State(400 * psi)
     ambient_pressure = State(101325.0)
 
     fuel = Propellant("rp-1", temperature=298.15)
@@ -371,8 +371,8 @@ if __name__ == "__main__":
             axes=[
                 Axis.linear(
                     "pressure",
-                    start=385 * psia_to_pa,
-                    stop=405 * psia_to_pa,
+                    start=385 * psi,
+                    stop=405 * psi,
                     count=41,
                     units="Pa",
                 ),
@@ -406,8 +406,8 @@ if __name__ == "__main__":
             axes=[
                 Axis.log(
                     "pressure",
-                    start=1 * psia_to_pa,
-                    stop=500 * psia_to_pa,
+                    start=1 * psi,
+                    stop=500 * psi,
                     count=18,
                     units="Pa",
                 ),
@@ -449,12 +449,12 @@ if __name__ == "__main__":
 
     # Chamber pressure and temperature are solved by the combustion chamber
     # Volume. These are only initial guesses.
-    chamber_pressure = State(393 * psia_to_pa)
+    chamber_pressure = State(393 * psi)
     chamber_temperature = State(3458.0)
 
     # Throat and exit pressures are also solved by the network.
-    throat_pressure = State(300 * psia_to_pa)
-    exit_pressure = State(10 * psia_to_pa)
+    throat_pressure = State(300 * psi)
+    exit_pressure = State(10 * psi)
 
 
     # -----------------------------------------------------------------------
@@ -687,11 +687,11 @@ if __name__ == "__main__":
     # Tracked outputs
     # -----------------------------------------------------------------------
 
-    EquilibriumNozzle.track("Injector Face Pressure [psia]", InjectorFace.pressure / psia_to_pa)
-    EquilibriumNozzle.track("Chamber Pressure [psia]", chamber_pressure / psia_to_pa)
-    EquilibriumNozzle.track("Throat Pressure [psia]", throat_pressure / psia_to_pa)
-    EquilibriumNozzle.track("Exit Pressure [psia]", exit_pressure / psia_to_pa)
-    EquilibriumNozzle.track("Ambient Pressure [psia]", ambient_pressure / psia_to_pa)
+    EquilibriumNozzle.track("Injector Face Pressure [psia]", InjectorFace.pressure / psi)
+    EquilibriumNozzle.track("Chamber Pressure [psia]", chamber_pressure / psi)
+    EquilibriumNozzle.track("Throat Pressure [psia]", throat_pressure / psi)
+    EquilibriumNozzle.track("Exit Pressure [psia]", exit_pressure / psi)
+    EquilibriumNozzle.track("Ambient Pressure [psia]", ambient_pressure / psi)
 
     EquilibriumNozzle.track("Injector Face Temperature [K]", InjectorFace.temperature)
     EquilibriumNozzle.track("Chamber Temperature [K]", chamber_temperature)

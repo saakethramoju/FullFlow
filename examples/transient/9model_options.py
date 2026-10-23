@@ -85,34 +85,33 @@ The transient solve evaluates every pump option independently.
 """
 
 import numpy as np
+from scipy.constants import *
 
 from fullflow import *
 from thermoprop import *
+
+
+# -----------------------------------------------------------------------------
+# Run options
+# -----------------------------------------------------------------------------
+
+dt = 0.01
+t_final = 22.0
+filename = '9model_options'
 
 
 # ---------------------------------------------------------------------------
 # Output file
 # ---------------------------------------------------------------------------
 
-filename = "9model_options"
-
-
-# ---------------------------------------------------------------------------
-# Unit conversions
-# ---------------------------------------------------------------------------
-
-psi_to_pa = 6894.76
-pa_to_psi = 1.0 / psi_to_pa
 
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-g = 9.80665
-
-source_pressure_value = 100.0 * psi_to_pa
-drain_pressure_value = 100.0 * psi_to_pa
+source_pressure_value = 100.0 * psi
+drain_pressure_value = 100.0 * psi
 
 water_temperature_value = 300.0
 
@@ -120,7 +119,7 @@ design_rotor_speed = 6000.0
 
 # The design pump pressure rise is about 150 psid.
 water_density_reference = 997.0
-design_pressure_rise = 150.0 * psi_to_pa
+design_pressure_rise = 150.0 * psi
 design_head_rise = design_pressure_rise / (water_density_reference * g)
 
 
@@ -522,13 +521,13 @@ PumpNetwork.track("Pump Mass Flow [kg/s]", pump_mass_flow)
 PumpNetwork.track("Valve Mass Flow [kg/s]", valve_mass_flow)
 PumpNetwork.track("Outlet Line Mass Flow [kg/s]", outlet_line_mass_flow)
 
-PumpNetwork.track("Source Pressure [psia]", source_pressure * pa_to_psi)
-PumpNetwork.track("Pump Inlet Pressure [psia]", pump_inlet_pressure * pa_to_psi)
-PumpNetwork.track("Pump Discharge Pressure [psia]", pump_discharge_pressure * pa_to_psi)
-PumpNetwork.track("Outlet Node Pressure [psia]", outlet_node_pressure * pa_to_psi)
-PumpNetwork.track("Drain Pressure [psia]", drain_pressure * pa_to_psi)
+PumpNetwork.track("Source Pressure [psia]", source_pressure * (1.0 / psi))
+PumpNetwork.track("Pump Inlet Pressure [psia]", pump_inlet_pressure * (1.0 / psi))
+PumpNetwork.track("Pump Discharge Pressure [psia]", pump_discharge_pressure * (1.0 / psi))
+PumpNetwork.track("Outlet Node Pressure [psia]", outlet_node_pressure * (1.0 / psi))
+PumpNetwork.track("Drain Pressure [psia]", drain_pressure * (1.0 / psi))
 
-PumpNetwork.track("Pump Pressure Rise [psid]", (pump_discharge_pressure - pump_inlet_pressure) * pa_to_psi)
+PumpNetwork.track("Pump Pressure Rise [psid]", (pump_discharge_pressure - pump_inlet_pressure) * (1.0 / psi))
 PumpNetwork.track("Pump Head Rise [m]", pump_head_rise)
 
 PumpNetwork.track("Source Density [kg/m^3]", SourceWater.density)
@@ -568,8 +567,8 @@ SteadyState(PumpNetwork).solve(
 
 # Evaluate both pump options as independent transient runs.
 Transient(PumpNetwork).solve(
-    dt=0.01,
-    t_final=22.0,
+    dt=dt,
+    t_final=t_final,
     filename=filename,
     model="Pump Model",
     evaluate_all_model_options=True,

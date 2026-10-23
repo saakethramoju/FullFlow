@@ -106,6 +106,16 @@ from thermoprop import *
 import fullplot as fplt
 
 import numpy as np
+from scipy.constants import *
+
+
+# -----------------------------------------------------------------------------
+# Run options
+# -----------------------------------------------------------------------------
+
+dt = 0.02
+t_final = 5.0
+filename = '22water_hammer'
 
 
 # -----------------------------------------------------------------------------
@@ -113,21 +123,6 @@ import numpy as np
 # -----------------------------------------------------------------------------
 
 WaterHammer = Network("Water Hammer")
-
-
-# -----------------------------------------------------------------------------
-# Unit conversions
-#
-# FullFlow uses SI units internally. The GFSSP reference problem is described
-# mostly in English units, so the values are converted here once and then reused
-# throughout the model.
-# -----------------------------------------------------------------------------
-
-psi_to_pa = 6894.757293168
-ft_to_m = 0.3048
-inch_to_m = 0.0254
-in2_to_m2 = inch_to_m**2
-lbm_to_kg = 0.45359237
 
 
 # -----------------------------------------------------------------------------
@@ -144,8 +139,8 @@ lbm_to_kg = 0.45359237
 #     K = R * 5/9
 # -----------------------------------------------------------------------------
 
-source_pressure = State(500.0 * psi_to_pa)
-downstream_pressure = State(450.0 * psi_to_pa)
+source_pressure = State(500.0 * psi)
+downstream_pressure = State(450.0 * psi)
 
 lox_temperature = 200.0 * (5.0 / 9.0)
 
@@ -164,8 +159,8 @@ lox_temperature = 200.0 * (5.0 / 9.0)
 # segment.
 # -----------------------------------------------------------------------------
 
-pipe_length = 400.0 * ft_to_m
-pipe_diameter = 0.25 * inch_to_m
+pipe_length = 400.0 * foot
+pipe_diameter = 0.25 * inch
 pipe_area = (np.pi / 4.0) * pipe_diameter**2
 
 node_count = 5
@@ -183,9 +178,7 @@ node_volume = pipe_area * dx
 # implicit network model rather than a pure method-of-characteristics model.
 # -----------------------------------------------------------------------------
 
-wave_speed = 2462.0 * ft_to_m
-dt = 0.02
-t_final = 5.0
+wave_speed = 2462.0 * foot
 
 courant_gfssp = 4.0 * dx / (wave_speed * dt)
 courant_usual = wave_speed * dt / dx
@@ -212,7 +205,7 @@ print("Usual wave Courant number  =", courant_usual)
 # it during the transient solve.
 # -----------------------------------------------------------------------------
 
-valve_area = State(0.0491 * in2_to_m2)
+valve_area = State(0.0491 * inch**2)
 
 valve_times = [
     0.00,
@@ -225,13 +218,13 @@ valve_times = [
 ]
 
 valve_areas = [
-    0.0491 * in2_to_m2,
-    0.0164 * in2_to_m2,
-    0.00545 * in2_to_m2,
-    0.00182 * in2_to_m2,
-    0.00061 * in2_to_m2,
-    1.0e-16 * in2_to_m2,
-    1.0e-16 * in2_to_m2,
+    0.0491 * inch**2,
+    0.0164 * inch**2,
+    0.00545 * inch**2,
+    0.00182 * inch**2,
+    0.00061 * inch**2,
+    1.0e-16 * inch**2,
+    1.0e-16 * inch**2,
 ]
 
 
@@ -333,7 +326,7 @@ for i in range(node_count):
 # -----------------------------------------------------------------------------
 
 for i in range(node_count):
-    pipe_flows.append(State(0.1 * lbm_to_kg))
+    pipe_flows.append(State(0.1 * pound))
 
 
 # -----------------------------------------------------------------------------
@@ -444,9 +437,9 @@ for i in range(node_count):
 # -----------------------------------------------------------------------------
 
 WaterHammer.track("Valve Area [m2]", valve_area)
-WaterHammer.track("Valve Area [in2]", valve_area / in2_to_m2)
+WaterHammer.track("Valve Area [in2]", valve_area / inch**2)
 WaterHammer.track("Outlet Valve Mass Flow [kg/s]", OutletValve.mass_flow)
-WaterHammer.track("Outlet Valve Mass Flow [lbm/s]", OutletValve.mass_flow / lbm_to_kg)
+WaterHammer.track("Outlet Valve Mass Flow [lbm/s]", OutletValve.mass_flow / pound)
 
 for i in range(node_count):
     WaterHammer.track(
@@ -456,7 +449,7 @@ for i in range(node_count):
 
     WaterHammer.track(
         f"Pipe Node {i + 1} Pressure [psia]",
-        node_pressures[i] / psi_to_pa,
+        node_pressures[i] / psi,
     )
 
 for i in range(node_count):
@@ -467,7 +460,7 @@ for i in range(node_count):
 
     WaterHammer.track(
         f"Pipe Segment {i + 1} Mass Flow [lbm/s]",
-        pipe_flows[i] / lbm_to_kg,
+        pipe_flows[i] / pound,
     )
 
 
@@ -477,7 +470,6 @@ for i in range(node_count):
 # The steady-state solve initializes the network before valve closure.
 # -----------------------------------------------------------------------------
 
-filename = "22water_hammer"
 
 
 SteadyState(WaterHammer).solve(

@@ -101,6 +101,15 @@ from fullflow import *
 from thermoprop import *
 
 
+# -----------------------------------------------------------------------------
+# Run options
+# -----------------------------------------------------------------------------
+
+dt = 0.01
+t_final = 20.0
+filename = '7flow_mixer'
+
+
 # ---------------------------------------------------------------------------
 # Network
 # ---------------------------------------------------------------------------
@@ -112,7 +121,6 @@ MixerNetwork = Network("Transient Composition Mixer")
 # Output file
 # ---------------------------------------------------------------------------
 
-filename = "7flow_mixer"
 
 
 # ---------------------------------------------------------------------------
@@ -489,8 +497,8 @@ SteadyState(MixerNetwork).solve(
 # Run long enough for the argon inlet to open and for the mixer composition to
 # move toward its new steady-state value.
 Transient(MixerNetwork).solve(
-    dt=0.01,
-    t_final=20.0,
+    dt=dt,
+    t_final=t_final,
     filename=filename,
     statistics=True,
 )

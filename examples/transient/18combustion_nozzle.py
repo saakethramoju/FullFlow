@@ -72,17 +72,27 @@ This is intentionally a compact user example. It demonstrates:
     4. A steady-state initialization followed by a transient solve
 """
 
+from scipy.constants import *
+
 from fullflow import *
 from thermoprop import *
 
 
 # -----------------------------------------------------------------------------
-# Unit conversions and constants
+# Run options
 # -----------------------------------------------------------------------------
 
-psi_to_pa = 6894.76
+dt = 0.005
+t_final = 1.1
+filename = '18combustion_nozzle'
 
-ambient_pressure = 14.7 * psi_to_pa
+
+# -----------------------------------------------------------------------------
+# Constants
+# -----------------------------------------------------------------------------
+
+
+ambient_pressure = 14.7 * psi
 
 
 # -----------------------------------------------------------------------------
@@ -106,7 +116,7 @@ FuelSource = Lookup(
     Propellant,
     "rp-1",
     temperature=298.15,
-    pressure=350.0 * psi_to_pa,
+    pressure=350.0 * psi,
 )
 
 OxSource = Lookup(
@@ -114,7 +124,7 @@ OxSource = Lookup(
     FeedSystem,
     Propellant,
     "lox",
-    pressure=350.0 * psi_to_pa,
+    pressure=350.0 * psi,
     quality=0.0,
 )
 
@@ -145,7 +155,7 @@ ChamberGas = Lookup(
     FeedSystem,
     Equilibrium,
     reactants=Props,
-    pressure=300.0 * psi_to_pa,
+    pressure=300.0 * psi,
 )
 
 
@@ -302,7 +312,7 @@ Nozzle = IsentropicNozzle(
 # solves. Tracking the valve commands and mass flows makes it easy to interpret
 # why chamber pressure and mixture ratio move the way they do.
 
-FeedSystem.track("Chamber Pressure [psia]", Chamber.pressure / psi_to_pa)
+FeedSystem.track("Chamber Pressure [psia]", Chamber.pressure / psi)
 FeedSystem.track("Mixture Ratio", Props.mixture_ratio)
 
 FeedSystem.track("Fuel Cd", FuelCd.target)
@@ -320,7 +330,6 @@ FeedSystem.track("Total Propellant Mass Flow [kg/s]", FuelValve.mass_flow + OxVa
 # The steady-state solve finds a consistent initial chamber pressure, valve flow
 # rates, nozzle flow rate, and mixture ratio before the transient starts.
 
-filename = "18combustion_nozzle"
 
 SteadyState(FeedSystem).solve(
     verbose=True,
@@ -337,8 +346,8 @@ SteadyState(FeedSystem).solve(
 # operating point smoothly over time.
 
 Transient(FeedSystem).solve(
-    dt=0.005,
-    t_final=1.1,
+    dt=dt,
+    t_final=t_final,
     verbose=True,
     statistics=True,
     filename=filename,

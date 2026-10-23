@@ -44,8 +44,19 @@ this example focused only on forced-steady behavior.
 
 import math
 import matplotlib.pyplot as plt
+from scipy.constants import *
 
 from fullflow import *
+
+
+# -----------------------------------------------------------------------------
+# Run options
+# -----------------------------------------------------------------------------
+
+dt = 0.01
+t_final = 2.0
+dynamic_filename = "force_steady_fully_dynamic"
+force_steady_filename = "14force_steady_fluid"
 
 
 # -----------------------------------------------------------------------------
@@ -60,7 +71,7 @@ reference_pressure = 300000.0       # Pa
 reference_density = 1000.0          # kg/m^3
 compressibility = 5.0e-9            # 1/Pa, simple liquid compressibility
 
-pipe_diameter = 0.0254              # m
+pipe_diameter = inch                # m
 pipe_area = math.pi / 4.0 * pipe_diameter**2
 pipe_length = 3.0                   # m
 pipe_friction_factor = 0.03
@@ -212,14 +223,13 @@ DynamicNetwork, DynamicNode1, DynamicNode2, DynamicPipe1, DynamicPipe2, DynamicP
     "Fully Dynamic Fluid Network"
 )
 
-SteadyState(DynamicNetwork).solve(filename="force_steady_fully_dynamic")
+SteadyState(DynamicNetwork).solve(filename=dynamic_filename)
 
 DynamicSolver = Transient(DynamicNetwork)
 DynamicSolver.solve(
-    dt=0.01,
-    t_final=2.0,
-    save_dt=0.01,
-    filename="force_steady_fully_dynamic",
+    dt=dt,
+    t_final=t_final,
+    filename=dynamic_filename,
 )
 
 
@@ -231,14 +241,13 @@ ForceSteadyNetwork, ForceSteadyNode1, ForceSteadyNode2, ForceSteadyPipe1, ForceS
     "Force-Steady Pipe Fluid Network"
 )
 
-SteadyState(ForceSteadyNetwork).solve(filename="14force_steady_fluid")
+SteadyState(ForceSteadyNetwork).solve(filename=force_steady_filename)
 
 ForceSteadySolver = SteadyState(ForceSteadyNetwork)
 ForceSteadySolver.solve(
-    dt=0.01,
-    t_final=2.0,
-    save_dt=0.01,
-    filename="14force_steady_fluid",
+    dt=dt,
+    t_final=t_final,
+    filename=force_steady_filename,
     exceptions=[
         ForceSteadyNode1,
         ForceSteadyNode2,

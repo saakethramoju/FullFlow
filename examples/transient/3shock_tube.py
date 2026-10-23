@@ -47,6 +47,15 @@ import math
 from fullflow import *
 
 
+# -----------------------------------------------------------------------------
+# Run options
+# -----------------------------------------------------------------------------
+
+dt = 0.001
+t_final = 0.3
+filename = '3shock_tube'
+
+
 ShockTube = Network("FlowTube Shock Decay")
 
 
@@ -225,11 +234,10 @@ ShockTube.track("Shock Mach Number", Tube.shock_mach_number)
 # Transient solve
 # ---------------------------------------------------------------------------
 
-filename = "3shock_tube"
 
 Transient(ShockTube).solve(
-    t_final=0.30,
-    dt=0.001,
+    t_final=t_final,
+    dt=dt,
     verbose=True,
     statistics=True,
     filename=filename,
