@@ -243,4 +243,5 @@ ForceSteadySolver.solve(
         ForceSteadyNode1,
         ForceSteadyNode2,
     ],
+    verbose=True
 )

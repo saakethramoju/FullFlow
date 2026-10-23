@@ -119,7 +119,7 @@ ambient_pressure = 14.7 * psi_to_pa
 # already exist. Keep it False for normal transient runs so the example uses the
 # existing HDF5 map instead of regenerating equilibrium chemistry every time.
 
-generate_combustion_map = True
+generate_combustion_map = False
 
 if generate_combustion_map:
     fuel = Propellant("rp-1", temperature=298.15)

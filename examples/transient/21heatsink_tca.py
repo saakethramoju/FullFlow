@@ -273,7 +273,6 @@ def rp1_lox_sp_map(pressure, entropy, mixture_ratio, guess_temperature):
         "gas_constant": eq.gas_constant,
         "density": eq.density,
         "enthalpy": eq.enthalpy,
-        "entropy": eq.entropy,
         "speed_of_sound": eq.speed_of_sound,
         "temperature": eq.temperature,
         "dynamic_viscosity": eq.dynamic_viscosity,
@@ -313,7 +312,6 @@ def rp1_lox_tp_map(pressure, temperature, mixture_ratio):
         "enthalpy": eq.enthalpy,
         "entropy": eq.entropy,
         "speed_of_sound": eq.speed_of_sound,
-        "temperature": eq.temperature,
         "dynamic_viscosity": eq.dynamic_viscosity,
         "prandtl": eq.prandtl,
     }

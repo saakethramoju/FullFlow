@@ -536,7 +536,6 @@ filename = "sudden_valve_opening"
 dt = 0.01
 t_final = 2.0
 
-'''
 # Steady initialization:
 #
 #     - valve closed
@@ -572,7 +571,6 @@ Transient(ValveOpeningSim).solve(
     rtol=1.0e-5,
 )
 
-'''
 # -----------------------------------------------------------------------------
 # Plot with FullPlot
 # -----------------------------------------------------------------------------

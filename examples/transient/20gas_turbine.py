@@ -135,7 +135,7 @@ filename = "20gas_turbine"
 
 # Keep this True while developing/changing the map definitions. After the map
 # exists and the definitions are stable, set it to False to skip regeneration.
-generate_maps = True
+generate_maps = False
 
 
 # -----------------------------------------------------------------------------

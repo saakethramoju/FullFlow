@@ -255,8 +255,9 @@ OxRichTurbineDesignMassFlow = LOXPumpDesignShaftPower / (OxRichTurbineDesignEffi
 
 turbopump_map_filename = "8turbopump"
 
+# Set this to True to generate both maps in 8turbopump.h5 before loading them.
+generate_maps = False
 
-'''
 # -----------------------------------------------------------------------------
 # Turbine map generation
 # -----------------------------------------------------------------------------
@@ -327,7 +328,7 @@ def turbine_map_point(
     }
 
 
-generate_map(
+generate_maps and generate_map(
     turbopump_map_filename,
     group="turbine",
     axes=[
@@ -421,7 +422,7 @@ def lox_pump_map_point(rotor_speed, volumetric_flow):
     }
 
 
-generate_map(
+generate_maps and generate_map(
     turbopump_map_filename,
     group="lox_pump",
     axes=[
@@ -452,7 +453,6 @@ generate_map(
     overwrite=True,
     raise_errors=True,
 )
-'''
 
 
 # -----------------------------------------------------------------------------

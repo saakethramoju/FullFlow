@@ -112,7 +112,7 @@ The combustion map is stored in the same HDF5 file used for results. Set
 """
 # Output HDF5 file stem. FullFlow and FullPlot will use this file for both
 # generated map data and transient results.
-filename = 'test'
+filename = "25engine_startup"
 
 # Set this to True only when the RP-1/LOX product-property map needs to be
 # regenerated. Normal example runs should leave it False so startup simulation
@@ -1050,6 +1050,7 @@ Transient(Priming).solve(
     verbose=True,
     statistics=True,
     filename=filename,
+    rtol=1e-5,
 )
 
 
