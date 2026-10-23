@@ -1046,8 +1046,28 @@ class TransientRuntimeCache:
 
     @staticmethod
     def restore_iteration_variables(snapshot: tuple[tuple[Any, Any], ...]) -> None:
-        """Restore a snapshot created by :meth:`snapshot_iteration_variables`."""
+        """Restore the trial vector, skipping assignments that cannot change a State.
+
+        Ordinary ``State`` instances store the current scalar in ``_value``.
+        Avoiding their redundant property-setter calls is safe only for exact
+        built-in float values, where equality is unambiguous.  In particular,
+        do not mistake positive and negative zero for the same stored value.
+        Subclasses and State-compatible proxies retain their original setter
+        behavior, including any user-defined side effects.
+        """
         for state, value in snapshot:
+            if (
+                type(state) is State
+                and type(value) is float
+                and state._expr is None
+                and not (value < state._lower_bound or value > state._upper_bound)
+            ):
+                current = state._value
+                if current is value:
+                    continue
+                if type(current) is float and current == value:
+                    if value != 0.0 or math.copysign(1.0, current) == math.copysign(1.0, value):
+                        continue
             state.value = value
 
     def _collect_component_hooks(self, method_name: str) -> tuple[tuple[Any, Any], ...]:
@@ -1352,6 +1372,41 @@ class TransientRuntimeCache:
                 append(None)
 
         return values
+
+    def _collect_state_values_compact_change(
+        self,
+        previous_values: list[float | None],
+        output_values: list[float | None],
+    ) -> float:
+        """Update a reusable snapshot while calculating the fixed-point change.
+
+        This is the same convergence metric as ``_max_compact_state_change``
+        but avoids allocating a new list and iterating over the State values a
+        second time.  Both buffers follow ``state_refs`` in the same order.
+        Missing/nonnumeric State values still use ``None`` as before.
+        """
+        max_change = 0.0
+        for index, state in enumerate(self.state_refs):
+            try:
+                value = float(state.value) if state.is_assigned else None
+            except Exception:
+                value = None
+
+            output_values[index] = value
+            if value is None:
+                continue
+
+            previous = previous_values[index]
+            if previous is None:
+                change = abs(value)
+            else:
+                scale = max(abs(value), 1.0)
+                change = abs(value - previous) / scale
+
+            if change > max_change:
+                max_change = change
+
+        return max_change
 
     @staticmethod
     def _max_compact_state_change(

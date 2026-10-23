@@ -66,8 +66,13 @@ class TransientStateEvaluator:
         all_callables = list(cache.evaluate_state_callables)
         last_deferred_errors: dict[Callable[[], None], BaseException] = {}
 
+        # Read the initial snapshot once. After each pass its final snapshot
+        # becomes the next pass's initial snapshot. Both buffers are reused
+        # rather than rebuilding two lists on every convergence check.
+        old_values = cache._collect_state_values_compact() if max_passes > 0 else []
+        new_values: list[float | None] = [None] * len(old_values)
+
         for _ in range(max_passes):
-            old_values = cache._collect_state_values_compact()
             pending: list[Callable[[], None]] = []
             evaluated_count = 0
 
@@ -89,9 +94,13 @@ class TransientStateEvaluator:
 
                 evaluated_count += 1
 
-            new_values = cache._collect_state_values_compact()
-            if not pending and cache._max_compact_state_change(old_values, new_values) < tolerance:
+            max_change = cache._collect_state_values_compact_change(old_values, new_values)
+            if not pending and max_change < tolerance:
                 return
+
+            # Reuse the two lists without rereading values that were just
+            # collected at the end of this pass.
+            old_values, new_values = new_values, old_values
 
             if pending:
                 if evaluated_count == 0:
