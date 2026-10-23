@@ -223,13 +223,14 @@ DynamicNetwork, DynamicNode1, DynamicNode2, DynamicPipe1, DynamicPipe2, DynamicP
     "Fully Dynamic Fluid Network"
 )
 
-SteadyState(DynamicNetwork).solve(filename=dynamic_filename)
+SteadyState(DynamicNetwork).solve(filename=dynamic_filename, verbose=True)
 
 DynamicSolver = Transient(DynamicNetwork)
 DynamicSolver.solve(
     dt=dt,
     t_final=t_final,
     filename=dynamic_filename,
+    verbose=True,
 )
 
 
@@ -241,7 +242,7 @@ ForceSteadyNetwork, ForceSteadyNode1, ForceSteadyNode2, ForceSteadyPipe1, ForceS
     "Force-Steady Pipe Fluid Network"
 )
 
-SteadyState(ForceSteadyNetwork).solve(filename=force_steady_filename)
+SteadyState(ForceSteadyNetwork).solve(filename=force_steady_filename, verbose=True)
 
 ForceSteadySolver = SteadyState(ForceSteadyNetwork)
 ForceSteadySolver.solve(

@@ -482,7 +482,7 @@ Transient(WaterHammer).solve(
     dt=dt,
     t_final=t_final,
     filename=filename,
-    verbose=False,
+    verbose=True,
     statistics=True,
     rtol=1.0e-5,
 )

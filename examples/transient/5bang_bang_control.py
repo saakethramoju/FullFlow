@@ -511,4 +511,5 @@ Transient(BangBangSim).solve(
     t_final=t_final,
     statistics=True,
     filename=filename,
+    verbose=True,
 )

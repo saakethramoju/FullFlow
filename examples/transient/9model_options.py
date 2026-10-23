@@ -574,4 +574,5 @@ Transient(PumpNetwork).solve(
     evaluate_all_model_options=True,
     statistics=True,
     state_max_passes=30,
+    verbose=True,
 )

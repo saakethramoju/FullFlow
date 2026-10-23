@@ -468,4 +468,5 @@ Transient(PumpSystem).solve(
     t_final=t_final,
     filename=filename,
     statistics=True,
+    verbose=True,
 )

@@ -426,7 +426,7 @@ if generate_throttle_map:
         )
 
         SteadyState(EngineMap).solve(
-            verbose=False,
+            verbose=True,
             statistics=False,
         )
 
