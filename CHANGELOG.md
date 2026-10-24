@@ -1,5 +1,24 @@
 # Changelog
 
+## 3.0.0
+
+FullFlow 3.0.0 focuses on solver performance, transient robustness, consistent
+examples, and concise user-facing documentation.
+
+### Solver performance
+
+* Added a safeguarded modified-Newton transient solver with numerical Jacobian
+  construction, Broyden updates, backtracking, and automatic SciPy fallback.
+* Added guarded Jacobian reuse between compatible transient timesteps.
+* Added accepted-step prediction and validation to improve transient initial
+  guesses without reusing stale state or control information.
+* Reduced repeated state discovery, allocation, conversion, and component
+  evaluation work in steady-state and transient residual calculations.
+* Added compact state snapshots and cached runtime metadata with network-version
+  invalidation.
+* Improved invalid-trial handling so temporary property-evaluation failures can
+  be rejected without immediately terminating a nonlinear solve.
+
 ## 2.0.3
 
 ### Sequence inputs

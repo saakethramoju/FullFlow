@@ -3,4 +3,4 @@ def test_fullflow_imports():
     import fullflow.System
     import fullflow.Solvers
 
-    assert fullflow.__version__ == "2.0.3"
+    assert fullflow.__version__ == "3.0.0"
