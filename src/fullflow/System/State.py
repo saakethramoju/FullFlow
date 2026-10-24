@@ -21,13 +21,7 @@ __all__ = [
 
 @runtime_checkable
 class StateLike(Protocol):
-    """Protocol implemented by objects that behave like FullFlow states.
-
-        FullFlow accepts real ``State`` objects, lookup attributes, and future
-        state-compatible proxies in many places.  A state-like object must expose a
-        readable and writable ``value`` plus enough metadata for bounds, numeric
-        conversion, and assignment checks.  Solver and component internals use this
-        protocol instead of relying on fragile ``hasattr`` probing."""
+    """Protocol implemented by objects that behave like FullFlow states."""
 
     @property
     def value(self) -> Any: ...
@@ -84,19 +78,7 @@ def resolve_numeric(value: Any) -> float:
 
 
 def is_assignable_state_like(value: Any) -> bool:
-    """Return True for State-like objects the solver may assign.
-
-    State-like proxies such as ``LookupAttribute`` can expose either writable
-    lookup inputs or derived lookup outputs.  A proxy class may mark itself as
-    assignable in general, but the specific instance still gets the final say
-    through ``is_derived``.  This prevents solver and snapshot/restore code from
-    assigning directly into derived expressions such as::
-
-        Reactants.mixture_ratio = OxFlow / FuelFlow
-
-    In that case the underlying flow States should be restored and the derived
-    mixture ratio should recompute naturally.
-    """
+    """Return True for State-like objects the solver may assign."""
     if not is_state_like(value):
         return False
 
@@ -113,37 +95,7 @@ def is_assignable_state_like(value: Any) -> bool:
 
 
 class State:
-    """Primary scalar value container used by FullFlow networks.
-
-        A ``State`` is the common representation of pressures, temperatures, mass
-        flow rates, heat rates, control commands, solver iteration variables, and
-        component outputs.  Most component constructor arguments may be passed as
-        either ``State`` objects or plain Python values; ``Component.setup()``
-        converts plain values into ``State`` objects so later equations can use a
-        uniform ``.value`` interface.
-
-        Parameters
-        ----------
-        value : Any, optional
-            Initial value.  Numeric values are immediately available to components.
-            ``None`` creates an unassigned state, which is useful for outputs that a
-            component will calculate during ``evaluate_states()``.
-        lower_bound, upper_bound : float, optional
-            Bounds used when the state becomes a solver iteration variable through a
-            component ``balances`` entry, component ``dynamics`` entry, or user
-            ``Balance``.  Unbounded sides are represented by ``-inf`` or ``inf``.
-        keep_feasible : bool, default=False
-            Passed to SciPy's least-squares bound handling.  It requests that trial
-            points remain feasible for this variable when the selected algorithm can
-            honor that constraint.
-
-        Notes
-        -----
-        A ``State`` can also be derived from a callable expression.  Derived states
-        are recomputed during solver state-settling passes and are not directly
-        varied by the solver.  FullFlow records previous values during transient
-        solves so backward-Euler residuals can be assembled without exposing that
-        bookkeeping to components."""
+    """Primary scalar value container used by FullFlow networks."""
 
     _fullflow_state_like = True
 
@@ -166,18 +118,7 @@ class State:
         bounds: tuple[float | None, float | None] | None = None,
         keep_feasible: bool = False,
     ) -> None:
-        """Create a scalar state with an optional initial value and solver bounds.
-
-        Parameters
-        ----------
-        value : Any, optional
-            Initial assigned value.  ``None`` leaves the state unassigned until a
-            component or user assignment writes ``state.value``.
-        bounds : tuple[float | None, float | None], optional
-            Lower and upper solver bounds.  ``None`` means unbounded on that side.
-        keep_feasible : bool, default=False
-            Feasibility hint forwarded to bounded SciPy least-squares solves.
-        """
+        """Create a scalar state with an optional initial value and solver bounds."""
         self._value: Any = None
         self._expr: Callable[[], Any] | None = None
         self._previous: Any = None
@@ -195,46 +136,10 @@ class State:
         state = cls()
         state._expr = expr
         return state
-    
+
     @classmethod
     def from_iterable(cls, value: Any) -> Any:
-        """
-        Recursively convert values inside an iterable/container into States.
-
-        This is useful when a dictionary, list, tuple, set, or other iterable
-        stores values that should become solver variables.
-
-        Existing scalar State-like values are preserved. State-like containers
-        are unwrapped first, then their contained values are converted.
-
-        Strings and bytes are treated as scalar values, not iterated
-        character-by-character.
-
-        Examples
-        --------
-        Convert a normal dictionary:
-
-            State.from_iterable({"H2": 0.2, "O2": 0.8})
-
-        gives:
-
-            {
-                "H2": State(0.2),
-                "O2": State(0.8),
-            }
-
-        Convert a LookupAttribute whose value is a dictionary:
-
-            State.from_iterable(ChamberEquilibrium.composition)
-
-        also gives a dictionary of States.
-
-        Notes
-        -----
-        This helper does not normalize fractions, enforce sum-to-one, or add
-        N - 1 composition closure. It only wraps contained scalar values in
-        State objects.
-        """
+        """Recursively convert values inside an iterable/container into States."""
 
         def is_container(item: Any) -> bool:
             if isinstance(item, (str, bytes, bytearray)):
@@ -406,8 +311,8 @@ class State:
         if isinstance(value, bool):
             pass
         elif isinstance(value, (int, float)):
-            # Common solver scalar values bypass the abstract numbers.Real
-            # instance check; other Real implementations still use the fallback.
+
+
             value = float(value)
             self._validate_bounds(value)
         elif isinstance(value, Real):
@@ -425,13 +330,7 @@ class State:
         return self
 
     def derive_from(self, source: Any) -> "State":
-        """Make this State derive its value from another State-like object or callable.
-
-        This mutates the existing State object, so components that already
-        reference this State keep referencing the same object. If this State
-        already has a stored value, that value is kept as a startup fallback
-        until the derived expression can be evaluated.
-        """
+        """Make this State derive its value from another State-like object or callable."""
         if source is self:
             raise ValueError("A State cannot derive from itself.")
 
@@ -446,12 +345,7 @@ class State:
         return self
 
     def __ilshift__(self, source: Any) -> "State":
-        """In-place shorthand for ``derive_from``.
-
-        Example
-        -------
-        ``mixture_ratio <<= ox_mdot / fuel_mdot``
-        """
+        """In-place shorthand for ``derive_from``."""
         return self.derive_from(source)
 
     @property
@@ -477,11 +371,7 @@ class State:
         return self._second_previous
 
     def store_previous(self) -> None:
-        """Store the current value as transient history.
-
-        The transient solver calls this after each accepted timestep. Components
-        should not need to call it directly.
-        """
+        """Store the current value as transient history."""
         if self.is_assigned:
             self._second_previous = self._previous
             self._previous = self.value
@@ -680,7 +570,7 @@ class State:
 
     def __abs__(self) -> "State":
         return State._derived(lambda: abs(self.numeric_value))
-            
+
     def _compare(self, other: Any, op: Callable[[float, float], bool]) -> bool:
         return op(self.numeric_value, resolve_numeric(other))
 
@@ -761,12 +651,7 @@ class State:
 
 
 def label_state_refs(value: Any, label: str, seen: set[int] | None = None) -> None:
-    """Attach a diagnostic label to State objects inside a value/container.
-
-    Labels are intentionally non-unique. A shared State can collect several
-    component/attribute paths, which makes unassigned-state and numeric errors
-    much easier to trace without requiring user-provided State names.
-    """
+    """Attach a diagnostic label to State objects inside a value/container."""
     if seen is None:
         seen = set()
 

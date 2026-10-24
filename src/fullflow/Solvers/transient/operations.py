@@ -1,8 +1,4 @@
-"""Executable transient timestep operations.
-
-Executes fixed-step implicit backward Euler using scipy.optimize.least_squares.
-The public component/solver API and nonlinear algorithm are unchanged.
-"""
+"""Transient timestep evaluation and nonlinear solution."""
 
 from __future__ import annotations
 
@@ -17,11 +13,13 @@ from scipy.optimize import Bounds, least_squares
 
 from fullflow.Solvers.steady_state.settings import LeastSquaresSettings, StateEvaluationSettings
 from fullflow.Exceptions import SensorDataStop, SolverSetupError, TransientStepError
+from .newton import ModifiedNewtonFailure, solve_modified_newton
 
 
-# Older SciPy releases lack the least_squares iteration callback. In those
-# environments FullFlow retains the original SciPy convergence behavior.
 _HAS_LEAST_SQUARES_CALLBACK = "callback" in inspect.signature(least_squares).parameters
+
+
+_ENABLE_MODIFIED_NEWTON_BROYDEN = True
 
 
 @dataclass(slots=True)
@@ -46,7 +44,7 @@ class StepDiagnostics:
 
 
 class TransientStepSolve:
-    """Solve one implicit backward-Euler timestep with SciPy least_squares."""
+    """Solve one implicit timestep with safeguarded Newton and SciPy fallback."""
 
     def __init__(self, network, cache_getter: Callable[[], Any], evaluator) -> None:
         self.network = network
@@ -64,8 +62,17 @@ class TransientStepSolve:
         self._invalid_residual_directional_gain = 10.0
         self._reset_prediction_history()
 
+    def _clear_newton_jacobian(self) -> None:
+        self._newton_jacobian: np.ndarray | None = None
+        self._newton_jacobian_scale: np.ndarray | None = None
+        self._newton_jacobian_method: str | None = None
+        self._newton_cache_id: int | None = None
+        self._newton_control_values = ()
+        self._newton_reuse_age = 0
+
     def _reset_prediction_history(self) -> None:
         """Forget prior accepted steps at the beginning of a new solve."""
+        self._clear_newton_jacobian()
         self._previous_step_x: np.ndarray | None = None
         self._accepted_step_x: np.ndarray | None = None
         self._accepted_step_time: float | None = None
@@ -76,8 +83,11 @@ class TransientStepSolve:
 
     def _record_accepted_step(
         self, cache, previous_x: np.ndarray, t_new: float, dt: float, residual_count: int,
+        *, jacobian=None, jacobian_scale=None, jacobian_method=None, jacobian_reused=False,
     ) -> None:
-        """Store history only after a successful step, never after a rejected trial."""
+        """Store history after an accepted step."""
+        reuse_age = self._newton_reuse_age + 1 if jacobian_reused else 0
+        self._clear_newton_jacobian()
         self._previous_step_x = np.array(previous_x, dtype=float, copy=True)
         self._accepted_step_x = cache.iteration_value_array().copy()
         self._accepted_step_time = float(t_new)
@@ -85,15 +95,84 @@ class TransientStepSolve:
         self._accepted_step_ids = tuple(id(state) for state in cache.iteration_variables)
         self._accepted_step_version = getattr(cache, "version", None)
         self._accepted_residual_count = residual_count
+        if jacobian is not None and jacobian_scale is not None:
+            matrix = np.asarray(jacobian, dtype=float)
+            scale = np.asarray(jacobian_scale, dtype=float)
+            if (matrix.shape == (residual_count, len(self._accepted_step_x))
+                    and scale.shape == self._accepted_step_x.shape
+                    and np.all(np.isfinite(matrix))
+                    and np.all(np.isfinite(scale)) and np.all(scale > 0.0)):
+                self._newton_jacobian = matrix.copy()
+                self._newton_jacobian_scale = scale.copy()
+                self._newton_jacobian_method = jacobian_method
+                self._newton_cache_id = id(cache)
+                self._newton_control_values = self._control_values(cache)
+                self._newton_reuse_age = reuse_age
+
+    @staticmethod
+    def _control_values(cache) -> tuple:
+        values = []
+        for component in getattr(cache, "component_list", ()):
+            if getattr(component, "_has_primary_sequence", False):
+                target = getattr(component, "target", None)
+                if target is not None:
+                    try:
+                        values.append((id(target), True, float(target.value)))
+                    except (TypeError, ValueError, AttributeError):
+                        pass
+            for entry in getattr(component, "command_entries", ()):
+                try:
+                    values.append((id(entry.target), bool(entry.is_active), float(entry.target.value)))
+                except (TypeError, ValueError, AttributeError):
+                    pass
+        return tuple(values)
+
+    @staticmethod
+    def _controls_changed(previous: tuple, current: tuple) -> bool:
+        if len(previous) != len(current):
+            return True
+        for old, new in zip(previous, current):
+            if old[:2] != new[:2]:
+                return True
+            a, b = old[2], new[2]
+            if not np.isfinite(a) or not np.isfinite(b):
+                return True
+            if abs(a - b) > 0.25 * max(abs(a), abs(b), 1.0e-12):
+                return True
+        return False
+
+    def _initial_newton_jacobian(
+        self, cache, x0: np.ndarray, old_time: float, dt: float,
+        residual_count: int, jacobian_method: str,
+    ) -> tuple[np.ndarray | None, np.ndarray | None]:
+        if self._newton_jacobian is None or self._newton_jacobian_scale is None:
+            return None, None
+        valid = (
+            self._newton_reuse_age < 4
+            and self._newton_cache_id == id(cache)
+            and self._newton_jacobian_method == jacobian_method
+            and self._accepted_step_time is not None
+            and abs(self._accepted_step_time - old_time) <= 1.0e-12 * max(1.0, abs(old_time))
+            and self._accepted_step_dt is not None
+            and abs(self._accepted_step_dt - dt) <= 1.0e-12 * max(1.0, abs(dt))
+            and self._accepted_step_version == getattr(cache, "version", None)
+            and self._accepted_step_ids == tuple(id(state) for state in cache.iteration_variables)
+            and self._accepted_residual_count == residual_count
+            and self._accepted_step_x is not None
+            and np.array_equal(self._accepted_step_x, x0)
+            and not self._controls_changed(
+                self._newton_control_values, self._control_values(cache),
+            )
+        )
+        if not valid:
+            self._clear_newton_jacobian()
+            return None, None
+        return self._newton_jacobian, self._newton_jacobian_scale
 
     def _predict_initial_guess(
         self, cache, x0: np.ndarray, old_time: float, dt: float, residual_count: int,
     ) -> np.ndarray | None:
-        """Extrapolate the generic unknown vector from two accepted time levels.
-
-        Return None whenever history, unknown ordering, time or State bounds
-        have changed. No component or State type needs special handling.
-        """
+        """Extrapolate the generic unknown vector from two accepted time levels."""
         prior = self._previous_step_x
         last = self._accepted_step_x
         old_dt = self._accepted_step_dt
@@ -136,12 +215,7 @@ class TransientStepSolve:
         return self.residual(x0)
 
     def _solve_with_early_acceptance(self, cache, x0: np.ndarray, settings):
-        """Stop TRF/dogbox after a complete accepted iterate reaches rtol.
-
-        SciPy calls this callback only after a nonlinear iteration, not while
-        calculating finite-difference Jacobian columns. The original final
-        network/residual verification remains mandatory.
-        """
+        """Stop TRF/dogbox after a complete accepted iterate reaches rtol."""
         kwargs = self._least_squares_kwargs(cache, x0, settings)
         early_stop = [False]
         if _HAS_LEAST_SQUARES_CALLBACK and settings.solver_method != "lm":
@@ -161,6 +235,57 @@ class TransientStepSolve:
         return least_squares(**kwargs), early_stop[0]
 
     @staticmethod
+    def _may_try_modified_newton(cache, settings, x0, r0) -> bool:
+        """Determine whether the Newton solver can handle this system."""
+        if not _ENABLE_MODIFIED_NEWTON_BROYDEN or settings.solver_method != "trf":
+            return False
+        if not len(x0) or len(r0) < len(x0):
+            return False
+        if not np.all(np.isfinite(x0)) or not np.all(np.isfinite(r0)):
+            return False
+        try:
+            if (np.any(np.isfinite(cache.lower_bound_array()))
+                    or np.any(np.isfinite(cache.upper_bound_array()))
+                    or np.any(cache.keep_feasible_array())):
+                return False
+        except Exception:
+            return False
+        return True
+
+    def _try_modified_newton(self, cache, x0, r0, settings, jacobian=None, jacobian_scale=None):
+        """Solve and verify a timestep using Newton/Broyden."""
+        candidate = solve_modified_newton(
+            self.residual, x0, r0,
+            rtol=settings.rtol,
+            jacobian_method=settings.jacobian_method,
+            initial_jacobian=jacobian,
+            initial_scale=jacobian_scale,
+        )
+
+
+        cache.assign_iteration_values(candidate.x)
+        self.network.time.value = self._active_time
+        cache.apply_sequence_commands(self._active_time)
+        self.evaluator.run(
+            max_passes=self._active_state_settings.max_passes,
+            tolerance=self._active_state_settings.tolerance,
+            cache=cache,
+        )
+        candidate_final = cache.collect_residuals(self._active_dt)
+        self._check_residual_vector(
+            residual=candidate_final, success=True,
+            message=str(candidate.message), settings=settings,
+            cache=cache, t_new=self._active_time, dt=self._active_dt,
+        )
+        if (len(candidate_final) != len(r0)
+                or not np.all(np.isfinite(candidate_final))):
+            raise ModifiedNewtonFailure("Final Newton residual shape/values changed.")
+        candidate.fun = np.array(candidate_final, dtype=float)
+        candidate.cost = 0.5 * float(np.dot(candidate_final, candidate_final))
+        candidate.optimality = float(np.max(np.abs(candidate_final))) if len(candidate_final) else 0.0
+        return candidate, candidate_final
+
+    @staticmethod
     def _mark_early_acceptance(sol, stopped_early: bool) -> None:
         """Report an accepted callback termination accurately in diagnostics."""
         if stopped_early and getattr(sol, "status", None) == -2:
@@ -171,8 +296,8 @@ class TransientStepSolve:
     def residual(self, x: np.ndarray) -> np.ndarray:
         """Compute current trial residual: dynamics, algebraic, then balances."""
         cache = self._active_cache or self._cache_getter()
-        # A single owned snapshot serves both debug and last-valid recovery;
-        # the incoming SciPy vector may be reused or mutated by its caller.
+
+
         trial_snapshot = np.array(x, dtype=float)
         self._last_debug_x = trial_snapshot
         self._last_debug_residual = None
@@ -192,7 +317,7 @@ class TransientStepSolve:
             residual = cache.collect_residuals(self._active_dt)
             self._last_debug_residual = residual
             self._last_valid_x = trial_snapshot
-            # Preserve an independent copy for invalid-trial recovery.
+
             self._last_valid_residual = np.array(residual, dtype=float)
             return residual
         except Exception as error:
@@ -285,7 +410,6 @@ class TransientStepSolve:
             self._active_cache = None
 
 
-
     def run_once(
         self,
         *,
@@ -361,9 +485,7 @@ class TransientStepSolve:
                     residual=r0, elapsed_time=predictor_elapsed,
                 )
 
-            # An optional, generic initial guess. Test it against the same
-            # backward-Euler residual before giving it to SciPy. One extra
-            # residual evaluation can save many finite-difference evaluations.
+
             guess = self._predict_initial_guess(cache, x0, accepted_time, dt, len(r0))
             use_prediction = False
             if guess is not None:
@@ -386,7 +508,7 @@ class TransientStepSolve:
                     use_prediction = False
 
                 if not use_prediction:
-                    # Restore all mutable States, not just SciPy unknowns.
+
                     r0 = self._restore_trial_start(
                         cache, accepted_snapshot, x0, t_new, dt,
                     )
@@ -395,8 +517,7 @@ class TransientStepSolve:
             initial_guess = guess if use_prediction else x0
             start_time = time.perf_counter()
 
-            # A successful predicted residual may already satisfy the BE
-            # equations. Verify it once more before using the fast path.
+
             if use_prediction and max_predicted <= least_squares_settings.rtol:
                 cache.assign_iteration_values(guess)
                 self.network.time.value = t_new
@@ -425,15 +546,69 @@ class TransientStepSolve:
                         residual=predicted_final,
                         elapsed_time=predictor_elapsed + time.perf_counter() - start_time,
                     )
-                # A non-repeatable component invalidated the shortcut.
-                # Start again from the last accepted state.
+
+
                 use_prediction = False
                 initial_guess = x0
                 self._restore_trial_start(cache, accepted_snapshot, x0, t_new, dt)
 
-            # The existing SciPy solver and equations are unchanged. Predictive
-            # starts get one automatic retry from the original accepted guess
-            # if the candidate fails its *actual* final residual check.
+
+            initial_residual = predicted_residual if use_prediction else r0
+            if self._may_try_modified_newton(
+                cache, least_squares_settings, initial_guess, initial_residual,
+            ):
+                jacobian, jacobian_scale = self._initial_newton_jacobian(
+                    cache, x0, accepted_time, dt, len(r0),
+                    least_squares_settings.jacobian_method,
+                )
+                try:
+                    newton_sol, _ = self._try_modified_newton(
+                        cache, initial_guess, initial_residual, least_squares_settings,
+                        jacobian=jacobian, jacobian_scale=jacobian_scale,
+                    )
+
+                    cache.apply_sequence_commands(t_new)
+                    self.evaluator.run(
+                        max_passes=state_settings.max_passes,
+                        tolerance=state_settings.tolerance,
+                        cache=cache,
+                    )
+                    accepted_residual = cache.collect_residuals(dt)
+                    if len(accepted_residual) != len(r0):
+                        raise ModifiedNewtonFailure("Newton residual count changed on final evaluation.")
+                    self._check_residual_vector(
+                        residual=accepted_residual, success=True,
+                        message=str(newton_sol.message),
+                        settings=least_squares_settings, cache=cache,
+                        t_new=t_new, dt=dt,
+                    )
+                except SensorDataStop:
+                    raise
+                except Exception:
+                    self._clear_newton_jacobian()
+                    self._restore_trial_start(
+                        cache, accepted_snapshot, x0, t_new, dt,
+                    )
+                else:
+                    elapsed_time = time.perf_counter() - start_time
+                    cache.store_previous_values()
+                    cache.commit_sequence_commands()
+                    self._record_accepted_step(
+                        cache, x0, t_new, dt, len(accepted_residual),
+                        jacobian=newton_sol.jacobian,
+                        jacobian_scale=newton_sol.jacobian_scale,
+                        jacobian_method=least_squares_settings.jacobian_method,
+                        jacobian_reused=newton_sol.jacobian_reused,
+                    )
+                    newton_sol.fun = accepted_residual
+                    newton_sol.cost = 0.5 * float(np.dot(accepted_residual, accepted_residual))
+                    return StepDiagnostics(
+                        time=t_new, dt=dt, x0=initial_guess,
+                        sol=newton_sol, residual=accepted_residual,
+                        elapsed_time=elapsed_time,
+                    )
+
+
             try:
                 sol, stopped_early = self._solve_with_early_acceptance(
                     cache, initial_guess, least_squares_settings,
@@ -502,6 +677,7 @@ class TransientStepSolve:
             )
 
         except Exception:
+            self._clear_newton_jacobian()
             cache.clear_sequence_command_pending()
             cache.restore_mutable_states(accepted_snapshot)
             self.network.time.value = accepted_time

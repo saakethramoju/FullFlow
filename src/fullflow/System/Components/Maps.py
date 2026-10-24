@@ -17,8 +17,6 @@ if TYPE_CHECKING:
     from fullflow.System import Network
 
 
-
-
 def _decode_string(value):
     if isinstance(value, bytes):
         return value.decode("utf-8")
@@ -91,27 +89,7 @@ def _interpolation_point_value(component_name: str, input_name: str, value: floa
 
 
 class Map(Component):
-    """Generic N-dimensional interpolation component for tabulated engineering data.
-
-        ``Map`` connects one or more input states to one or more output states using
-        SciPy regular-grid interpolation.  It is designed for pump maps, turbine
-        maps, injector/calibration surfaces, combustion-property tables, and any
-        other HDF5 or in-memory data where the model should read tabulated values at
-        solver time.
-
-        Inputs and axes
-        ---------------
-        ``inputs`` maps input names to states.  ``axes`` maps those names to axis
-        arrays or FullPlot axis objects.  ``outputs`` maps output names to arrays
-        with shape matching the input grid.  ``extrapolate=False`` raises when an
-        input leaves the table; ``True`` allows interpolation outside the tabulated
-        range using SciPy's extrapolation behavior.
-
-        HDF5 support
-        ------------
-        :meth:`from_hdf5` reads FullPlot/FullFlow-style map groups and legacy map
-        files, creates the same interpolation component, and wires outputs into
-        FullFlow states."""
+    """Generic N-dimensional interpolation component for tabulated engineering data."""
 
     _reserved_output_names = {
         "name",
@@ -142,14 +120,7 @@ class Map(Component):
         outputs: dict[str, object],
         extrapolate: bool = False,
     ):
-        """Initialize the object and register any FullFlow state wiring.
-        
-                Constructor parameters are documented on the class docstring and in the
-                function signature.  Component constructors normally call
-                ``Component.setup()``, which converts plain scalars to ``State`` objects,
-                preserves supplied state-like objects, creates output states for optional
-                ``None`` arguments, stores metadata, and registers the component with its
-                network."""
+
         self.setup()
 
         if not isinstance(self.inputs.value, dict):
@@ -268,8 +239,7 @@ class Map(Component):
             )
             setattr(self, output_name, State())
 
-        # A single vector-valued interpolator shares the axis search and
-        # interpolation weights across every output of this arbitrary N-D Map.
+
         self._combined_output_names = tuple(self.output_maps)
         self._combined_interpolator = RegularGridInterpolator(
             [self.axis_interpolation_values[name] for name in self.input_names],
@@ -375,11 +345,7 @@ class Map(Component):
         outputs: list[str] | tuple[str, ...] | dict[str, str] | None = None,
         extrapolate: bool = False,
     ):
-        """Construct this object from a supported HDF5 file or group.
-        
-                The method reads metadata, axes, inputs, and output arrays from disk,
-                creates any necessary states, validates requested names, and returns a
-                ready-to-evaluate FullFlow component."""
+        """Construct this object from a supported HDF5 file or group."""
         filename = hdf5_filename(filename)
 
         with h5py.File(filename, "r") as file:
@@ -591,13 +557,7 @@ class Map(Component):
         return np.asarray(point, dtype=float)
 
     def evaluate_states(self):
-        """Evaluate the component for the current network state.
-        
-                Solvers call this method repeatedly while settling derived states and
-                assembling residuals.  It should read input ``State.value`` fields, write
-                output states, and update any residual or derivative attributes exposed
-                through ``balances`` or ``dynamics``.  The method does not advance time;
-                transient integration is handled by the solver."""
+        """Evaluate the component for the current network state."""
         point = self._point()
         point_key = tuple(point)
         if point_key != self._last_interpolation_point:
@@ -606,24 +566,13 @@ class Map(Component):
             ).reshape(-1)
             self._last_interpolation_point = point_key
 
-        # Reassign output States on every call, including cached calls, so
-        # externally modified outputs are restored like in the original Map.
+
         for output_name, value in zip(self._combined_output_names, self._last_interpolation_values):
             getattr(self, output_name).value = float(value)
 
     @property
     def export_attributes(self) -> dict[str, State]:
-        """Export live map inputs using their actual input names.
-
-        Manual maps and HDF5-loaded maps both store runtime inputs in
-        ``self.inputs``.  Export each input separately so the solution HDF5 has
-        user-facing paths such as::
-
-            Chamber_Gas_Map/chamber_pressure
-            Chamber_Gas_Map/mixture_ratio
-
-        instead of one generic ``inputs`` dictionary dataset.
-        """
+        """Export live map inputs using their actual input names."""
         exported: dict[str, State] = {}
 
         for input_name in self.input_names:

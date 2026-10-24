@@ -1,12 +1,4 @@
-"""Derived-state evaluation for transient solves.
-
-The transient least-squares solver repeatedly tries new-time values for the
-unknown vector.  Component ``evaluate_states()`` methods then update explicit
-algebraic outputs and derivative quantities.  This evaluator mirrors the
-steady-state evaluator: it repeatedly evaluates components until derived states
-settle, while restoring the current unknown-vector guess after each component so
-component side effects cannot overwrite solver variables.
-"""
+"""Evaluation of component-derived States during transient solves."""
 
 from __future__ import annotations
 
@@ -40,14 +32,7 @@ class TransientStateEvaluator:
     """Repeatedly evaluate component-derived states during a timestep solve."""
 
     def __init__(self, cache_getter: Callable[[], TransientRuntimeCache]) -> None:
-        """Initialize the object and register any FullFlow state wiring.
-        
-                Constructor parameters are documented on the class docstring and in the
-                function signature.  Component constructors normally call
-                ``Component.setup()``, which converts plain scalars to ``State`` objects,
-                preserves supplied state-like objects, creates output states for optional
-                ``None`` arguments, stores metadata, and registers the component with its
-                network."""
+
         self._cache_getter = cache_getter
 
     def run(
@@ -56,19 +41,13 @@ class TransientStateEvaluator:
         tolerance: float = 1e-10,
         cache: TransientRuntimeCache | None = None,
     ) -> None:
-        """Evaluate components until non-unknown states settle.
-
-        Components that are temporarily waiting on another component's output
-        are deferred and retried.  Real modeling errors still raise immediately.
-        """
+        """Evaluate components until non-unknown states settle."""
         cache = cache or self._cache_getter()
         iteration_snapshot = cache.snapshot_iteration_variables()
         all_callables = list(cache.evaluate_state_callables)
         last_deferred_errors: dict[Callable[[], None], BaseException] = {}
 
-        # Read the initial snapshot once. After each pass its final snapshot
-        # becomes the next pass's initial snapshot. Both buffers are reused
-        # rather than rebuilding two lists on every convergence check.
+
         old_values = cache._collect_state_values_compact() if max_passes > 0 else []
         new_values: list[float | None] = [None] * len(old_values)
 
@@ -76,10 +55,7 @@ class TransientStateEvaluator:
             pending: list[Callable[[], None]] = []
             evaluated_count = 0
 
-            # Restore the trial vector after each component, so even custom
-            # components that write into solver variables cannot modify the
-            # next component's inputs. The finally block also restores on
-            # exceptions, eliminating redundant pre/except restoration calls.
+
             for evaluate_states in all_callables:
                 try:
                     evaluate_states()
@@ -98,8 +74,7 @@ class TransientStateEvaluator:
             if not pending and max_change < tolerance:
                 return
 
-            # Reuse the two lists without rereading values that were just
-            # collected at the end of this pass.
+
             old_values, new_values = new_values, old_values
 
             if pending:

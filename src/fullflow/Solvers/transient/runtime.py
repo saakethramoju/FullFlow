@@ -1,20 +1,4 @@
-"""Runtime network view used by the transient solver.
-
-``Network`` stays a lightweight container.  This module is the transient
-solver's interpretation of that container: which component ``dynamics`` are
-integrated, which component/user ``balances`` are algebraic unknowns, and which
-State bounds should be passed to SciPy.
-
-The public component API is intentionally small:
-
-* ``evaluate_states()`` updates outputs, derivatives, and balance errors.
-* ``dynamics`` lists real storage/inertia/capacitance equations.
-* ``balances`` lists algebraic equations with no storage.
-
-Steady-state solves drive dynamic derivatives and algebraic balances to zero.
-Transient solves integrate dynamic equations and close algebraic balances at
-each new timestep.
-"""
+"""Cached network metadata and State operations for transient solves."""
 
 from __future__ import annotations
 
@@ -49,20 +33,7 @@ _MISSING = object()
 
 @dataclass(frozen=True, slots=True)
 class TransientItem:
-    """One dynamic equation owned by one component.
-
-    ``variable`` is the State controlled by SciPy in the new-time nonlinear
-    solve.  ``state`` is the conserved/integrated State used in the backward
-    Euler residual.  For most components these are the same object.  For a
-    fluid volume they can be different: pressure/enthalpy can be the solver
-    variables while mass/total-internal-energy are the integrated states.
-
-    The derivative value is intentionally **not** stored here.  Instead, the
-    cache stores the derivative list index.  During every residual call, after
-    the network has been evaluated at SciPy's current new-time guess, the
-    solver re-reads ``owner.dynamics[derivative_index]``.  That
-    keeps direct expression derivatives current.
-    """
+    """One dynamic equation owned by one component."""
 
     variable: Any
     state: Any
@@ -92,12 +63,7 @@ class IterationItem:
 
 
 class TransientRuntimeCache:
-    """Cached solver metadata for one transient ``Network`` instance.
-
-    The cache is rebuilt whenever ``network.version`` changes.  Runtime metadata
-    lives solver-side so transient rules do not complicate the base ``Network``
-    class.
-    """
+    """Cached solver metadata for one transient ``Network`` instance."""
 
     def __init__(
         self,
@@ -106,14 +72,7 @@ class TransientRuntimeCache:
         force_steady=None,
         force_steady_exceptions=None,
     ) -> None:
-        """Initialize the object and register any FullFlow state wiring.
-        
-                Constructor parameters are documented on the class docstring and in the
-                function signature.  Component constructors normally call
-                ``Component.setup()``, which converts plain scalars to ``State`` objects,
-                preserves supplied state-like objects, creates output states for optional
-                ``None`` arguments, stores metadata, and registers the component with its
-                network."""
+
         self.network = network
         self.ignore_balances = ignore_balances
         self.force_steady = force_steady
@@ -135,12 +94,7 @@ class TransientRuntimeCache:
         return self
 
     def refresh(self) -> None:
-        """Rebuild transient items, algebraic items, callables, and bounds.
-
-        Phase 6 keeps the expensive network walk here.  Residual calls should
-        only assign SciPy's vector, apply command traces, evaluate cached
-        component callables, and collect cached equation blocks.
-        """
+        """Rebuild transient items, algebraic items, callables, and bounds."""
         self.component_list = tuple(self.network.component_list)
         self.balance_list, self.ignored_balance_list = filter_user_balances(
             self.network.balance_list,
@@ -148,8 +102,7 @@ class TransientRuntimeCache:
         )
         self.model_list = tuple(self.network.model_list)
 
-        # Generic solver hooks: discover class methods once per network version
-        # and keep the same component ordering and invocation convention.
+
         self._transient_context_hooks = tuple(
             component.set_transient_context for component in self.component_list
         )
@@ -157,17 +110,11 @@ class TransientRuntimeCache:
         self._commit_command_hooks = self._collect_component_hooks("commit_commands")
         self._clear_command_hooks = self._collect_component_hooks("clear_command_pending")
 
-        # Command traces define model inputs for the current transient time.
-        # Apply them before equation discovery so downstream components can use
-        # command-driven States even when those States were not initialized by
-        # hand.
+
         self.set_transient_context(dt=0.0)
         self.apply_sequence_commands(float(self.network.time.value))
 
-        # Component equation properties are allowed to reference derivative or
-        # balance-error attributes created inside evaluate_states().  Evaluate
-        # once before reading dynamics/balances so component constructors do not
-        # need boilerplate like self.mass_flow_dot = 0.0.
+
         evaluate_components_for_equation_discovery(
             self.component_list,
             solve_mode="transient",
@@ -209,24 +156,17 @@ class TransientRuntimeCache:
             component.evaluate_states for component in self.component_list
         )
 
-        # Only components that override Component.balances can produce
-        # component-owned algebraic equations. Keep their balances properties
-        # dynamic: this caches *membership*, not equations or residual values.
+
         self.algebraic_residual_owners = tuple(
             component for component in self.component_list
             if getattr(type(component), "balances", None) is not Component.balances
         )
         self.balance_residual_owners = self.balance_list
 
-        # These references are used only to decide whether repeated
-        # evaluate_states() passes have settled.  They exclude solver unknowns
-        # so the evaluator never treats SciPy's current guess as a derived state.
+
         self.state_refs = self._collect_state_refs()
 
-        # These references are used for failed-step rollback.  They include
-        # solver unknowns, explicit outputs, hidden mode states, lookup backing
-        # states, and network time so a rejected timestep cannot leave partial
-        # residual-call mutations behind.
+
         self.all_state_refs = self._collect_all_state_refs()
         self._history_state_refs = self._states_with_history()
         self.version = self.network.version
@@ -267,18 +207,7 @@ class TransientRuntimeCache:
         return number if math.isfinite(number) else math.nan
 
     def configure_sensor_balances(self, time_value: float, *, stop_on_missing: bool = True) -> None:
-        """Freeze the active Sensor-balance set for one nonlinear solve.
-
-        Sensor data availability is allowed to change between timesteps, but
-        SciPy requires the unknown vector and residual vector to have fixed
-        lengths during one ``least_squares`` call.  This method samples every
-        Sensor-like component once at the timestep time, then rebuilds the
-        iteration metadata using only sensors with finite data.
-
-        If a sensor directly measures the same State it varies, the target value
-        is assigned before the solve and no artificial algebraic residual is
-        added.
-        """
+        """Freeze the active Sensor-balance set for one nonlinear solve."""
         active_ids: set[int] = set()
         direct_ids: set[int] = set()
 
@@ -403,11 +332,7 @@ class TransientRuntimeCache:
 
     @staticmethod
     def _as_list(value: Any) -> list[Any]:
-        """Normalize component property outputs to a list.
-
-        Users should return lists, but accepting tuples makes the API forgiving.
-        ``None`` means an empty list.
-        """
+        """Normalize component property outputs to a list."""
         if value is None:
             return []
         if isinstance(value, list):
@@ -533,9 +458,8 @@ class TransientRuntimeCache:
         return self._transient_state_lists[id(component)]
 
     def _component_transient_derivatives(self, component: Any) -> list[Any]:
-        # Derivative values can depend on the current SciPy trial point, so only
-        # variable/state membership is cached.  Derivatives are re-read from
-        # component.dynamics after evaluate_states() on every residual call.
+
+
         return [equation.derivative for equation in component_dynamics(component)]
 
     def _component_is_dynamic(self, component: Any) -> bool:
@@ -543,12 +467,7 @@ class TransientRuntimeCache:
 
     @staticmethod
     def _is_valid_derivative(value: Any) -> bool:
-        """Return True for supported derivative objects.
-
-        A derivative may be a State or a plain float.  Booleans are
-        rejected even though ``bool`` subclasses ``int`` because they are
-        almost certainly a modeling error for dx/dt.
-        """
+        """Return True for supported derivative objects."""
         if is_state_like(value):
             return True
         if isinstance(value, bool):
@@ -564,14 +483,7 @@ class TransientRuntimeCache:
         )
 
     def _collect_transient_items(self) -> list[TransientItem]:
-        """Collect dynamic unknowns, integrated states, and derivatives.
-
-        These come from component ``dynamics`` tuples.  The two-entry form
-        ``(state, derivative)`` integrates the same State that the solver varies.
-        The three-entry form ``(solve_variable, integrated_state, derivative)``
-        lets a component solve with a convenient variable such as pressure while
-        integrating a conservative quantity such as mass.
-        """
+        """Collect dynamic unknowns, integrated states, and derivatives."""
         items: list[TransientItem] = []
         force_steady_ids = self._force_steady_component_ids()
 
@@ -656,11 +568,7 @@ class TransientRuntimeCache:
         return states
 
     def _collect_algebraic_component_items(self) -> list[IterationItem]:
-        """Collect variables from component algebraic balances.
-
-        Dynamic equations are integrated.  Algebraic balances, if a component
-        actually needs them, are closed at the same new-time point.
-        """
+        """Collect variables from component algebraic balances."""
         items: list[IterationItem] = []
 
         for component in self.component_list:
@@ -695,13 +603,7 @@ class TransientRuntimeCache:
 
     @staticmethod
     def _deduplicate_iteration_items(items: tuple[IterationItem, ...]) -> tuple[IterationItem, ...]:
-        """Return solver unknowns with shared State objects kept only once.
-
-        Shared States are intentional in transient tank models.  For example, two
-        Volume components may share one tank pressure, and a variable volume may
-        appear both as a Volume transient algebraic variable and as the variable
-        of a Balance that supplies the geometry equation.
-        """
+        """Return solver unknowns with shared State objects kept only once."""
         unique: list[IterationItem] = []
         seen: set[int] = set()
 
@@ -715,14 +617,7 @@ class TransientRuntimeCache:
         return tuple(unique)
 
     def _validate_no_transient_state_overlap(self) -> None:
-        """Reject multiple integration equations for the same dynamic integrated state.
-
-        Different solver variables may be used to close different conservation
-        equations, but each integrated State should have one and only one
-        transient derivative.  Sharing a dynamic integrated state across two integration
-        residuals would advance the same history value twice and is almost
-        always a modeling error.
-        """
+        """Reject multiple integration equations for the same dynamic integrated state."""
         owners_by_state: dict[int, list[str]] = {}
 
         for item in self.transient_items:
@@ -979,14 +874,7 @@ class TransientRuntimeCache:
             return value
 
     def snapshot_mutable_states(self) -> tuple[tuple[Any, ...], ...]:
-        """Capture all reachable mutable State values before a timestep attempt.
-
-        SciPy residual calls can touch more than the explicit solver unknowns.
-        Explicit components may write mass flow, heat flow, lookup guesses, mode
-        States, or other derived outputs before a timestep is accepted.  A failed
-        timestep must restore those values before the outer loop retries with a
-        smaller dt.
-        """
+        """Capture all reachable mutable State values before a timestep attempt."""
         snapshot: list[tuple[Any, ...]] = []
 
         for state in self.all_state_refs:
@@ -1046,15 +934,7 @@ class TransientRuntimeCache:
 
     @staticmethod
     def restore_iteration_variables(snapshot: tuple[tuple[Any, Any], ...]) -> None:
-        """Restore the trial vector, skipping assignments that cannot change a State.
-
-        Ordinary ``State`` instances store the current scalar in ``_value``.
-        Avoiding their redundant property-setter calls is safe only for exact
-        built-in float values, where equality is unambiguous.  In particular,
-        do not mistake positive and negative zero for the same stored value.
-        Subclasses and State-compatible proxies retain their original setter
-        behavior, including any user-defined side effects.
-        """
+        """Restore the trial vector, skipping assignments that cannot change a State."""
         for state, value in snapshot:
             if (
                 type(state) is State
@@ -1112,13 +992,7 @@ class TransientRuntimeCache:
             set_context(dt=dt)
 
     def _states_with_history(self) -> tuple[Any, ...]:
-        """States whose accepted previous values should be available next step.
-
-        Dynamic integrated States are required for backward Euler.  Other
-        reachable States are stored too so components such as variable-volume
-        ``Volume`` can compute simple accepted-step differences like dV/dt
-        without exposing any special public API hook.
-        """
+        """States whose accepted previous values should be available next step."""
         states: list[Any] = []
         seen: set[int] = set()
 
@@ -1150,12 +1024,7 @@ class TransientRuntimeCache:
         item: TransientItem,
         derivatives_by_owner: dict[int, list[Any]] | None = None,
     ) -> float:
-        """Return a derivative evaluated at the current nonlinear trial state.
-
-        A per-residual cache avoids reconstructing a component's entire
-        ``dynamics`` list for each equation.  The cache is never shared between
-        different SciPy trial evaluations.
-        """
+        """Return a derivative evaluated at the current nonlinear trial state."""
         return resolve_numeric(self._current_derivative(item, derivatives_by_owner))
 
     @staticmethod
@@ -1182,18 +1051,7 @@ class TransientRuntimeCache:
         dt: float,
         derivative: float,
     ) -> float:
-        """Scale used for internally generated integration residuals.
-
-        Algebraic residuals are left exactly as components and balances return
-        them, matching the steady-state solver.  Only backward-Euler
-        integration residuals are normalized because their raw units can be kg,
-        J, K, rad/s, etc.
-
-        The scale includes the current state, the previous state, and the
-        expected timestep change.  This prevents tiny absolute conservation
-        defects, such as ``1e-8 kg/m^3`` on a ``1000 kg/m^3`` density state,
-        from causing a failed timestep.
-        """
+        """Scale used for internally generated integration residuals."""
         return max(
             abs(float(item.state.value)),
             abs(float(item.state.previous)),
@@ -1202,23 +1060,10 @@ class TransientRuntimeCache:
         )
 
     def collect_residuals(self, dt: float) -> np.ndarray:
-        """Collect transient, algebraic, and balance residuals.
-
-        Dynamic residuals are implicit backward-Euler residuals evaluated at the
-        current guessed new-time state unless a component has been forced steady:
-
-            dynamic mode:       state.value - state.previous - dt * derivative = 0
-            force-steady mode:  derivative = 0
-
-        Integration residuals are divided by a simple state scale so ``rtol`` has
-        a useful per-timestep meaning across different state units.  Force-steady
-        derivative residuals are left in their physical units, matching the
-        steady-state solver's dynamic trim equations.
-        """
+        """Collect transient, algebraic, and balance residuals."""
         residuals: list[float] = []
-        # Local to this residual evaluation: every new SciPy trial recomputes
-        # component dynamics, while equations owned by the same component
-        # share a single newly constructed dynamics list.
+
+
         derivatives_by_owner: dict[int, list[Any]] = {}
 
         for item in self.transient_items:
@@ -1238,19 +1083,14 @@ class TransientRuntimeCache:
                 residuals.extend(self.flatten_residuals(equation.residual))
 
         for balance in self.balance_residual_owners:
-            # balance_object_equations() builds a temporary wrapper around the
-            # current _residual. Read the live value instead of caching it.
+
+
             residuals.extend(self.flatten_residuals(balance._residual))
 
         return np.array(residuals, dtype=float)
 
     def validate_residual_count(self, residuals: np.ndarray) -> None:
-        """Fail early if there are fewer equations than unknowns.
-
-        Overconstrained systems are allowed because least-squares can minimize
-        more residuals than unknowns.  Underdetermined systems are almost always
-        missing component residuals, a balance, or a transient derivative.
-        """
+        """Fail early if there are fewer equations than unknowns."""
         if len(residuals) < len(self.iteration_variables):
             raise SolverSetupError(
                 "Transient solve requires at least as many residuals as solver variables. "
@@ -1353,12 +1193,7 @@ class TransientRuntimeCache:
         return values
 
     def _collect_state_values_compact(self) -> list[float | None]:
-        """Snapshot non-iteration States in cached reference order.
-
-        ``None`` means unassigned or nonnumeric, just as those States are
-        omitted from ``collect_state_values()``.  The reference list is
-        already deduplicated and stays fixed during each residual evaluation.
-        """
+        """Snapshot non-iteration States in cached reference order."""
         values: list[float | None] = []
         append = values.append
 
@@ -1378,13 +1213,7 @@ class TransientRuntimeCache:
         previous_values: list[float | None],
         output_values: list[float | None],
     ) -> float:
-        """Update a reusable snapshot while calculating the fixed-point change.
-
-        This is the same convergence metric as ``_max_compact_state_change``
-        but avoids allocating a new list and iterating over the State values a
-        second time.  Both buffers follow ``state_refs`` in the same order.
-        Missing/nonnumeric State values still use ``None`` as before.
-        """
+        """Update a reusable snapshot while calculating the fixed-point change."""
         max_change = 0.0
         for index, state in enumerate(self.state_refs):
             try:
@@ -1413,11 +1242,7 @@ class TransientRuntimeCache:
         old: list[float | None],
         new: list[float | None],
     ) -> float:
-        """Use the original fixed-point metric without dictionary allocations.
-
-        Previously unassigned States use their absolute new value, matching
-        ``max_state_change``; States unassigned in the new pass are skipped.
-        """
+        """Use the original fixed-point metric without dictionary allocations."""
         max_change = 0.0
         for old_value, new_value in zip(old, new):
             if new_value is None:
