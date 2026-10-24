@@ -16,14 +16,7 @@ from .results import format_records
 
 
 class NetworkStateSnapshot:
-    """Capture and restore State values before independent transient runs.
-
-    State values can themselves contain references to other State objects. This
-    happens in components such as Map, where the ``inputs`` State stores a
-    dictionary of live input States.  The snapshot must preserve those State
-    references instead of deep-copying them into disconnected clones; otherwise
-    model-option transient runs can freeze maps at their initial input values.
-    """
+    """Capture and restore State values before independent transient runs."""
 
     @staticmethod
     def _snapshot_value(value: Any) -> Any:
@@ -57,14 +50,7 @@ class NetworkStateSnapshot:
             return value
 
     def __init__(self, states: list[State]) -> None:
-        """Initialize the object and register any FullFlow state wiring.
-        
-                Constructor parameters are documented on the class docstring and in the
-                function signature.  Component constructors normally call
-                ``Component.setup()``, which converts plain scalars to ``State`` objects,
-                preserves supplied state-like objects, creates output states for optional
-                ``None`` arguments, stores metadata, and registers the component with its
-                network."""
+        """Initialize the object and register any FullFlow state wiring."""
         self.states = states
         self.values = {
             state: (
@@ -118,11 +104,7 @@ class NetworkStateSnapshot:
 
 
 class TransientModelOptionRunner:
-    """Run transient solves through optional model selection.
-
-    Each model option is a complete independent transient run.  All evaluated
-    options start from the same captured initial State values.
-    """
+    """Run transient solves through optional model selection."""
 
     def __init__(
         self,
@@ -134,14 +116,7 @@ class TransientModelOptionRunner:
         metadata_solve_type: str | None = None,
         metadata_extra: dict[str, Any] | None = None,
     ) -> None:
-        """Initialize the object and register any FullFlow state wiring.
-        
-                Constructor parameters are documented on the class docstring and in the
-                function signature.  Component constructors normally call
-                ``Component.setup()``, which converts plain scalars to ``State`` objects,
-                preserves supplied state-like objects, creates output states for optional
-                ``None`` arguments, stores metadata, and registers the component with its
-                network."""
+        """Initialize the object and register any FullFlow state wiring."""
         self.network = network
         self.model_manager = model_manager
         self.printer = printer

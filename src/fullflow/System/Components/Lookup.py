@@ -26,27 +26,14 @@ _UNAVAILABLE = object()
 
 
 class LookupAttribute:
-    """State-like proxy for one input or output attribute of a ``Lookup``.
-
-        The proxy presents ``.value``, numeric conversion, math operators, bounds,
-        and assignment behavior so lookup inputs and outputs can be used anywhere a
-        ``State`` is expected.  Reading an output attribute triggers or reflects the
-        parent lookup's latest evaluation.  Assigning an input attribute changes the
-        value used in future evaluations."""
+    """State-like proxy for one input or output attribute of a ``Lookup``."""
 
     _fullflow_state_like = True
     _fullflow_assignable_state_like = True
     __slots__ = ("lookup", "name")
 
     def __init__(self, lookup: "Lookup", name: str):
-        """Initialize the object and register any FullFlow state wiring.
-        
-                Constructor parameters are documented on the class docstring and in the
-                function signature.  Component constructors normally call
-                ``Component.setup()``, which converts plain scalars to ``State`` objects,
-                preserves supplied state-like objects, creates output states for optional
-                ``None`` arguments, stores metadata, and registers the component with its
-                network."""
+        """Initialize the object and register any FullFlow state wiring."""
         self.lookup = lookup
         self.name = name
 
@@ -67,37 +54,18 @@ class LookupAttribute:
 
     @value.setter
     def value(self, new_value: Any) -> None:
-        # Existing callable inputs stay inputs.  This preserves the natural
-        # behavior for things like:
-        #
-        #     Gas.pressure.value = 2.0e6
-        #
-        # when ``pressure`` was supplied as a Lookup keyword input.
+        # Callable inputs remain assignable through their lookup attributes.
         if self.is_input or self.name in self.lookup.kwargs:
             self.lookup.set_input(self.name, new_value)
             return
 
-        # Priority-preferred attributes are intentional solver inputs even if
-        # they were not supplied as construction-time kwargs.  Example:
-        #
-        #     Lookup(..., pressure=..., temperature=...,
-        #            priority=("enthalpy", "temperature"))
-        #
-        # lets ``enthalpy`` become the solved input after being seeded from the
-        # first pressure-temperature evaluation.
+        # Priority attributes can become solver inputs after the first evaluation.
         for group in self.lookup.priority:
             if group and self.name == group[0] and self.lookup.accepts_input(self.name):
                 self.lookup.set_input(self.name, new_value)
                 return
 
-        # Otherwise, an attribute assignment is only an output guess.
-        #
-        # This distinction matters for property wrappers such as IdealGas or
-        # Fluid where outputs like density, enthalpy, entropy, and internal
-        # energy are also valid callable inputs.  Merely using or seeding one of
-        # those output attributes must not silently add it to kwargs, otherwise
-        # the wrapped property object can receive invalid combinations such as
-        # pressure + temperature + internal_energy.
+        # Other assignments seed outputs without adding callable inputs.
         self.lookup.set_output_guess(self.name, new_value)
 
     @property
@@ -121,21 +89,7 @@ class LookupAttribute:
 
     @property
     def is_derived(self) -> bool:
-        """Return True when this attribute is not directly assignable.
-
-        Lookup attributes are state-like proxies.  Active lookup inputs are
-        assignable only when their backing input is assignable.  Outputs are
-        derived from the lookup result and must not be restored or solved as
-        mutable States.
-
-        This distinction matters for derived lookup inputs, for example::
-
-            Reactants.mixture_ratio = OxOrf.mass_flow / FuelOrf.mass_flow
-
-        ``mixture_ratio`` is an active lookup input, but its backing value is a
-        derived State.  Solver rollback should restore the mass-flow States and
-        let ``mixture_ratio`` recompute instead of assigning into it directly.
-        """
+        """Return True when this attribute is not directly assignable."""
         if self.lookup.input_is_active(self.name):
             current = self.lookup.kwargs.get(self.name, _MISSING)
 
@@ -384,22 +338,7 @@ class LookupAttribute:
 
 
 class Lookup(Component, Generic[T]):
-    """Wrap a Python callable, class, property package, or external model as a FullFlow component.
-
-        ``Lookup`` is the main bridge between FullFlow and property libraries such
-        as ThermoProp.  It evaluates a callable from current state values, stores the
-        returned object, and exposes attributes of that object as state-like
-        ``LookupAttribute`` proxies.  Users can pass those proxies directly into
-        other components or use them as solver variables.
-
-        Features
-        --------
-        ``Lookup`` supports positional and keyword inputs, deferred/lazy evaluation,
-        output guesses, priority input sets for state-mode switching, reuse of
-        existing objects through their ``update`` method, callable signature
-        inspection, and optional memoization through ``memo_size``.  This allows
-        expensive property calls to be used in nonlinear solves without writing a
-        custom wrapper component for every property package."""
+    """Wrap a Python callable, class, property package, or external model as a FullFlow component."""
 
 
     _INTERNAL_ATTRS = {
@@ -457,21 +396,8 @@ class Lookup(Component, Generic[T]):
         outputs: tuple[str, ...] | list[str] | None = None,
         **kwargs: Any,
     ):
-        # User-facing Lookup construction is intentionally simple:
-        #
-        #     Lookup("Coolant", network, Fluid, "water", pressure=P, temperature=T)
-        #
-        # The remaining settings are internal defaults.  They keep the existing
-        # caching, deferred-evaluation, update/reuse, and fallback behavior
-        # without exposing those implementation details in every example.
-        """Initialize the object and register any FullFlow state wiring.
-        
-                Constructor parameters are documented on the class docstring and in the
-                function signature.  Component constructors normally call
-                ``Component.setup()``, which converts plain scalars to ``State`` objects,
-                preserves supplied state-like objects, creates output states for optional
-                ``None`` arguments, stores metadata, and registers the component with its
-                network."""
+        # Internal defaults keep property lookup construction concise.
+        """Initialize the object and register any FullFlow state wiring."""
         output: State | None = None
         evaluate_on_set = False
         strict_inputs = False
@@ -639,49 +565,18 @@ class Lookup(Component, Generic[T]):
         if not priority:
             return ()
 
-        # Single group:
-        #
-        #     priority=("enthalpy", "temperature")
-        #
-        # becomes:
-        #
-        #     (("enthalpy", "temperature"),)
+        # A flat tuple defines one mutually exclusive priority group.
         if all(isinstance(item, str) for item in priority):
             return (tuple(str(item) for item in priority),)
 
-        # Multiple independent groups:
-        #
-        #     priority=[
-        #         ("enthalpy", "temperature"),
-        #         ("density", "pressure"),
-        #     ]
+        # Nested tuples define independent priority groups.
         return tuple(
             tuple(str(name) for name in group)
             for group in priority
         )
 
     def _priority_candidate_value(self, name: str) -> Any:
-        """
-        Resolve one candidate from a priority group.
-
-        A priority candidate can come from either:
-
-        1. an existing lookup keyword input, or
-        2. an already available output attribute, if the wrapped callable accepts
-           that name as an input.
-
-        This second case is what allows property lookups to initialize with an
-        easy state pair such as pressure-temperature and later switch to a solver
-        state pair such as pressure-enthalpy without the user manually adding an
-        ``enthalpy`` keyword input up front.
-
-        Candidate selection must not recursively evaluate this same lookup.  If
-        the preferred candidate is not assigned yet, this method raises so the
-        priority group can fall back to the next available candidate.  Example:
-        with ``priority=("enthalpy", "temperature")``, an unassigned enthalpy
-        state falls back to the supplied temperature for the first evaluation.
-        The resulting enthalpy is seeded after that evaluation.
-        """
+        """Resolve one candidate from a priority group."""
         if name in self.kwargs:
             return self.get_input(name)
 
@@ -706,18 +601,7 @@ class Lookup(Component, Generic[T]):
         )
 
     def _seed_priority_inputs_from_output(self) -> None:
-        """Seed preferred priority inputs from the current lookup result.
-
-        This supports the common property pattern:
-
-            Lookup(..., pressure=..., temperature=...,
-                   priority=("enthalpy", "temperature"))
-
-        The first evaluation can use pressure-temperature because temperature is
-        easy to guess.  After that result exists, the preferred input
-        ``enthalpy`` is assigned from the output so downstream components can
-        solve on enthalpy.
-        """
+        """Seed preferred priority inputs from the current lookup result."""
         if not self.priority:
             return
 
@@ -775,12 +659,7 @@ class Lookup(Component, Generic[T]):
         selected_report: dict[str, str] = {}
 
         for group_index, group in enumerate(self.priority):
-            # Every name in the group is mutually exclusive, so every name in
-            # the group must be removed from the normal kwargs pass-through.
-            # The previous implementation only added names as it tested them.
-            # If the first candidate succeeded, lower-priority names were never
-            # excluded, causing e.g. pressure + enthalpy + temperature to be
-            # passed to ThermoProp.
+            # Exclude every mutually exclusive name from normal keyword handling.
             group_names = tuple(group)
             priority_names.update(group_names)
 
@@ -860,14 +739,7 @@ class Lookup(Component, Generic[T]):
         return name in self.kwargs
 
     def input_is_active(self, name: str) -> bool:
-        """Return True when a raw keyword input is currently active.
-
-        Priority groups can temporarily deactivate lower-priority keyword
-        inputs. For example, with ``priority=("enthalpy", "temperature")``,
-        ``temperature`` is a construction-time input during the initial
-        pressure-temperature evaluation, but becomes an output once enthalpy is
-        selected.
-        """
+        """Return True when a raw keyword input is currently active."""
         return name in self.kwargs and name not in self._inactive_priority_inputs
 
     def input_is_assigned(self, name: str) -> bool:
@@ -966,12 +838,7 @@ class Lookup(Component, Generic[T]):
             and not new_is_dynamic
             and name in self._output_states
         ):
-            # Promote an output fallback/guess State to a real callable input.
-            #
-            # This preserves bounds and keep_feasible for lookup outputs that
-            # later become solver variables. Example: initialize a property
-            # lookup with pressure-temperature, then let the solver drive
-            # pressure-enthalpy.
+            # Preserve constraints when an output guess becomes a solver input.
             state = self._output_states[name]
             state.value = value
             self.kwargs[name] = state
@@ -1008,26 +875,7 @@ class Lookup(Component, Generic[T]):
         return attribute
 
     def attribute_state(self, name: str) -> State:
-        """Return a ``State`` view of a lookup input or output.
-
-        Normal active lookup inputs return the actual backing input ``State``.
-        This lets ``Component.setup()`` safely turn ``LookupAttribute`` objects
-        such as ``Chamber.pressure`` into solver variables without breaking the
-        connection to the wrapped callable keyword input.
-
-        Priority groups need one extra rule. The first name in a priority group
-        is the solver-preferred input and should become an assignable input
-        state when requested. Lower-priority names stay derived through the
-        lookup attribute so they can switch from construction-time inputs to
-        outputs once the preferred input is available. For example, with
-        ``priority=("enthalpy", "temperature")``, ``enthalpy`` can be solved
-        while ``temperature`` becomes an output.
-
-        Non-input attributes are treated as outputs. They stay derived from the
-        current lookup result, even if the wrapped callable could technically
-        accept a keyword with the same name. This prevents outputs like
-        ``density`` or ``gamma`` from being accidentally promoted into inputs.
-        """
+        """Return a ``State`` view of a lookup input or output."""
         for group in self.priority:
             if name not in group:
                 continue
@@ -1072,20 +920,7 @@ class Lookup(Component, Generic[T]):
                 current.add_label(f"{self.name}:{name}")
                 return current
 
-            # Preserve dynamic input links when an input was provided through a
-            # state-like proxy.  Example:
-            #
-            #     Fuel = Lookup(..., pressure=UllageGas.pressure)
-            #     TankLiquid = Volume(..., pressure=Fuel.pressure)
-            #
-            # ``Fuel.pressure`` is an input, so Component.setup() asks for a
-            # State view of it.  The old behavior resolved the current numeric
-            # value once and replaced the dynamic input with ``State(value)``,
-            # which severed the dependency on ``UllageGas.pressure``.
-            #
-            # If the current input knows how to expose a State view, use that
-            # backing State/derived State instead of taking a one-time numeric
-            # snapshot.
+            # Keep state-like inputs linked instead of taking a numeric snapshot.
             as_state = getattr(type(current), "as_state", None)
 
             if callable(as_state):
@@ -1131,9 +966,7 @@ class Lookup(Component, Generic[T]):
         return self._input_fallback_states[name]
 
     def output_state(self, name: str, default: Any = _MISSING) -> State:
-        # Backward-compatible helper for internal fallback states. New user
-        # examples should prefer named mapping/object returns, or `outputs=(...)`
-        # for ordered tuple/list returns.
+        # Internal fallback for ordered tuple and list outputs.
         if name not in self._output_states:
             if default is _MISSING:
                 self._output_states[name] = State()
@@ -1166,22 +999,7 @@ class Lookup(Component, Generic[T]):
         return tuple(names)
 
     def _extract_output_value(self, obj: Any, name: str) -> Any:
-        """Read one named output from any common callable return type.
-
-        Supported return shapes are intentionally broad:
-
-        * objects with attributes, including classes, dataclasses, namedtuples,
-          and ``SimpleNamespace``
-        * dictionaries and other mapping objects
-        * objects that support string indexing, such as pandas Series
-        * tuples/lists, using the optional ``outputs=(...)`` order
-        * scalar outputs as ``value``, ``result``, or ``output``
-
-        Mapping/object returns are preferred for user examples because the
-        output names travel with the result.  Tuple/list returns can be used
-        with ``outputs=("name1", "name2", ...)`` when an ordered return is
-        convenient.
-        """
+        """Read one named output from any common callable return type."""
         try:
             return getattr(obj, name)
         except Exception:
@@ -1520,22 +1338,12 @@ class Lookup(Component, Generic[T]):
             self._memo.popitem(last=False)
 
     def pre_evaluation(self) -> None:
-        """Run pre-residual bookkeeping before component evaluation.
-        
-                Solvers call this hook before ordinary ``evaluate_states()`` passes.  It
-                is used by lookups, schedules, and instrumentation components that need
-                to update inputs before residual equations are collected."""
+        """Run pre-residual bookkeeping before component evaluation."""
         if self.evaluate_in_pre_evaluation:
             self.evaluate_states()
 
     def evaluate_states(self) -> None:
-        """Evaluate the component for the current network state.
-        
-                Solvers call this method repeatedly while settling derived states and
-                assembling residuals.  It should read input ``State.value`` fields, write
-                output states, and update any residual or derivative attributes exposed
-                through ``balances`` or ``dynamics``.  The method does not advance time;
-                transient integration is handled by the solver."""
+        """Evaluate the component for the current network state."""
         if self._is_evaluating:
             return
 
@@ -1818,10 +1626,7 @@ class Lookup(Component, Generic[T]):
             f"value={value_repr})"
         )
 
-# Backward-compatible aliases.
-#
-# ``Lookup`` and ``LookupAttribute`` are the canonical names. The old names are
-# kept so existing FullFlow scripts that use ``CallableLookup`` continue to run.
+# Compatibility aliases for the former public names.
 CallableLookup = Lookup
 CallableLookupAttribute = LookupAttribute
 

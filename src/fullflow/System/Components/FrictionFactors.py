@@ -12,14 +12,10 @@ if TYPE_CHECKING:
 
 
 class Colebrook(Component):
-    """Colebrook-White Darcy friction factor with laminar fallback.
+    """Darcy friction factor for developed flow in rough internal passages.
 
-        The component computes Reynolds number from mass flow, area, diameter, and
-        dynamic viscosity.  Below ``reynolds_number_threshold`` it uses the supplied
-        laminar Poiseuille-number relation.  Above the threshold it solves/estimates
-        the turbulent Colebrook-White rough-pipe friction factor.  The output is a
-        Darcy friction factor suitable for ``DarcyWeisbach`` and convection
-        correlations."""
+    Use Colebrook in turbulent flow when relative roughness matters. Below the
+    configured transition Reynolds number, the component uses a laminar relation."""
     def __init__(
         self,
         name: str,
@@ -34,24 +30,11 @@ class Colebrook(Component):
         reynolds_number: State | float | None = None,
         reynolds_number_threshold: State | float = 2300.0,
     ):
-        """Initialize the object and register any FullFlow state wiring.
-        
-                Constructor parameters are documented on the class docstring and in the
-                function signature.  Component constructors normally call
-                ``Component.setup()``, which converts plain scalars to ``State`` objects,
-                preserves supplied state-like objects, creates output states for optional
-                ``None`` arguments, stores metadata, and registers the component with its
-                network."""
+        """Initialize the object and register any FullFlow state wiring."""
         self.setup()
 
     def evaluate_states(self):
-        """Evaluate the component for the current network state.
-        
-                Solvers call this method repeatedly while settling derived states and
-                assembling residuals.  It should read input ``State.value`` fields, write
-                output states, and update any residual or derivative attributes exposed
-                through ``balances`` or ``dynamics``.  The method does not advance time;
-                transient integration is handled by the solver."""
+        """Evaluate the component for the current network state."""
         mdot = abs(self.mass_flow.value)
         mu = self.dynamic_viscosity.value
         A = self.cross_sectional_area.value
@@ -93,12 +76,10 @@ class Colebrook(Component):
 
 
 class Churchill(Component):
-    """Churchill all-Reynolds-number Darcy friction factor correlation.
+    """Continuous Darcy friction factor from laminar through turbulent flow.
 
-        The Churchill correlation provides a continuous friction-factor estimate
-        from laminar through turbulent regimes and includes roughness effects.  It is
-        useful when a smooth transition is more important than explicitly switching
-        between laminar and turbulent formulas."""
+    Use it when a simulation crosses the transition regime and a smooth correlation
+    is more useful numerically than switching abruptly between separate formulas."""
     def __init__(
         self,
         name: str,
@@ -112,25 +93,12 @@ class Churchill(Component):
         poiseuille_number: float = 16,
         reynolds_number: State | float | None = None,
     ):
-        """Initialize the object and register any FullFlow state wiring.
-        
-                Constructor parameters are documented on the class docstring and in the
-                function signature.  Component constructors normally call
-                ``Component.setup()``, which converts plain scalars to ``State`` objects,
-                preserves supplied state-like objects, creates output states for optional
-                ``None`` arguments, stores metadata, and registers the component with its
-                network."""
+        """Initialize the object and register any FullFlow state wiring."""
         self.setup()
         self.Deff = 16*self.hydraulic_diameter.value / self.poiseuille_number.value
 
     def evaluate_states(self):
-        """Evaluate the component for the current network state.
-        
-                Solvers call this method repeatedly while settling derived states and
-                assembling residuals.  It should read input ``State.value`` fields, write
-                output states, and update any residual or derivative attributes exposed
-                through ``balances`` or ``dynamics``.  The method does not advance time;
-                transient integration is handled by the solver."""
+        """Evaluate the component for the current network state."""
         self.Deff = 16 * self.hydraulic_diameter.value / self.poiseuille_number.value
         self.reynolds_number.value = (
             abs(self.mass_flow.value)
@@ -160,12 +128,10 @@ class Churchill(Component):
 
 
 class PetukhovFriction(Component):
-    """Petukhov smooth-pipe turbulent Darcy friction factor with laminar fallback.
+    """Darcy friction factor for smooth, developed internal flow.
 
-        This component computes Reynolds number and then applies a laminar
-        Poiseuille relation below the threshold and the Petukhov turbulent relation
-        above it.  It is intended for smooth tubes used with Petukhov or similar
-        heat-transfer correlations."""
+    Use it for turbulent smooth-wall tubes, particularly alongside the Petukhov or
+    Gnielinski heat-transfer correlations; use Colebrook when roughness matters."""
     def __init__(
         self,
         name: str,
@@ -179,24 +145,11 @@ class PetukhovFriction(Component):
         reynolds_number: State | float | None = None,
         reynolds_number_threshold: State | float = 2300.0,
     ):
-        """Initialize the object and register any FullFlow state wiring.
-        
-                Constructor parameters are documented on the class docstring and in the
-                function signature.  Component constructors normally call
-                ``Component.setup()``, which converts plain scalars to ``State`` objects,
-                preserves supplied state-like objects, creates output states for optional
-                ``None`` arguments, stores metadata, and registers the component with its
-                network."""
+        """Initialize the object and register any FullFlow state wiring."""
         self.setup()
 
     def evaluate_states(self):
-        """Evaluate the component for the current network state.
-        
-                Solvers call this method repeatedly while settling derived states and
-                assembling residuals.  It should read input ``State.value`` fields, write
-                output states, and update any residual or derivative attributes exposed
-                through ``balances`` or ``dynamics``.  The method does not advance time;
-                transient integration is handled by the solver."""
+        """Evaluate the component for the current network state."""
         mdot = abs(self.mass_flow.value)
         mu = self.dynamic_viscosity.value
         A = self.cross_sectional_area.value

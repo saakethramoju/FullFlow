@@ -27,12 +27,7 @@ SENSOR_CONDITION_ACTIONS = {
 
 @dataclass(slots=True)
 class SensorEvent:
-    """Runtime record produced when a ``Sensor`` crosses a condition trace.
-
-        The record stores the sensor, condition, event time, measured value,
-        threshold value, crossing direction, and trace role.  The transient solver
-        exports these records and can use redline events to stop a run or activate
-        sequence logic."""
+    """Runtime record produced when a ``Sensor`` crosses a condition trace."""
 
     time: float
     sensor: str
@@ -48,9 +43,7 @@ class SensorEvent:
 
     @property
     def is_redline_abort(self) -> bool:
-        # Redlines are high-severity Sensor events. They no longer stop the
-        # transient solver by themselves; abort behavior should be modeled by
-        # Sequence command logic if desired.
+        # Redlines report events; Sequences decide whether to stop a transient.
         return False
 
     def as_record(self) -> dict[str, Any]:
@@ -71,11 +64,7 @@ class SensorEvent:
 
 @dataclass(slots=True)
 class SensorCondition:
-    """One FullPlot line trace attached to a ``Sensor`` for event checks.
-
-        The trace supplies a threshold versus time.  Its FullPlot role determines how
-        the event should be interpreted visually and operationally: redline,
-        blueline, greenline, or yellowline."""
+    """One FullPlot line trace attached to a ``Sensor`` for event checks."""
 
     trace: Trace
     role: str
@@ -92,22 +81,7 @@ class SensorCondition:
 
 
 class Sensor(Component):
-    """Virtual instrumentation channel for reading, anchoring, and event detection.
-
-        ``Sensor`` connects simulation variables to FullPlot traces.  With only a
-        ``reading`` state it behaves as a named instrumentation channel.  With
-        ``variable`` and ``data`` it can anchor a model variable to test data by
-        exposing a solver balance ``variable - data(time) = 0``.  With condition
-        traces it can detect redline, blueline, greenline, and yellowline crossings
-        during transient solves.
-
-        Missing data
-        ------------
-        ``extend=True`` allows the solve to continue when no finite data value is
-        available.  The sensor anchor is inactive during those times; if its
-        variable would otherwise be unconstrained, FullFlow retains the last
-        accepted value.  ``extend=False`` requests a clean transient stop when no
-        data value is available."""
+    """Virtual instrumentation channel for reading, anchoring, and event detection."""
 
     def __init__(
         self,
@@ -120,14 +94,7 @@ class Sensor(Component):
         trigger_all: Trace | list[Trace] | tuple[Trace, ...] | None = None,
         extend: bool = True,
     ) -> None:
-        """Initialize the object and register any FullFlow state wiring.
-        
-                Constructor parameters are documented on the class docstring and in the
-                function signature.  Component constructors normally call
-                ``Component.setup()``, which converts plain scalars to ``State`` objects,
-                preserves supplied state-like objects, creates output states for optional
-                ``None`` arguments, stores metadata, and registers the component with its
-                network."""
+        """Initialize the object and register any FullFlow state wiring."""
         if data is not None:
             self._validate_data_trace(name, data)
 
@@ -137,15 +104,12 @@ class Sensor(Component):
 
         self.setup()
 
-        # Component.setup wraps every constructor input in a State by default.
-        # FullPlot Trace objects are external data/limit objects, not solver
-        # states. Keep them as the original Trace-backed objects.
+        # FullPlot traces remain external objects rather than solver states.
         self.data = data
         self.conditions = tuple(condition_list)
         self.trigger_all = tuple(trigger_all_list)
 
-        # Export/cache states. These are updated every evaluate_states() pass
-        # and during residual evaluation.
+        # These sampled values are available for export and plotting.
         self.data_value = State(math.nan)
         self.error = State(math.nan)
         self.active = State(False)
@@ -157,10 +121,7 @@ class Sensor(Component):
 
     @property
     def ignored_export_attributes(self) -> set[str]:
-        # Keep external FullPlot Trace objects and configuration metadata out of
-        # the component table. The useful sampled values are exported through
-        # reading/data_value/error/active/variable_value. Condition traces and
-        # sparse condition events are exported through dedicated HDF5 groups.
+        # Trace definitions and events use dedicated HDF5 groups.
         return {"data", "conditions", "trigger_all", "extend"}
 
     @staticmethod
@@ -415,13 +376,7 @@ class Sensor(Component):
         return self._trace_arrays_for(self.data, self.name, "data")
 
     def _sample_trace_previous(self, time_value: float) -> float:
-        """Sample the FullPlot data Trace using the previous data point.
-
-        FullFlow solver time takes priority over the test-data sample rate. At
-        each solver time, the sensor uses the most recent trace sample whose
-        shifted FullPlot time is less than or equal to the current solver time.
-        NaN y-values, out-of-range times, and invalid times return NaN.
-        """
+        """Sample the FullPlot data Trace using the previous data point."""
         if self.data is None or not math.isfinite(time_value):
             return math.nan
 
@@ -443,8 +398,7 @@ class Sensor(Component):
         try:
             return self._finite_number(condition.trace(time_value))
         except Exception:
-            # Fall back to the same previous-sample implementation used by data
-            # traces so older FullPlot Trace objects remain compatible.
+            # Fall back to previous-sample trace evaluation.
             x, y = self._trace_arrays_for(condition.trace, self.name, "condition")
             if time_value < x[0] or time_value > x[-1]:
                 return math.nan
@@ -454,11 +408,7 @@ class Sensor(Component):
             return self._finite_number(y[index])
 
     def target_value(self, time_value: float | None = None) -> float:
-        """Return the time-sampled target value used by this instrumentation object.
-        
-                When the object is backed by a FullPlot trace, the value is sampled at
-                the supplied time or at ``network.time``.  Missing-data behavior follows
-                the component's ``extend`` setting."""
+        """Return the time-sampled target value used by this instrumentation object."""
         if time_value is None:
             time_value = float(self.network.time.value)
         return self._sample_trace_previous(float(time_value))
@@ -504,43 +454,25 @@ class Sensor(Component):
         return target
 
     def evaluate_states(self) -> None:
-        # Pure evaluation/export should never stop a solve. The residual method
-        # handles extend=False during active matching.
-        """Evaluate the component for the current network state.
-        
-                Solvers call this method repeatedly while settling derived states and
-                assembling residuals.  It should read input ``State.value`` fields, write
-                output states, and update any residual or derivative attributes exposed
-                through ``balances`` or ``dynamics``.  The method does not advance time;
-                transient integration is handled by the solver."""
+        # Only active residual matching may stop on exhausted data.
+        """Evaluate the component for the current network state."""
         self._update_outputs(stop_on_missing=False)
 
     @property
     def balances(self) -> list[tuple[State, Any]]:
-        """Return algebraic equations contributed by this component.
-        
-                Each tuple is ``(iteration_variable, residual)``.  Steady-state and
-                transient solvers vary the iteration variable until the residual is zero.
-                Components without algebraic closure equations return an empty list or do
-                not define this property."""
+        """Return algebraic equations contributed by this component."""
         if not self.is_anchor:
             return []
         return [(self.variable, self.residual)]
 
     def residual(self) -> float:
-        """Return the current scalar residual represented by the object.
-        
-                The value is intended for solver diagnostics, simple user balances, or
-                event logic.  It reflects the most recent component evaluation."""
+        """Return the current scalar residual represented by the object."""
         target = self._update_outputs(stop_on_missing=True)
 
         if math.isfinite(target):
             return float(self.reading.value) - target
 
-        # extend=True: keep marching through missing data. During NaN/dropout
-        # regions or outside a windowed trace, the sensor no longer has a data
-        # residual. Hold the independent variable at its last accepted value so
-        # it is not a free unknown in the nonlinear solve.
+        # Hold the independent variable through missing or out-of-window data.
         hold_value = self._hold_variable_value()
         if not math.isfinite(hold_value):
             return 0.0

@@ -13,12 +13,7 @@ def _looks_like_network(value: Any) -> bool:
 
 
 class ModelOption:
-    """Deferred component option used by ``Model``.
-
-    A ``ModelOption`` is normally created through ``Component.template(...)``
-    or ``Component.model(...)``. It can represent either one deferred component
-    or a group of deferred components.
-    """
+    """Deferred component option used by ``Model``."""
 
     def __init__(
         self,
@@ -28,14 +23,7 @@ class ModelOption:
         kwargs: dict[str, Any] | None = None,
         component_name: str | None = None,
     ) -> None:
-        """Initialize the object and register any FullFlow state wiring.
-        
-                Constructor parameters are documented on the class docstring and in the
-                function signature.  Component constructors normally call
-                ``Component.setup()``, which converts plain scalars to ``State`` objects,
-                preserves supplied state-like objects, creates output states for optional
-                ``None`` arguments, stores metadata, and registers the component with its
-                network."""
+        """Initialize the object and register any FullFlow state wiring."""
         self.name = name
         self.component_class = component_class
         self.kwargs = kwargs or {}
@@ -154,19 +142,7 @@ class ModelOption:
 
 
 class Model:
-    """Factory for mutually exclusive component configurations.
-
-        A ``Model`` groups one or more named options that can be built into the same
-        network.  Solvers can run a selected option or evaluate every option from a
-        common initial state.  This is useful for comparing pump maps, heat-transfer
-        correlations, cavitation closures, combustion models, or any other alternate
-        physical representation without rewriting the surrounding network.
-
-        Notes
-        -----
-        Model options are ordinary callables.  They should create components and
-        return any objects the user wants to keep for later inspection.  FullFlow
-        records which option is active in solver metadata and HDF5 output."""
+    """Factory for mutually exclusive component configurations."""
 
     def __init__(
         self,
@@ -175,14 +151,7 @@ class Model:
         *options: ModelOption,
         order: list[str] | tuple[str, ...] | None = None,
     ) -> None:
-        """Initialize the object and register any FullFlow state wiring.
-        
-                Constructor parameters are documented on the class docstring and in the
-                function signature.  Component constructors normally call
-                ``Component.setup()``, which converts plain scalars to ``State`` objects,
-                preserves supplied state-like objects, creates output states for optional
-                ``None`` arguments, stores metadata, and registers the component with its
-                network."""
+        """Initialize the object and register any FullFlow state wiring."""
         self.name = name
         self.network = network
         self.options: dict[str, ModelOption] = {}
@@ -218,11 +187,7 @@ class Model:
         return option
 
     def option(self, name: str, *options: ModelOption) -> ModelOption:
-        """Add a model option.
-
-        Pass one deferred component for a single-component option, or several
-        deferred components for a grouped option.
-        """
+        """Add a model option."""
         if not options:
             raise ValueError(
                 f"{self.name}: option {name!r} requires at least one component template."

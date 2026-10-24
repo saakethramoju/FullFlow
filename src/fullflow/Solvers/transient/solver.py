@@ -1,22 +1,4 @@
-"""Public transient solver entry point.
-
-The solver implemented here is a fixed-step, implicit backward-Euler network
-solver.  Components expose ``dynamics`` and ``balances``; the solver builds the
-new-time nonlinear residuals.
-
-For a dynamic tuple
-
-    (solve_variable, integrated_state, derivative)
-
-one timestep solves
-
-    integrated_state_new - integrated_state_previous - dt * derivative_new = 0
-
-where ``derivative_new`` is evaluated after all current SciPy guesses have been
-written into the network and all components have run at ``network.time = t_new``.
-The simpler two-entry form ``(state, derivative)`` solves with and integrates the
-same State.
-"""
+"""Public transient solver entry point."""
 
 from __future__ import annotations
 
@@ -40,34 +22,10 @@ from .settings import TransientSettings
 
 
 class Transient:
-    """Backward-Euler transient solver for FullFlow networks.
-
-        ``Transient`` advances ``network.time`` from its current value to
-        ``t_final``.  Each accepted step solves the coupled implicit residual formed
-        by dynamic equations, component algebraic balances, and user balances.  The
-        solver automatically retries failed steps with smaller half-steps, snaps to
-        final time, output times, sequence command breakpoints, and scheduled abort
-        times, and exports saved histories to HDF5 when requested.
-
-        Main options in ``solve``
-        -------------------------
-        ``dt`` is the nominal timestep.  ``save_dt`` controls output cadence.
-        ``solver_method``/``jacobian_method`` and ``ftol``/``xtol``/``gtol`` are
-        SciPy least-squares controls.  ``rtol`` is the accepted-step residual limit.
-        ``state_max_passes`` and ``state_tolerance`` settle derived states inside
-        residual calls.  ``max_step_retries`` and ``minimum_dt`` control automatic
-        timestep halving.  ``ignore_balances`` removes selected user balances from
-        the transient solve."""
+    """Backward-Euler transient solver for FullFlow networks."""
 
     def __init__(self, network) -> None:
-        """Initialize the object and register any FullFlow state wiring.
-        
-                Constructor parameters are documented on the class docstring and in the
-                function signature.  Component constructors normally call
-                ``Component.setup()``, which converts plain scalars to ``State`` objects,
-                preserves supplied state-like objects, creates output states for optional
-                ``None`` arguments, stores metadata, and registers the component with its
-                network."""
+        """Initialize the object and register any FullFlow state wiring."""
         self.network = network
         self.console = Console()
         self._runtime_cache: TransientRuntimeCache | None = None
@@ -265,14 +223,7 @@ class Transient:
         save_dt: float | None = None,
         ignore_balances=None,
     ):
-        """Advance the network with optional model-option selection.
-
-        Model behavior mirrors steady-state solving: if ``model`` is omitted,
-        unbuilt models are built with their first options and one ``base`` run is
-        executed.  If ``model`` is supplied, options are tried in model order;
-        setting ``evaluate_all_model_options=True`` runs every option as an
-        independent transient from the same initial state.
-        """
+        """Advance the network with optional model-option selection."""
 
         def run_once(
             filename: str | None = None,
@@ -345,109 +296,7 @@ class Transient:
         group_path: str = "transient/runs/base",
         metadata: dict[str, Any] | None = None,
     ):
-        """Advance the network from its current time to ``t_final``.
-
-        Parameters
-        ----------
-        dt : float
-            User-selected nominal timestep in seconds. Steps are shortened when
-            needed to land exactly on ``t_final``, saved output times, and
-            tabular ``Sequence`` time points. If a timestep fails, the solver
-            rolls back and retries smaller half-steps.
-
-        t_final : float
-            Final simulation time.  The starting time is the current value of
-            ``network.time``.
-
-        filename : str, optional
-            Output HDF5 filename.  When provided, transient data is written to
-            disk.  The file contains saved transient history under
-            ``/<network>/transient`` and the final network state under
-            ``/<network>/transient/final``.
-
-        save_dt : float, optional
-            Output timestep. If omitted, every accepted solver step is saved. If
-            provided, the solver still advances with its normal timestep, but
-            output is saved only at multiples of ``save_dt`` and at final time.
-            Timesteps are shortened when needed so saved output lands exactly on
-            the requested output times.
-
-        ignore_balances : None, "all", or iterable of str, optional
-            User ``Balance`` objects to exclude from this transient solve.
-            Ignoring a balance removes both its residual and its associated
-            iteration variable. Component balances are not affected.
-
-        force_steady : None, "all", or iterable of Component, optional
-            Components whose dynamic equations should be forced to steady state
-            during the transient.  ``None`` preserves normal transient integration.
-            ``"all"`` forces every dynamic component to satisfy derivative = 0.
-            An iterable forces only the listed components.
-
-        force_steady_exceptions : iterable of Component, optional
-            Components excluded from ``force_steady="all"``.  This is useful for
-            reduced-order runs such as forcing all components steady except rotor
-            or wall thermal components.
-
-        return_type : {"dict"}, default="dict"
-            Return format.  ``"dict"`` returns a list of time-stamped full-network
-            records.
-
-        verbose : bool, default=False
-            Print the final transient solver summary and the final network state.
-            This mirrors the steady-state solver's verbose behavior.
-
-        statistics : bool, default=False
-            Print accepted-step progression as the simulation runs.  This is the
-            option to use when you want lines like ``t=..., dt=..., residual=...``.
-
-        solver_method : str, default="trf"
-            SciPy ``least_squares`` method.  ``"trf"`` is recommended because it
-            supports State bounds.  ``"lm"`` is allowed only for unbounded
-            transient systems.
-
-        jacobian_method : str, default="3-point"
-            Finite-difference Jacobian approximation passed to SciPy.
-
-        ftol, xtol : float
-            SciPy least-squares convergence tolerances. The final timestep
-            residual is still checked after SciPy terminates.
-
-        gtol : float or None, default=None
-            SciPy gradient convergence tolerance. ``None`` disables gradient-based
-            termination, which avoids false convergence for small normalized
-            transient residuals with weak finite-difference gradients.
-
-        rtol : float, default=1e-8
-            Per-timestep residual acceptance tolerance.  After SciPy terminates,
-            the recomputed final timestep residual must satisfy
-            ``max(abs(residual)) <= rtol``.  Internally generated integration
-            residuals are normalized by the state/change scale; algebraic
-            residuals are used exactly as components and balances return them.
-            By default ``gtol`` is disabled for transient solves because small
-            residual magnitudes can make gradient-based termination stop before
-            the timestep residual is actually accepted.
-
-        state_max_passes : int, default=5
-            Maximum number of repeated ``evaluate_states()`` passes inside each
-            residual call.
-
-        state_tolerance : float, default=1e-10
-            Fixed-point convergence tolerance for derived-state evaluation.
-
-        max_step_retries : int, default=8
-            Number of automatic half-step retries allowed when a timestep does
-            not satisfy the acceptance residual.
-
-        minimum_dt : float, optional
-            Smallest automatic retry timestep.  If omitted, the retry floor is
-            ``dt * 1e-9``.
-
-        Returns
-        -------
-        list[dict]
-            Time-stamped full-network records for each saved output time,
-            including the evaluated initial state.
-        """
+        """Advance the network from its current time to ``t_final``."""
         self._ignore_balances = ignore_balances
         self._force_steady = force_steady
         self._force_steady_exceptions = force_steady_exceptions
@@ -497,8 +346,7 @@ class Transient:
 
         solve_start_time = time.perf_counter()
 
-        # Evaluate the initial condition and store transient history.  At this
-        # point every transient State has ``state.previous == state.value``.
+        # Initialize accepted state history before marching.
         self.step_solver.initialize(state_settings)
         self.network.reset_sensor_events()
         self.network.reset_sequence_aborts()
@@ -630,8 +478,7 @@ class Transient:
             if statistics:
                 self.printer.print_step(diagnostics)
 
-            # The runtime cache may become stale if a component modified network
-            # structure during the step.  Refresh lazily for the next step.
+            # Refresh structural changes before the next step.
             self._cache()
 
             if abort_record is not None:

@@ -1,53 +1,4 @@
-"""Simple HDF5 export helpers for FullFlow.
-
-FullFlow HDF5 files are object containers.  Each top-level group is a named
-FullFlow object, usually a Network or a generated Map.  Network solution data
-lives under the network group, and map data lives directly under the map group.
-
-Canonical layout
-----------------
-
-Network object::
-
-    /<network_name>
-        attrs: kind="network", name="original network name"
-        /steady_state
-            /runs
-                /base
-                    /metadata
-                    /components/<component>/<attribute>
-                    /tracks/<tracked_name>
-                    /sensors/<sensor_name>/<attribute>
-                    /table/<column>
-                    /diagnostics/<column>
-                /<model_name>/<option_name>
-                    ... same as base ...
-        /transient
-            /runs
-                /base
-                    /metadata
-                    /time
-                    /components/<component>/<attribute>
-                    /tracks/<tracked_name>
-                    /sensors/<sensor_name>/<attribute>
-                    /table/<column>
-                    /diagnostics/<column>
-                    /final/components/<component>/<attribute>
-                    /final/tracks/<tracked_name>
-                    /final/sensors/<sensor_name>/<attribute>
-                    /final/table/<column>
-                /<model_name>/<option_name>
-                    ... same as base ...
-
-Map object::
-
-    /<map_name>
-        attrs: kind="map", name="original map name", axis_order=[...]
-        /axes/<axis_name>
-        /outputs/<output_name>
-        /status/success
-        /status/message
-"""
+"""Simple HDF5 export helpers for FullFlow."""
 
 from __future__ import annotations
 
@@ -247,12 +198,7 @@ def run_group_path(
     option_name: str | None = None,
     run_name: str = "base",
 ) -> str:
-    """Return the canonical network-relative HDF5 path for one solver run.
-
-    All solution exports live under ``/<network>/<solve_type>/runs``.
-    Ordinary solves use ``base``.  Model-option solves use
-    ``<model_name>/<option_name>``.
-    """
+    """Return the canonical network-relative HDF5 path for one solver run."""
     solve_type = safe_group_name(solve_type)
 
     if model_name is None and option_name is None:
@@ -612,12 +558,7 @@ def _write_sensors(parent: h5py.Group, rows: list[dict[str, Any]], time_values: 
 
 
 def _write_sensor_conditions(parent: h5py.Group, rows: list[dict[str, Any]]) -> None:
-    """Write FullPlot condition traces attached to Sensors.
-
-    These are separate from sampled sensor histories because condition traces
-    retain their own time bases. FullPlot can load them as ordinary traces using
-    the saved role metadata.
-    """
+    """Write FullPlot condition traces attached to Sensors."""
     if not rows:
         return
 
@@ -729,25 +670,14 @@ def _write_sequence_commands(parent: h5py.Group, rows: list[dict[str, Any]]) -> 
 
 
 def _link_time_dataset(group: h5py.Group, time_dataset: h5py.Dataset) -> None:
-    """Add a local hard link named ``time`` to a time-history group.
-
-    The same HDF5 dataset can have multiple hard links, so this makes scoped
-    plotting convenient without duplicating the time array in the file.
-    """
+    """Add a local hard link named ``time`` to a time-history group."""
     if "time" in group:
         return
     group["time"] = time_dataset
 
 
 def _link_time_to_time_history_groups(run_group: h5py.Group) -> None:
-    """Expose run-level time inside time-dependent child groups.
-
-    This lets users scope FullPlot to a component or sensor group and still use
-    ``x="time"`` directly, for example::
-
-        line = file.at("/Network/transient/runs/base/components/Line")
-        line.plot(x="time", y="mass_flow")
-    """
+    """Expose run-level time inside time-dependent child groups."""
     if "time" not in run_group:
         return
 
@@ -789,16 +719,7 @@ def write_solution(
     group_path: str = "steady_state/runs/base",
     metadata: dict[str, Any] | None = None,
 ) -> Path:
-    """Write one exported network solution to HDF5.
-
-    Network solution data is always written inside a run group::
-
-        /<network_name>/steady_state/runs/base
-        /<network_name>/steady_state/runs/<model_name>/<option_name>
-
-    Passing an :class:`HDF5Target` uses the target ``group_path`` exactly as a
-    network-relative run path.
-    """
+    """Write one exported network solution to HDF5."""
     if isinstance(target, HDF5Target):
         path = hdf5_path(target.filename)
         section = target.group_path.strip("/") or group_path.strip("/")
@@ -852,20 +773,7 @@ def write_transient_solution(
     group_path: str = "transient/runs/base",
     metadata: dict[str, Any] | None = None,
 ) -> Path:
-    """Write one time-history run for a network.
-
-    Normal transient results are written under::
-
-        /<network_name>/transient/runs/base
-        /<network_name>/transient/runs/<model_name>/<option_name>
-
-    Quasi-steady time sweeps created by ``SteadyState.solve(dt=..., t_final=...)``
-    use this same transient history layout and are saved under
-    ``transient/runs/...``.
-
-    Existing sibling runs are preserved.  Re-running the same run path replaces
-    only that run group.
-    """
+    """Write one time-history run for a network."""
     path = hdf5_path(filename)
     history_rows = solution_records(history_records)
     track_rows = solution_records(track_records)
@@ -945,12 +853,7 @@ def write_tables(
     *,
     group_path: str = "statistics/current",
 ) -> Path:
-    """Write a dictionary of row tables to HDF5.
-
-    When ``target`` is an :class:`HDF5Target`, its group path is used exactly.
-    Otherwise ``group_path`` is used exactly at the file root. Solver code passes
-    explicit object-scoped targets for user-facing exports.
-    """
+    """Write a dictionary of row tables to HDF5."""
     if isinstance(target, HDF5Target):
         path = hdf5_path(target.filename)
         group_path = target.group_path.strip("/")

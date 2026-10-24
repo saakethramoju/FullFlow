@@ -21,11 +21,7 @@ SEQUENCE_COMMAND_MISSING = {"hold", "skip", "error"}
 
 @dataclass(frozen=True, slots=True)
 class SequenceCondition:
-    """Reference to one named ``Sensor`` condition used by a sequence command or abort.
-
-        The condition stores the sensor name and the condition-name key.  It lets a
-        sequence activate commands only after one or more redline/blueline/greenline
-        events have occurred."""
+    """Reference to one named ``Sensor`` condition used by a sequence command or abort."""
 
     sensor: Any
     name: str
@@ -45,13 +41,7 @@ class SequenceCondition:
 
 @dataclass(slots=True)
 class SequenceCommand:
-    """One pending or committed command managed by a ``Sequence``.
-
-        A command stores the target state, source trace/function/static value,
-        activation time or sensor-condition requirement, missing-data policy, and
-        bookkeeping about the most recent committed value.  Users normally create
-        these through ``Sequence.command(...)`` rather than instantiating the class
-        directly."""
+    """One pending or committed command managed by a ``Sequence``."""
 
     target: Any
     trace: Trace
@@ -97,11 +87,7 @@ class SequenceCommand:
 
 @dataclass(slots=True)
 class SequenceAbort:
-    """Clean transient stop condition managed by a ``Sequence``.
-
-        Sequence aborts are not Python exceptions exposed to user code.  They are
-        records consumed by the transient solver so a run can terminate cleanly at a
-        scheduled time or when sensor conditions are satisfied."""
+    """Clean transient stop condition managed by a ``Sequence``."""
 
     condition: Any = None
     condition_sensor: Any = None
@@ -118,17 +104,7 @@ class SequenceAbort:
 
 
 class Sequence(Component):
-    """Transient command source and abort scheduler for test-like simulations.
-
-        ``Sequence`` writes command values into one target state from tabulated
-        times/values, a callable, a FullPlot command trace, or sensor-condition
-        triggers.  It is used to model valve commands, throttle schedules, controller
-        setpoints, test-stand event sequencing, and clean abort logic.
-
-        During a transient solve the runtime calls ``apply_commands`` before each
-        residual evaluation and ``commit_commands`` after accepted steps.  Command
-        breakpoints are surfaced to the transient timestep picker so the solver can
-        land exactly on command changes rather than stepping over them."""
+    """Transient command source and abort scheduler for test-like simulations."""
 
     TRANSIENT_ONLY = True
 
@@ -142,14 +118,7 @@ class Sequence(Component):
         function: Callable[..., float] | None = None,
         inputs: list[Any] | tuple[Any, ...] | Any | None = None,
     ):
-        """Initialize the object and register any FullFlow state wiring.
-        
-                Constructor parameters are documented on the class docstring and in the
-                function signature.  Component constructors normally call
-                ``Component.setup()``, which converts plain scalars to ``State`` objects,
-                preserves supplied state-like objects, creates output states for optional
-                ``None`` arguments, stores metadata, and registers the component with its
-                network."""
+        """Initialize the object and register any FullFlow state wiring."""
         self._table_sequence = times is not None or values is not None
         self._function_sequence = function is not None
         self._has_primary_sequence = self._table_sequence or self._function_sequence
@@ -295,43 +264,7 @@ class Sequence(Component):
         transform: Callable[[Any], Any] | None = None,
         missing: str = "hold",
     ) -> SequenceCommand:
-        """Replay a FullPlot command Trace into an assignable State-like target.
-
-        The common case is direct replay::
-
-            sequence.command(FuelValve.area, fuel_valve_area_command)
-
-        Conditional commands switch to another command trace when a Sensor
-        condition is crossed::
-
-            sequence.command(FuelValve.area, fuel_abort_command, condition=(CHPT, "High Pc"))
-
-        ``condition`` may be ``None`` for an immediate command, a number for an
-        absolute start time, ``(sensor, condition_name)`` for one Sensor event,
-        or a list/tuple of ``(sensor, condition_name)`` pairs. Multiple Sensor
-        conditions use all-of semantics: the command activates after every
-        listed condition has occurred. Command Trace time is relative to its
-        activation time.
-
-        For normalized commands, use ``scale`` and optional ``offset``::
-
-            target.value = offset + scale * trace_value
-
-        ``transform`` is an advanced escape hatch for custom conversions. It is
-        applied after ``scale`` and ``offset``.
-
-        ``missing`` controls NaN or out-of-range command samples:
-
-        ``"hold"``
-            Reuse the last accepted finite command value. If no valid command
-            has been accepted yet, leave the target unchanged.
-
-        ``"skip"``
-            Leave the target unchanged.
-
-        ``"error"``
-            Raise a clear error when a command value is missing.
-        """
+        """Replay a FullPlot command Trace into an assignable State-like target."""
         if target is None:
             raise SolverSetupError(f"Sequence {self.name!r} command target is required.")
         if trace is None:
@@ -383,27 +316,7 @@ class Sequence(Component):
         delay: float = 0.0,
         message: str | None = None,
     ) -> SequenceAbort:
-        """Stop the transient cleanly when a Sequence condition is satisfied.
-
-        ``condition`` uses the same form as :meth:`command`:
-
-        ``None``
-            Abort at the start of the run, optionally after ``delay`` seconds.
-
-        number
-            Abort at that absolute simulation time, optionally after ``delay`` seconds.
-
-        ``(sensor, condition_name)``
-            Abort after that Sensor condition is crossed on an accepted timestep.
-
-        list/tuple of ``(sensor, condition_name)`` pairs
-            Abort after every listed Sensor condition has occurred.
-
-        The abort is clean: accepted history is exported normally and the run is
-        marked as aborted in transient metadata. Sensor redlines, yellowlines,
-        bluelines, and greenlines still only create events; they do not stop the
-        solver unless a Sequence abort rule refers to them.
-        """
+        """Stop the transient cleanly when a Sequence condition is satisfied."""
         try:
             delay = float(delay)
         except Exception as error:
@@ -439,31 +352,17 @@ class Sequence(Component):
         return entry
 
     def set_transient_context(self, *, dt: float) -> None:
-        """Receive timestep-level information from the transient solver.
-        
-                Components may override this hook when they need the accepted or trial
-                timestep size to update command schedules, rate limits, or other
-                transient-only bookkeeping."""
+        """Receive timestep-level information from the transient solver."""
         super().set_transient_context(dt=dt)
         self._active_in_transient = True
 
     def pre_evaluation(self):
-        """Run pre-residual bookkeeping before component evaluation.
-        
-                Solvers call this hook before ordinary ``evaluate_states()`` passes.  It
-                is used by lookups, schedules, and instrumentation components that need
-                to update inputs before residual equations are collected."""
+        """Run pre-residual bookkeeping before component evaluation."""
         if self._active_in_transient and self._read(self.evaluate_in_pre_evaluation):
             self.apply_commands()
 
     def evaluate_states(self):
-        """Evaluate the component for the current network state.
-        
-                Solvers call this method repeatedly while settling derived states and
-                assembling residuals.  It should read input ``State.value`` fields, write
-                output states, and update any residual or derivative attributes exposed
-                through ``balances`` or ``dynamics``.  The method does not advance time;
-                transient integration is handled by the solver."""
+        """Evaluate the component for the current network state."""
         if not self._active_in_transient:
             return
 

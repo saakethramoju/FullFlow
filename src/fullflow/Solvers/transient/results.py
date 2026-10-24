@@ -18,23 +18,10 @@ def format_records(records: list[dict[str, Any]], return_type: str):
 
 
 class TransientHistory:
-    """Collect full transient output at selected accepted timesteps.
-
-    ``save_dt`` controls which accepted times are stored.  Whenever a time is
-    saved, the full network export is stored.  ``network.track(...)`` values are
-    also stored in the convenience ``/tracks`` HDF5 group, but tracking does not
-    decide which states are saved.
-    """
+    """Collect full transient output at selected accepted timesteps."""
 
     def __init__(self) -> None:
-        """Initialize the object and register any FullFlow state wiring.
-        
-                Constructor parameters are documented on the class docstring and in the
-                function signature.  Component constructors normally call
-                ``Component.setup()``, which converts plain scalars to ``State`` objects,
-                preserves supplied state-like objects, creates output states for optional
-                ``None`` arguments, stores metadata, and registers the component with its
-                network."""
+        """Initialize the object and register any FullFlow state wiring."""
         self.records: list[dict[str, Any]] = []
         self.track_records: list[dict[str, Any]] = []
         self.output_times: list[float] = []

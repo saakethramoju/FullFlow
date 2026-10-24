@@ -57,8 +57,7 @@ class StaticEvaluation:
 
         start_time = time.perf_counter()
 
-        # Pre-evaluation can create/remove components through models or update
-        # cached callables, so rebuild the runtime cache afterward.
+        # Pre-evaluation may change the network structure.
         cache = self.refresh_cache()
         cache.run_pre_evaluation()
         self.refresh_cache()
@@ -123,8 +122,7 @@ class NonlinearSolve:
         ls_settings.validate()
         state_settings.validate()
 
-        # Let components prepare themselves, then rebuild the runtime view in
-        # case those hooks changed network structure or iteration metadata.
+        # Refresh the runtime view after component preparation.
         cache = self.refresh_cache()
         accepted_snapshot = cache.snapshot_mutable_states()
         try:
@@ -142,8 +140,7 @@ class NonlinearSolve:
                 x0=x0,
             )
 
-            # Compute derived states and the initial residual once before calling
-            # SciPy. This catches bad setup early and lets us detect static networks.
+            # Validate the initial state and detect static networks before SciPy.
             self.evaluator.run(
                 max_passes=state_settings.max_passes,
                 tolerance=state_settings.tolerance,
@@ -151,10 +148,7 @@ class NonlinearSolve:
             r0 = cache.collect_residuals()
             statistics.record(x0, r0, cache, phase="initial")
 
-            # Seed the residual callback's invalid-trial history with the known-good
-            # initial point.  This lets temporary invalid thermodynamic trial points
-            # inside SciPy's finite-difference/Jacobian search receive a large
-            # residual penalty instead of aborting the solve.
+            # Seed invalid-trial handling from the valid initial point.
             residual_owner = getattr(self.residual_function, "__self__", None)
             if residual_owner is not None:
                 if hasattr(residual_owner, "_last_valid_x"):
@@ -202,9 +196,7 @@ class NonlinearSolve:
                 statistics.export(statistics_filename)
                 raise
 
-            # ``least_squares`` does not automatically update the user's States.
-            # Push the accepted solution back into the network, then recompute all
-            # derived outputs one final time so saved/printed results are current.
+            # Apply the accepted vector and refresh derived outputs.
             cache.assign_iteration_values(sol.x)
             self.evaluator.run(
                 max_passes=state_settings.max_passes,

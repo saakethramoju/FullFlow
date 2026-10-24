@@ -10,13 +10,10 @@ if TYPE_CHECKING:
 
 
 class Rotor(Component):
-    """Single-shaft rotor speed dynamic from net torque and polar moment of inertia.
+    """Single-shaft rotational inertia for transient turbomachinery models.
 
-        ``Rotor`` integrates shaft speed in revolutions per minute.  The component
-        expects net torque in SI units and moment of inertia in kg*m^2; it converts
-        angular acceleration from rad/s^2 to rpm/s.  Steady-state solving drives
-        ``net_torque`` to zero through the speed derivative, while transient solving
-        integrates ``rotor_speed``."""
+    Use it to couple pump and turbine torques when shaft speed must accelerate or
+    decelerate rather than remain prescribed."""
     def __init__(
         self,
         name: str,
@@ -25,53 +22,28 @@ class Rotor(Component):
         polar_moment_of_inertia: float | None = None,
         net_torque: State | None = None,
     ):
-        """Initialize the object and register any FullFlow state wiring.
-        
-                Constructor parameters are documented on the class docstring and in the
-                function signature.  Component constructors normally call
-                ``Component.setup()``, which converts plain scalars to ``State`` objects,
-                preserves supplied state-like objects, creates output states for optional
-                ``None`` arguments, stores metadata, and registers the component with its
-                network."""
+        """Initialize the object and register any FullFlow state wiring."""
         self.setup()
 
     def evaluate_states(self):
-        """Evaluate the component for the current network state.
-        
-                Solvers call this method repeatedly while settling derived states and
-                assembling residuals.  It should read input ``State.value`` fields, write
-                output states, and update any residual or derivative attributes exposed
-                through ``balances`` or ``dynamics``.  The method does not advance time;
-                transient integration is handled by the solver."""
+        """Evaluate the component for the current network state."""
         self.rotor_speed_dot = self.net_torque.value / self.polar_moment_of_inertia.value * 30.0 / math.pi
 
     @property
     def dynamics(self):
         # Rotor speed is a real dynamic state.  SteadyState drives the torque
         # balance to zero through rotor_speed_dot; Transient integrates speed.
-        """Return dynamic equations contributed by this component.
-        
-                A two-item tuple ``(state, derivative)`` means the solver integrates that
-                state directly.  A three-item tuple ``(iteration_state, stored_state,
-                derivative)`` means the nonlinear solver iterates a convenient state but
-                conserves/integrates a different stored quantity.  Steady-state solves
-                drive the derivative to zero."""
+        """Return dynamic equations contributed by this component."""
         return [(self.rotor_speed, self.rotor_speed_dot)]
 
 
 
 
 class GasTurbine(Component):
-    """Simple gas turbine power extraction component.
+    """Quasi-steady gas turbine that converts pressure drop and torque into power.
 
-        The component uses a turbine flow parameter to compute mass flow from
-        upstream total pressure and temperature, gas constant, and rotor speed.  It
-        computes shaft power from torque and angular speed, then derives efficiency
-        either from a supplied ideal enthalpy drop or from an ideal-gas pressure
-        ratio relation.
-
-        Optional enthalpy states let the turbine update discharge total enthalpy for
-        coupled pump-turbine or gas-generator examples."""
+    Use it with supplied map-derived flow parameter and torque values; it does not
+    independently predict turbine geometry or off-design performance."""
     def __init__(self, 
                  name: str,
                  network: Network,
@@ -90,25 +62,12 @@ class GasTurbine(Component):
                  discharge_total_enthalpy: State | None = None,
                  shaft_power: State | None = None,
                  mass_flow: State | None = None):
-        """Initialize the object and register any FullFlow state wiring.
-        
-                Constructor parameters are documented on the class docstring and in the
-                function signature.  Component constructors normally call
-                ``Component.setup()``, which converts plain scalars to ``State`` objects,
-                preserves supplied state-like objects, creates output states for optional
-                ``None`` arguments, stores metadata, and registers the component with its
-                network."""
+        """Initialize the object and register any FullFlow state wiring."""
         self.setup()
 
 
     def evaluate_states(self):
-        """Evaluate the component for the current network state.
-        
-                Solvers call this method repeatedly while settling derived states and
-                assembling residuals.  It should read input ``State.value`` fields, write
-                output states, and update any residual or derivative attributes exposed
-                through ``balances`` or ``dynamics``.  The method does not advance time;
-                transient integration is handled by the solver."""
+        """Evaluate the component for the current network state."""
         N = self.rotor_speed.value
         T = self.torque.value
         FP = self.flow_parameter.value
@@ -146,14 +105,10 @@ class GasTurbine(Component):
 
 
 class ConstantDensityPump(Component):
-    """Constant-density pump pressure-rise component with optional shaft-power bookkeeping.
+    """Pump model for liquids whose density change is negligible.
 
-        The pump predicts discharge pressure from upstream pressure, density,
-        gravitational acceleration, and map head rise.  It exposes an algebraic
-        balance that varies ``mass_flow`` until predicted discharge pressure matches
-        the connected discharge pressure.  Optional torque and rotor speed inputs
-        allow hydraulic power, shaft power, efficiency, volumetric flow, and
-        discharge total enthalpy to be calculated."""
+    Use it for incompressible centrifugal or positive-displacement pump calculations
+    when a head-rise curve or map supplies the operating head."""
     def __init__(self,
                  name: str, 
                  network: Network,
@@ -170,24 +125,11 @@ class ConstantDensityPump(Component):
                  efficiency: State | None = None,
                  shaft_power: State | None = None,
                  volumetric_flow: State | None = None,):
-        """Initialize the object and register any FullFlow state wiring.
-        
-                Constructor parameters are documented on the class docstring and in the
-                function signature.  Component constructors normally call
-                ``Component.setup()``, which converts plain scalars to ``State`` objects,
-                preserves supplied state-like objects, creates output states for optional
-                ``None`` arguments, stores metadata, and registers the component with its
-                network."""
+        """Initialize the object and register any FullFlow state wiring."""
         self.setup()
 
     def evaluate_states(self):
-        """Evaluate the component for the current network state.
-        
-                Solvers call this method repeatedly while settling derived states and
-                assembling residuals.  It should read input ``State.value`` fields, write
-                output states, and update any residual or derivative attributes exposed
-                through ``balances`` or ``dynamics``.  The method does not advance time;
-                transient integration is handled by the solver."""
+        """Evaluate the component for the current network state."""
         mdot = self.mass_flow.value
         H = self.head_rise.value 
         g = self.gravitational_acceleration.value
@@ -228,12 +170,7 @@ class ConstantDensityPump(Component):
     def balances(self):
         # This pump has no storage of its own. The solver varies mass_flow until
         # the pump curve predicts the connected discharge pressure.
-        """Return algebraic equations contributed by this component.
-        
-                Each tuple is ``(iteration_variable, residual)``.  Steady-state and
-                transient solvers vary the iteration variable until the residual is zero.
-                Components without algebraic closure equations return an empty list or do
-                not define this property."""
+        """Return algebraic equations contributed by this component."""
         return [(self.mass_flow, self.discharge_pressure_error)]
 
 
@@ -244,13 +181,10 @@ class ConstantDensityPump(Component):
 
 class PolytropicPump(Component):
 
-    """Compressible/polytropic pump pressure-rise component.
+    """Pump or compressor model that accounts for density change through the machine.
 
-        This component is intended for pump-map workflows where head rise, upstream
-        density, discharge density, and pressure ratio are all relevant.  It computes
-        a density-pressure slope, converts head to specific work, predicts discharge
-        pressure, and exposes a balance on ``mass_flow``.  Optional shaft-power
-        inputs update efficiency and discharge total enthalpy."""
+    Use it for cryogenic liquids, dense fluids, or compression ratios where the
+    constant-density head relation is inadequate."""
     def __init__(self,
                  name: str, 
                  network: Network,
@@ -267,24 +201,11 @@ class PolytropicPump(Component):
                  discharge_total_enthalpy: State | None = None,
                  efficiency: State | None = None,
                  shaft_power: State | None = None):
-        """Initialize the object and register any FullFlow state wiring.
-        
-                Constructor parameters are documented on the class docstring and in the
-                function signature.  Component constructors normally call
-                ``Component.setup()``, which converts plain scalars to ``State`` objects,
-                preserves supplied state-like objects, creates output states for optional
-                ``None`` arguments, stores metadata, and registers the component with its
-                network."""
+        """Initialize the object and register any FullFlow state wiring."""
         self.setup()
 
     def evaluate_states(self):
-        """Evaluate the component for the current network state.
-        
-                Solvers call this method repeatedly while settling derived states and
-                assembling residuals.  It should read input ``State.value`` fields, write
-                output states, and update any residual or derivative attributes exposed
-                through ``balances`` or ``dynamics``.  The method does not advance time;
-                transient integration is handled by the solver."""
+        """Evaluate the component for the current network state."""
         H = self.head_rise.value
         mdot = self.mass_flow.value
         g = self.gravitational_acceleration.value
@@ -342,10 +263,5 @@ class PolytropicPump(Component):
     def balances(self):
         # Algebraic pump equation: vary mass_flow until predicted discharge
         # pressure equals the connected discharge pressure.
-        """Return algebraic equations contributed by this component.
-        
-                Each tuple is ``(iteration_variable, residual)``.  Steady-state and
-                transient solvers vary the iteration variable until the residual is zero.
-                Components without algebraic closure equations return an empty list or do
-                not define this property."""
+        """Return algebraic equations contributed by this component."""
         return [(self.mass_flow, self.discharge_pressure_error)]

@@ -118,23 +118,10 @@ class Volume(Component):
             and self._has_energy_variable
         )
 
-        # Storage volumes use dynamics.
-        # Algebraic volumes use balances.
-        #
-        # Do not require mass_flow_in and mass_flow_out to both be supplied
-        # during Volume construction. FullFlow intentionally supports connecting
-        # generated node states later through downstream components:
-        #
-        #     ChamberEnd = Volume(..., mass_flow_in=Pipe.mass_flow)
-        #     Nozzle(..., mass_flow=ChamberEnd.mass_flow_out)
-        #
-        # After setup(), ChamberEnd.mass_flow_out exists as a State and can be
-        # assigned by the nozzle.
+        # Flow states may be connected by downstream components after setup.
         self._has_mass_balance = True
 
-        # For algebraic nodes, energy balance should also not depend on whether
-        # total_enthalpy_out was supplied during Volume construction. It may be
-        # assigned later by a downstream component.
+        # Downstream components may also assign outlet enthalpy after setup.
         self._has_energy_balance = self._has_energy_storage or (
             not self._has_mass_storage
             and self._has_energy_variable
@@ -288,11 +275,7 @@ class Volume(Component):
 
     @property
     def balances(self) -> list[tuple[State, float]]:
-        # Algebraic-node mode.
-        #
-        # Storage volumes return no algebraic balances because their conservation
-        # laws are represented through dynamics. SteadyState will drive those
-        # derivatives to zero automatically.
+        # Algebraic nodes expose conservation balances directly.
         """Return algebraic equations contributed by this component."""
         if self._has_mass_storage:
             return []
@@ -301,11 +284,7 @@ class Volume(Component):
 
     @property
     def dynamics(self) -> list[tuple[State, State, float]]:
-        # Storage mode.
-        #
-        # Three-entry dynamics mean:
-        #
-        #     (solve_variable, stored_quantity, derivative)
+        # Storage nodes expose (solve variable, stored quantity, derivative).
         """Return dynamic equations contributed by this component."""
         if not self._has_mass_storage:
             return []

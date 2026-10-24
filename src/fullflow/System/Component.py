@@ -13,10 +13,7 @@ if TYPE_CHECKING:
 
 
 class Component:
-    # Components normally participate in both steady-state and transient
-    # solves.  Command/procedure/controller components can set this to True
-    # so steady-state solves leave their outputs at the current value while
-    # transient solves evaluate them normally.
+    # Transient-only components retain their current output during steady state.
     """Base class for all physical, empirical, control, and helper components."""
     TRANSIENT_ONLY = False
 
@@ -175,10 +172,7 @@ class Component:
 
     @classmethod
     def template(cls, name: str | None = None, **kwargs: Any) -> ModelOption:
-        """Alias for :meth:`model` kept for readable model-option declarations.
-
-        ``template`` and ``model`` return the same ``ModelOption`` object.
-        """
+        """Alias for :meth:`model` kept for readable model-option declarations."""
         cls._validate_template_arguments("template", name, kwargs)
         return cls.model(name, **kwargs)
 
@@ -189,11 +183,7 @@ class Component:
         return True
 
     def pre_evaluation(self) -> None:
-        """Run pre-residual bookkeeping before component evaluation.
-        
-                Solvers call this hook before ordinary ``evaluate_states()`` passes.  It
-                is used by lookups, schedules, and instrumentation components that need
-                to update inputs before residual equations are collected."""
+        """Run pre-residual bookkeeping before component evaluation."""
         pass
 
     def evaluate_states(self) -> None:

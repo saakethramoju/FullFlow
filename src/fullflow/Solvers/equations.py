@@ -1,20 +1,4 @@
-"""Shared interpretation of FullFlow component equations.
-
-The public component API has two solver-facing concepts:
-
-``dynamics``
-    Real time derivatives such as mass storage, energy storage, flow inertia,
-    rotor inertia, or solid thermal capacitance.  Steady-state solves drive
-    these derivatives to zero.  Transient solves integrate them.
-
-``balances``
-    Algebraic equations with no time storage of their own, such as a pump
-    pressure match, a map inversion, or a user target.  Steady-state and
-    transient solves both drive these residuals to zero.
-
-There is intentionally no legacy component API here.  Components should expose
-only ``evaluate_states()``, ``dynamics``, and ``balances``.
-"""
+"""Shared interpretation of FullFlow component equations."""
 
 from __future__ import annotations
 
@@ -28,12 +12,7 @@ from fullflow.Exceptions import FullFlowConfigurationError, UnassignedStateError
 
 @dataclass(frozen=True, slots=True)
 class DynamicEquation:
-    """One dynamic equation from a component.
-
-    ``variable`` is the State varied by the nonlinear solver.  ``state`` is the
-    State integrated by the transient solver.  They are normally the same State,
-    but volumes can solve with pressure/enthalpy while integrating mass/energy.
-    """
+    """One dynamic equation from a component."""
 
     owner: Any
     variable: Any
@@ -71,13 +50,7 @@ def _as_list(value: Any, *, property_name: str) -> list[Any]:
 
 
 def _is_unassigned_state_error(error: BaseException) -> bool:
-    """Return True when an exception was caused by an unassigned State.
-
-    This helper is used only during equation discovery. It lets the solver
-    evaluate components once before reading ``dynamics``/``balances`` so
-    derivative/error attributes can be created inside ``evaluate_states()``
-    instead of being pre-initialized in constructors.
-    """
+    """Return True when an exception was caused by an unassigned State."""
     current: BaseException | None = error
     seen: set[int] = set()
 
@@ -103,17 +76,7 @@ def evaluate_components_for_equation_discovery(
     max_passes: int = 20,
     solve_mode: str = "transient",
 ) -> None:
-    """Evaluate components before reading their equation properties.
-
-    Component authors should be able to write clean constructors that mostly do
-    only ``self.setup()``. Derivative and balance-error attributes such as
-    ``mass_flow_dot`` or ``pressure_error`` can be created in
-    ``evaluate_states()``. Runtime caches call this helper before first reading
-    ``dynamics`` and ``balances`` so those attributes exist.
-
-    Only order-of-evaluation failures caused by unassigned upstream States are
-    deferred. Physical/modeling errors still raise immediately.
-    """
+    """Evaluate components before reading their equation properties."""
     active_components = [
         component
         for component in components
@@ -221,10 +184,5 @@ def component_balances(owner: Any) -> list[BalanceEquation]:
 
 
 def balance_object_equations(owner: Any) -> list[BalanceEquation]:
-    """Return the normalized equation for a user ``Balance`` object.
-
-    The residual is kept as a callable instead of being evaluated during runtime
-    cache setup.  It is evaluated only after the network has run
-    ``evaluate_states()`` for the current solver guess.
-    """
+    """Return the normalized equation for a user ``Balance`` object."""
     return [BalanceEquation(owner=owner, variable=owner.variable, residual=owner._residual, index=0)]

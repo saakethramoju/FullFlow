@@ -11,44 +11,9 @@ if TYPE_CHECKING:
 
 
 class Network:
-    """Container for a complete FullFlow simulation model.
-
-        ``Network`` stores components, balances, model options, tracked variables,
-        sensor events, sequence state, and the simulation clock.  It is intentionally
-        a container rather than a numerical algorithm: solvers read the network,
-        build runtime caches, write iteration variables, run component evaluation,
-        and collect residuals.
-
-        Parameters
-        ----------
-        name : str
-            Human-readable network name used in diagnostics and HDF5 output paths.
-
-        Important attributes
-        --------------------
-        time : State
-            Simulation time in seconds.  Steady-state solves usually leave this at
-            its current value.  Transient solves advance it and components such as
-            ``Sequence`` and ``Actuator`` read it.
-        components, balances, models : tuple
-            Registered model objects.  These are exposed as read-only tuples so the
-            network structure stays synchronized with the solver runtime cache.
-
-        Notes
-        -----
-        ``Network.version`` increments whenever components, balances, or model
-        options are added or removed.  Solver runtime caches use that version to
-        avoid repeated introspection while still invalidating safely when the network
-        changes."""
+    """Container for a complete FullFlow simulation model."""
     def __init__(self, name: str) -> None:
-        """Initialize the object and register any FullFlow state wiring.
-        
-                Constructor parameters are documented on the class docstring and in the
-                function signature.  Component constructors normally call
-                ``Component.setup()``, which converts plain scalars to ``State`` objects,
-                preserves supplied state-like objects, creates output states for optional
-                ``None`` arguments, stores metadata, and registers the component with its
-                network."""
+        """Initialize the object and register any FullFlow state wiring."""
         self.name = name
         self.time = State(0.0)
         self.time.add_label(f"{self.name}:time")
@@ -90,14 +55,7 @@ class Network:
 
 
     def sensor_components(self) -> list[Any]:
-        """Return registered Sensor-like components without touching dynamic instance attributes.
-
-        Lookup components implement dynamic output attributes through ``__getattr__``.
-        Calling ``getattr(component, "check_conditions", None)`` on every
-        component can therefore accidentally ask a Lookup for an output named
-        ``check_conditions``. Inspect the component type instead so only real
-        class methods are considered.
-        """
+        """Return registered Sensor-like components without touching dynamic instance attributes."""
         return [
             component
             for component in self.component_list
@@ -286,12 +244,7 @@ class Network:
 
     @property
     def balances(self) -> list[str]:
-        """Return algebraic equations contributed by this component.
-        
-                Each tuple is ``(iteration_variable, residual)``.  Steady-state and
-                transient solvers vary the iteration variable until the residual is zero.
-                Components without algebraic closure equations return an empty list or do
-                not define this property."""
+        """Return algebraic equations contributed by this component."""
         return [balance.name for balance in self.balance_list]
 
     @property
@@ -534,10 +487,7 @@ class Network:
                 self._safe_value(attr_value),
             )
 
-        # Components may expose extra export-only attributes without storing
-        # duplicate runtime State objects on ``__dict__``.  Map uses this to
-        # export each named input separately, for example ``chamber_pressure``
-        # and ``mixture_ratio``, instead of one generic ``inputs`` dictionary.
+        # Include virtual attributes supplied specifically for export.
         export_attributes = getattr(owner, "export_attributes", {})
         if callable(export_attributes):
             export_attributes = export_attributes()

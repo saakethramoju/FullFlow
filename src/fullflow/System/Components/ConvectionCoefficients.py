@@ -10,12 +10,10 @@ if TYPE_CHECKING:
 
 
 class Gnielinski(Component):
-    """Gnielinski turbulent internal-flow heat-transfer coefficient correlation.
+    """Turbulent internal-flow correlation for developed single-phase pipe flow.
 
-        The component computes Reynolds number, Prandtl number, Nusselt number,
-        Stanton number, and convection coefficient from mass flow, diameter, area,
-        fluid properties, and Darcy friction factor.  It is intended for turbulent
-        single-phase internal convection in pipes and ducts."""
+    Use it when a Darcy friction factor is available, especially in the transition
+    from moderate to high turbulence (roughly Re >= 3,000)."""
 
     def __init__(
         self,
@@ -34,27 +32,14 @@ class Gnielinski(Component):
         stanton_number: State | float | None = None,
         convection_coefficient: State | None = None,
     ):
-        """Initialize the object and register any FullFlow state wiring.
-        
-                Constructor parameters are documented on the class docstring and in the
-                function signature.  Component constructors normally call
-                ``Component.setup()``, which converts plain scalars to ``State`` objects,
-                preserves supplied state-like objects, creates output states for optional
-                ``None`` arguments, stores metadata, and registers the component with its
-                network."""
+        """Initialize the object and register any FullFlow state wiring."""
         self.setup()
 
         self.Re_given = reynolds_number is not None
         self.Pr_given = prandtl_number is not None
 
     def evaluate_states(self):
-        """Evaluate the component for the current network state.
-        
-                Solvers call this method repeatedly while settling derived states and
-                assembling residuals.  It should read input ``State.value`` fields, write
-                output states, and update any residual or derivative attributes exposed
-                through ``balances`` or ``dynamics``.  The method does not advance time;
-                transient integration is handled by the solver."""
+        """Evaluate the component for the current network state."""
         Dh = self.hydraulic_diameter.value
         f = self.friction_factor.value
         k = self.fluid_conductivity.value
@@ -86,12 +71,10 @@ class Gnielinski(Component):
 
 
 class Miropolskii(Component):
-    """Miropolskii film-boiling/two-phase convection coefficient helper.
+    """Forced-convection correlation for two-phase film-boiling flow.
 
-        The component evaluates a vapor-property based heat-transfer coefficient
-        with density-ratio and quality corrections.  It is useful for cryogenic
-        chilldown and boiling examples where vapor-side transport dominates the heat
-        transfer estimate."""
+    Use it when a vapor film controls heat transfer and vapor quality plus liquid
+    and vapor properties are available; it is not a single-phase correlation."""
 
     def __init__(
         self,
@@ -113,27 +96,14 @@ class Miropolskii(Component):
         stanton_number: State | float | None = None,
         convection_coefficient: State | None = None,
     ):
-        """Initialize the object and register any FullFlow state wiring.
-        
-                Constructor parameters are documented on the class docstring and in the
-                function signature.  Component constructors normally call
-                ``Component.setup()``, which converts plain scalars to ``State`` objects,
-                preserves supplied state-like objects, creates output states for optional
-                ``None`` arguments, stores metadata, and registers the component with its
-                network."""
+        """Initialize the object and register any FullFlow state wiring."""
         self.setup()
 
         self.Re_given = reynolds_number is not None
         self.Pr_given = prandtl_number is not None
 
     def evaluate_states(self):
-        """Evaluate the component for the current network state.
-        
-                Solvers call this method repeatedly while settling derived states and
-                assembling residuals.  It should read input ``State.value`` fields, write
-                output states, and update any residual or derivative attributes exposed
-                through ``balances`` or ``dynamics``.  The method does not advance time;
-                transient integration is handled by the solver."""
+        """Evaluate the component for the current network state."""
         mdot = abs(self.mass_flow.value)
         Dh = self.hydraulic_diameter.value
         A = self.cross_sectional_area.value
@@ -179,12 +149,10 @@ class Miropolskii(Component):
 
 
 class Petukhov(Component):
-    """Petukhov turbulent forced-convection heat-transfer coefficient correlation.
+    """Turbulent internal-flow correlation for developed single-phase flow.
 
-        Similar to ``Gnielinski``, this component uses mass flux, hydraulic diameter,
-        fluid transport properties, and Darcy friction factor to compute Reynolds,
-        Prandtl, Nusselt, Stanton, and ``h``.  It is intended for smooth-pipe
-        turbulent internal-flow estimates."""
+    Use it for strongly turbulent tube flow with a known Darcy friction factor;
+    Gnielinski is generally preferable closer to the transition regime."""
     def __init__(
         self,
         name: str,
@@ -202,27 +170,14 @@ class Petukhov(Component):
         stanton_number: State | float | None = None,
         convection_coefficient: State | None = None,
     ):
-        """Initialize the object and register any FullFlow state wiring.
-        
-                Constructor parameters are documented on the class docstring and in the
-                function signature.  Component constructors normally call
-                ``Component.setup()``, which converts plain scalars to ``State`` objects,
-                preserves supplied state-like objects, creates output states for optional
-                ``None`` arguments, stores metadata, and registers the component with its
-                network."""
+        """Initialize the object and register any FullFlow state wiring."""
         self.setup()
 
         self.Re_given = reynolds_number is not None
         self.Pr_given = prandtl_number is not None
 
     def evaluate_states(self):
-        """Evaluate the component for the current network state.
-        
-                Solvers call this method repeatedly while settling derived states and
-                assembling residuals.  It should read input ``State.value`` fields, write
-                output states, and update any residual or derivative attributes exposed
-                through ``balances`` or ``dynamics``.  The method does not advance time;
-                transient integration is handled by the solver."""
+        """Evaluate the component for the current network state."""
         Dh = self.hydraulic_diameter.value
         f = self.friction_factor.value
         k = self.fluid_conductivity.value
@@ -255,12 +210,10 @@ class Petukhov(Component):
 
 
 class SiederTate(Component):
-    """Sieder-Tate turbulent convection coefficient with viscosity correction.
+    """Turbulent internal-flow correlation with a wall-viscosity correction.
 
-        The component uses bulk and wall viscosities so the heat-transfer coefficient
-        accounts for temperature-dependent viscosity.  This is useful when wall and
-        bulk temperatures differ strongly, such as regenerative cooling channels or
-        heated/cold transfer lines."""
+    Use it when the wall and bulk temperatures differ enough that viscosity changes
+    materially across the thermal boundary layer."""
     def __init__(
         self,
         name: str,
@@ -278,27 +231,14 @@ class SiederTate(Component):
         stanton_number: State | float | None = None,
         convection_coefficient: State | None = None,
     ):
-        """Initialize the object and register any FullFlow state wiring.
-        
-                Constructor parameters are documented on the class docstring and in the
-                function signature.  Component constructors normally call
-                ``Component.setup()``, which converts plain scalars to ``State`` objects,
-                preserves supplied state-like objects, creates output states for optional
-                ``None`` arguments, stores metadata, and registers the component with its
-                network."""
+        """Initialize the object and register any FullFlow state wiring."""
         self.setup()
 
         self.Re_given = reynolds_number is not None
         self.Pr_given = prandtl_number is not None
 
     def evaluate_states(self):
-        """Evaluate the component for the current network state.
-        
-                Solvers call this method repeatedly while settling derived states and
-                assembling residuals.  It should read input ``State.value`` fields, write
-                output states, and update any residual or derivative attributes exposed
-                through ``balances`` or ``dynamics``.  The method does not advance time;
-                transient integration is handled by the solver."""
+        """Evaluate the component for the current network state."""
         Dh = self.hydraulic_diameter.value
         k = self.fluid_conductivity.value
         Cp = self.fluid_specific_heat.value
@@ -331,12 +271,10 @@ class SiederTate(Component):
 
 
 class DittusBoelter(Component):
-    """Dittus-Boelter turbulent internal-flow convection coefficient.
+    """Simple turbulent internal-flow correlation for smooth tubes.
 
-        The component computes a simple power-law Nusselt number and corresponding
-        convection coefficient from flow rate, hydraulic diameter, area, and fluid
-        properties.  It is a compact engineering correlation for fully developed
-        turbulent pipe flow."""
+    Use it for fully developed single-phase flow with modest property variation and
+    Re well above transition; prefer Sieder-Tate for large wall/bulk differences."""
     def __init__(
         self,
         name: str,
@@ -353,27 +291,14 @@ class DittusBoelter(Component):
         stanton_number: State | float | None = None,
         convection_coefficient: State | None = None,
     ):
-        """Initialize the object and register any FullFlow state wiring.
-        
-                Constructor parameters are documented on the class docstring and in the
-                function signature.  Component constructors normally call
-                ``Component.setup()``, which converts plain scalars to ``State`` objects,
-                preserves supplied state-like objects, creates output states for optional
-                ``None`` arguments, stores metadata, and registers the component with its
-                network."""
+        """Initialize the object and register any FullFlow state wiring."""
         self.setup()
 
         self.Re_given = reynolds_number is not None
         self.Pr_given = prandtl_number is not None
 
     def evaluate_states(self):
-        """Evaluate the component for the current network state.
-        
-                Solvers call this method repeatedly while settling derived states and
-                assembling residuals.  It should read input ``State.value`` fields, write
-                output states, and update any residual or derivative attributes exposed
-                through ``balances`` or ``dynamics``.  The method does not advance time;
-                transient integration is handled by the solver."""
+        """Evaluate the component for the current network state."""
         Dh = self.hydraulic_diameter.value
         k = self.fluid_conductivity.value
         Cp = self.fluid_specific_heat.value
@@ -407,12 +332,10 @@ class DittusBoelter(Component):
 
 
 class Bartz(Component):
-    """Bartz rocket-thrust-chamber gas-side convection coefficient correlation.
+    """Gas-side convection correlation for rocket chambers and nozzles.
 
-        ``Bartz`` estimates convective heat-transfer coefficient for hot gas flow in
-        a chamber/nozzle environment from mass flow, hydraulic diameter, chamber gas
-        properties, mean-temperature correction terms, and optional throat-converging
-        radius.  It is intended for preliminary engine heat-transfer models."""
+    Use it for high-speed reacting-gas heat transfer near chamber, throat, and nozzle
+    walls; it is not intended for ordinary incompressible pipe convection."""
     def __init__(self, 
                  name: str, 
                  network: Network,
@@ -426,24 +349,11 @@ class Bartz(Component):
                  mean_temperature_dynamic_viscosity: State,
                  throat_converging_radius: float | None = None,
                  convection_coefficient: State | None = None):
-        """Initialize the object and register any FullFlow state wiring.
-        
-                Constructor parameters are documented on the class docstring and in the
-                function signature.  Component constructors normally call
-                ``Component.setup()``, which converts plain scalars to ``State`` objects,
-                preserves supplied state-like objects, creates output states for optional
-                ``None`` arguments, stores metadata, and registers the component with its
-                network."""
+        """Initialize the object and register any FullFlow state wiring."""
         self.setup()
 
     def evaluate_states(self):
-        """Evaluate the component for the current network state.
-        
-                Solvers call this method repeatedly while settling derived states and
-                assembling residuals.  It should read input ``State.value`` fields, write
-                output states, and update any residual or derivative attributes exposed
-                through ``balances`` or ``dynamics``.  The method does not advance time;
-                transient integration is handled by the solver."""
+        """Evaluate the component for the current network state."""
         mdot = abs(self.mass_flow.value)
         D = self.hydraulic_diameter.value
         Cp0 = self.chamber_specific_heat_cp.value
@@ -472,12 +382,10 @@ class Bartz(Component):
 
 
 class NaturalConvection(Component):
-    """Generic natural-convection heat-transfer coefficient from dimensionless groups.
+    """Simple natural-convection estimate for an externally heated surface.
 
-        The component computes Grashof, Prandtl, Rayleigh, Nusselt, and convection
-        coefficient using fluid density, viscosity, conductivity, specific heat,
-        thermal expansion coefficient, gravity, characteristic length, and wall/fluid
-        temperature difference."""
+    Use it for preliminary buoyancy-driven heat-transfer estimates when there is no
+    imposed flow and detailed geometry-specific correlations are unnecessary."""
     def __init__(
         self,
         name: str,
@@ -497,24 +405,11 @@ class NaturalConvection(Component):
         nusselt_number: State | float | None = None,
         convection_coefficient: State | None = None,
     ):
-        """Initialize the object and register any FullFlow state wiring.
-        
-                Constructor parameters are documented on the class docstring and in the
-                function signature.  Component constructors normally call
-                ``Component.setup()``, which converts plain scalars to ``State`` objects,
-                preserves supplied state-like objects, creates output states for optional
-                ``None`` arguments, stores metadata, and registers the component with its
-                network."""
+        """Initialize the object and register any FullFlow state wiring."""
         self.setup()
 
     def evaluate_states(self):
-        """Evaluate the component for the current network state.
-        
-                Solvers call this method repeatedly while settling derived states and
-                assembling residuals.  It should read input ``State.value`` fields, write
-                output states, and update any residual or derivative attributes exposed
-                through ``balances`` or ``dynamics``.  The method does not advance time;
-                transient integration is handled by the solver."""
+        """Evaluate the component for the current network state."""
         Tw = self.wall_temperature.value
         Tf = self.fluid_temperature.value
         L = self.characteristic_length.value
@@ -549,12 +444,10 @@ class NaturalConvection(Component):
 
 
 class ChurchillChu(Component):
-    """Churchill-Chu natural-convection correlation.
+    """Natural-convection correlation for an isothermal vertical surface.
 
-        This component evaluates the Churchill-Chu vertical-plate style correlation
-        and writes the same diagnostic dimensionless groups as ``NaturalConvection``.
-        It is convenient when a more specific natural-convection relation is desired
-        without writing a custom component."""
+    Use it for buoyancy-driven external flow across a broad Rayleigh-number range;
+    choose a geometry-specific correlation for horizontal or enclosed surfaces."""
     def __init__(
         self,
         name: str,
@@ -574,24 +467,11 @@ class ChurchillChu(Component):
         nusselt_number: State | float | None = None,
         convection_coefficient: State | None = None,
     ):
-        """Initialize the object and register any FullFlow state wiring.
-        
-                Constructor parameters are documented on the class docstring and in the
-                function signature.  Component constructors normally call
-                ``Component.setup()``, which converts plain scalars to ``State`` objects,
-                preserves supplied state-like objects, creates output states for optional
-                ``None`` arguments, stores metadata, and registers the component with its
-                network."""
+        """Initialize the object and register any FullFlow state wiring."""
         self.setup()
 
     def evaluate_states(self):
-        """Evaluate the component for the current network state.
-        
-                Solvers call this method repeatedly while settling derived states and
-                assembling residuals.  It should read input ``State.value`` fields, write
-                output states, and update any residual or derivative attributes exposed
-                through ``balances`` or ``dynamics``.  The method does not advance time;
-                transient integration is handled by the solver."""
+        """Evaluate the component for the current network state."""
         Tw = self.wall_temperature.value
         Tf = self.fluid_temperature.value
         L = self.characteristic_length.value

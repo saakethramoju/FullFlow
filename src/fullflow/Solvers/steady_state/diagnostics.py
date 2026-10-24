@@ -1,9 +1,4 @@
-"""Rich terminal diagnostics for steady-state runs.
-
-All printing lives here so numerical solver code can remain UI-free. The class
-uses ``RuntimeCache`` only through a getter, which keeps labels and residual
-counts current after model options swap components in and out.
-"""
+"""Rich terminal diagnostics for steady-state runs."""
 
 from __future__ import annotations
 
@@ -139,11 +134,7 @@ def _format_sequence(
 
 
 def _format_value(value: Any, *, depth: int = 0) -> str:
-    """Format values for verbose terminal output.
-
-    This is intentionally display-only. It should not be used for saving,
-    exporting, or numerical work.
-    """
+    """Format values for verbose terminal output."""
     if isinstance(value, str) and value in {"<uninitialized>", "<unavailable>"}:
         return value
 
@@ -163,21 +154,10 @@ def _format_value(value: Any, *, depth: int = 0) -> str:
 
 
 class SteadyStatePrinter:
-    """Build and print the verbose tables used by ``SteadyState``.
-
-    The printer has no control-flow authority. It only reads the network/cache
-    after a static evaluation or solve has succeeded.
-    """
+    """Build and print the verbose tables used by ``SteadyState``."""
 
     def __init__(self, network, cache_getter: Callable[[], Any], console: Console | None = None) -> None:
-        """Initialize the object and register any FullFlow state wiring.
-        
-                Constructor parameters are documented on the class docstring and in the
-                function signature.  Component constructors normally call
-                ``Component.setup()``, which converts plain scalars to ``State`` objects,
-                preserves supplied state-like objects, creates output states for optional
-                ``None`` arguments, stores metadata, and registers the component with its
-                network."""
+        """Initialize the object and register any FullFlow state wiring."""
         self.network = network
         self._cache_getter = cache_getter
         self.console = console or Console()

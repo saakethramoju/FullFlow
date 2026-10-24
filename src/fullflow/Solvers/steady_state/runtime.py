@@ -74,10 +74,7 @@ class RuntimeCache:
         )
         self.model_list = tuple(self.network.model_list)
 
-        # Component equation properties are allowed to reference derivative or
-        # balance-error attributes created inside evaluate_states().  Evaluate
-        # once before reading dynamics/balances so component constructors do not
-        # need boilerplate like self.mass_flow_dot = 0.0.
+        # Evaluate once before collecting equations created during evaluation.
         evaluate_components_for_equation_discovery(
             self.active_component_list,
             solve_mode="steady",
@@ -95,8 +92,7 @@ class RuntimeCache:
         self.iteration_ids = {id(state) for state in self.iteration_variables}
         self.iteration_labels = tuple(item.label for item in self.iteration_items)
 
-        # Bound method lookup is cheap, but doing it once makes residual calls
-        # easier to read and avoids repeatedly walking the component list.
+        # Cache evaluation methods used by every residual call.
         self.pre_evaluation_callables = tuple(
             component.pre_evaluation for component in self.active_component_list
         )
@@ -104,8 +100,7 @@ class RuntimeCache:
             component.evaluate_states for component in self.active_component_list
         )
 
-        # Track non-iteration states so StateEvaluator can detect convergence of
-        # derived-state fixed-point passes.
+        # Track derived states for fixed-point convergence checks.
         self.state_refs = self._collect_state_refs()
         self.version = self.network.version
 
@@ -217,11 +212,7 @@ class RuntimeCache:
         self.state_refs = self._collect_state_refs()
 
     def _dynamic_iteration_items(self) -> list[IterationItem]:
-        """Collect steady-state unknowns from component dynamics.
-
-        ROCETS-style steady-state trim drives dynamic derivatives to zero.  For
-        example, a fluid volume varies pressure until ``mass_dot = 0``.
-        """
+        """Collect steady-state unknowns from component dynamics."""
         items: list[IterationItem] = []
 
         for component in self.active_component_list:
@@ -562,9 +553,7 @@ class RuntimeCache:
                 if state.is_assigned:
                     values[id(state)] = float(state.value)
             except Exception:
-                # Non-numeric or temporarily unavailable States cannot be used
-                # for convergence monitoring, but they may still be valid model
-                # outputs. Ignore them here rather than failing the solve.
+                # Ignore unavailable states during convergence monitoring.
                 continue
 
         return values
@@ -599,12 +588,11 @@ class RuntimeCache:
 
         for component in self.active_component_list:
             try:
-                # Dynamic equations become steady-state trim equations by
-                # driving the derivative itself to zero.
+                # Steady state drives dynamic derivatives to zero.
                 for equation in component_dynamics(component):
                     self._append_residuals(equation.derivative, append)
 
-                # Algebraic balances are separate non-storage equations.
+                # Algebraic balances are non-storage equations.
                 for equation in self._component_balance_equations(component):
                     self._append_residuals(equation.residual, append)
             except Exception as error:

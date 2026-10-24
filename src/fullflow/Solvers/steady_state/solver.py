@@ -1,17 +1,4 @@
-"""User-facing steady-state solver API.
-
-This file is intentionally the only place most users need to understand. It
-wraps the smaller implementation files in this package:
-
-* ``runtime.py`` gathers and validates solver metadata from a ``Network``.
-* ``evaluation.py`` settles component-derived states.
-* ``operations.py`` performs one static evaluation or one nonlinear solve.
-* ``models.py`` handles model-option selection and fallback.
-* ``diagnostics.py`` prints optional Rich tables.
-
-The split keeps the public API small while making numerical behavior, model
-logic, and diagnostics independently debuggable.
-"""
+"""User-facing steady-state solver API."""
 
 from __future__ import annotations
 
@@ -34,33 +21,10 @@ if TYPE_CHECKING:
 
 
 class SteadyState:
-    """Steady-state, static-evaluation, model-option, and quasi-steady solver front end.
-
-        ``SteadyState`` is the user-facing wrapper around the modular steady-state
-        runtime.  It can evaluate a network without solving, solve a nonlinear
-        steady balance, run selected model options, evaluate all model options, save
-        HDF5 output, print diagnostics, and perform quasi-steady time sweeps by
-        using the transient runtime with dynamic states forced to derivative = 0.
-
-        Main options in ``solve``
-        -------------------------
-        ``solver_method`` and ``jacobian_method`` are forwarded to
-        ``scipy.optimize.least_squares``.  ``ftol``, ``xtol``, and ``gtol`` control
-        SciPy termination.  ``rtol`` is FullFlow's final residual acceptance
-        tolerance.  ``state_max_passes`` and ``state_tolerance`` control repeated
-        component evaluation used to settle derived states.  ``ignore_balances`` can
-        remove selected user ``Balance`` objects from a solve.  ``dt`` and
-        ``t_final`` request a quasi-steady time sweep."""
+    """Steady-state, static-evaluation, model-option, and quasi-steady solver front end."""
 
     def __init__(self, network: Network) -> None:
-        """Initialize the object and register any FullFlow state wiring.
-        
-                Constructor parameters are documented on the class docstring and in the
-                function signature.  Component constructors normally call
-                ``Component.setup()``, which converts plain scalars to ``State`` objects,
-                preserves supplied state-like objects, creates output states for optional
-                ``None`` arguments, stores metadata, and registers the component with its
-                network."""
+        """Initialize the object and register any FullFlow state wiring."""
         self.network = network
         self.console = Console()
         self.statistics = SolverStatistics(console=self.console)
@@ -68,29 +32,17 @@ class SteadyState:
         self._ignore_balances = None
         self._active_state_settings = StateEvaluationSettings()
 
-        # Debug fields are populated during residual calls. They are useful when
-        # SciPy raises from inside a network evaluation and you need to inspect
-        # the most recent x/residual/error state from a notebook or debugger.
+        # Retain the latest trial for failure diagnostics.
         self._last_debug_x: np.ndarray | None = None
         self._last_debug_residual: np.ndarray | None = None
         self._last_debug_error: Exception | None = None
 
-        # Some thermodynamic backends legitimately fail for temporary nonlinear
-        # trial points, for example an invalid pressure-enthalpy flash while
-        # SciPy is estimating a Jacobian. Keep the last valid residual so those
-        # trial points can be rejected without aborting the whole solve.
-        #
-        # Invalid-trial residuals are directional rather than a fixed wall such
-        # as 1.0e12. A fixed wall makes every invalid point look the same to
-        # SciPy, which can stall the trust-region search. The directional gain
-        # below scales from the last valid residual and the normalized distance
-        # from the last valid iteration vector.
+        # Directional penalties let the solver reject invalid property states.
         self._last_valid_x: np.ndarray | None = None
         self._last_valid_residual: np.ndarray | None = None
         self._invalid_residual_directional_gain = 10.0
 
-        # Success metadata is populated by the one-shot operation helpers and
-        # consumed by ``_print_last_success``.
+        # Operation helpers populate this success summary.
         self._last_success_kind: str | None = None
         self._last_static_elapsed_time: float | None = None
         self._last_solve_diagnostics: SolveDiagnostics | None = None
@@ -136,12 +88,7 @@ class SteadyState:
         return self._runtime_cache.ensure_current()
 
     def residual(self, x: np.ndarray) -> np.ndarray:
-        """Residual function passed to SciPy ``least_squares``.
-
-        SciPy owns the iteration vector. This method writes that vector into the
-        network's iteration States, recomputes derived states, then collects the
-        component and balance residuals in the exact order expected by SciPy.
-        """
+        """Residual function passed to SciPy ``least_squares``."""
         cache = self._cache()
         self._last_debug_x = np.array(x, dtype=float)
         self._last_debug_residual = None
@@ -184,19 +131,7 @@ class SteadyState:
             ) from error
 
     def _invalid_trial_residual(self, x: np.ndarray, cache: RuntimeCache) -> np.ndarray | None:
-        """Return a directional residual for invalid nonlinear trial points.
-
-        External property packages can raise for temporary SciPy guesses that
-        are outside their valid thermodynamic domain. When a previous valid
-        residual exists, make the bad point look worse in the direction it moved
-        from that valid point instead of returning a constant residual wall.
-
-        A constant vector such as ``1.0e12`` gives SciPy almost no information:
-        all invalid guesses have the same cost and nearly the same numerical
-        derivative. This directional fallback preserves the sign pattern of the
-        failed step and scales with the normalized distance from the last valid
-        iteration vector.
-        """
+        """Return a directional residual for invalid nonlinear trial points."""
         if self._last_valid_residual is None:
             return None
 
@@ -207,9 +142,7 @@ class SteadyState:
             return np.array([], dtype=float)
 
         if self._last_valid_x is None or len(x) == 0:
-            # Without a valid iteration-vector direction, fall back to the last
-            # residual sign pattern. This path should only occur for unusual
-            # setup cases after at least one valid residual was collected.
+            # Fall back to the last valid residual direction.
             direction = np.sign(last_residual)
             direction[direction == 0.0] = 1.0
             distance = 1.0
@@ -224,10 +157,7 @@ class SteadyState:
                 direction[direction == 0.0] = 1.0
                 distance = 1.0
             else:
-                # Map the iteration-vector direction into residual space. The
-                # residual and iteration vectors can have different lengths, so
-                # resize repeats/truncates the direction while keeping the bad
-                # trial's sign information instead of replacing it with a wall.
+                # Resize the trial direction to residual space.
                 direction = np.resize(normalized_dx / distance, count)
 
         last_norm = float(np.linalg.norm(last_residual))
@@ -242,9 +172,7 @@ class SteadyState:
             self._invalid_residual_directional_gain * residual_scale * distance * direction
         )
 
-        # Keep the invalid trial more expensive than the last valid point while
-        # preserving the direction computed above. This prevents a lucky
-        # cancellation from making an invalid property state look attractive.
+        # Keep invalid trials more expensive than the last valid point.
         residual_norm = float(np.linalg.norm(residual))
         if residual_norm == 0.0 or not np.isfinite(residual_norm):
             residual = residual_scale * direction
@@ -345,13 +273,7 @@ class SteadyState:
         group_path: str = "transient/runs/base",
         metadata: dict[str, Any] | None = None,
     ):
-        """Run a quasi-steady time sweep using the transient runtime machinery.
-
-        Every dynamic component is forced to satisfy derivative = 0 at each
-        timestep unless it is listed in ``exceptions``.  Results are written
-        under the transient run path using the normal transient time-history
-        HDF5 layout.
-        """
+        """Run a quasi-steady time sweep using the transient runtime machinery."""
         from fullflow.Solvers.transient.solver import Transient
 
         metadata = {} if metadata is None else dict(metadata)
@@ -400,69 +322,7 @@ class SteadyState:
         state_max_passes: int = 20,
         state_tolerance: float = 1e-10,
     ):
-        """
-        Evaluate the network without nonlinear solving.
-
-        This method repeatedly evaluates component equations until all derived
-        ``State`` objects have converged, then exports the resulting network values.
-
-        Unlike :meth:`solve`, no iteration variables are adjusted and no residuals
-        are driven to zero. This is useful when:
-
-        - All required states are already assigned.
-        - The network contains no balances or iteration variables.
-        - You want to inspect intermediate calculations.
-        - You want to verify component equations before running a solve.
-
-        Parameters
-        ----------
-        model : str, optional
-            Name of a model option to evaluate. If omitted, the default model
-            configuration is used.
-
-        evaluate_all_model_options : bool, default=False
-            If True, evaluates every available model option and returns the
-            results for each one. Useful for comparing alternative component
-            models without modifying the network.
-
-        filename : str, optional
-            Output HDF5 file path. ``.h5`` is added automatically when no
-            extension is provided. ``.h5`` and ``.hdf5`` are the only supported
-            export extensions.
-
-            If provided, results are written to disk in addition to being returned.
-
-        return_type : {"dict"}, default="dict"
-            Format of the returned results. ``"dict"`` returns a list of
-            exported records.
-
-        verbose : bool, default=False
-            Print model-selection and evaluation progress.
-
-        state_max_passes : int, default=20
-            Maximum number of passes used to settle derived states.
-
-            Some states depend on other states that are computed later in the
-            evaluation sequence. Multiple passes allow these dependencies to
-            propagate through the network until convergence.
-
-        state_tolerance : float, default=1e-10
-            Convergence tolerance used when settling derived states.
-
-            State evaluation stops when the largest state change between passes
-            falls below this value.
-
-        Returns
-        -------
-        dict or model result object
-            Exported network records. Model-option evaluation returns a dict
-            keyed by option name.
-
-        Notes
-        -----
-        This method does not perform any nonlinear solving. Residual equations,
-        balances, and iteration variables are ignored.
-        """
+        """Evaluate the network without nonlinear solving."""
         self._ignore_balances = None
         self._runtime_cache = None
 
@@ -521,141 +381,7 @@ class SteadyState:
         state_tolerance: float = 1e-10,
         ignore_balances=None,
     ):
-        """
-        Solve the network steady state.
-
-        This method adjusts all iteration variables until the network residuals
-        are minimized and all balance equations are satisfied.
-
-        The typical solve sequence is:
-
-        1. Select or build the requested model configuration.
-        2. Run component ``pre_evaluation()`` hooks.
-        3. Gather iteration variables and bounds.
-        4. Solve the nonlinear system using SciPy ``least_squares``.
-        5. Write the converged values back to the network.
-        6. Re-evaluate derived states.
-        7. Export and return the final network values.
-
-        Parameters
-        ----------
-        model : str, optional
-            Name of a model option to solve.
-
-            If omitted, the default model configuration is used. If model
-            fallback is enabled, alternative model options may be attempted
-            automatically when the selected model fails.
-
-        evaluate_all_model_options : bool, default=False
-            Solve every available model option and return the results for each.
-
-            This is useful for comparing multiple physical models, correlations,
-            or component configurations.
-
-        filename : str, optional
-            Output HDF5 file path. ``.h5`` is added automatically when no
-            extension is provided. ``.h5`` and ``.hdf5`` are the only supported
-            export extensions.
-
-            If provided, results are written to disk in addition to being returned.
-
-        return_type : {"dict"}, default="dict"
-            Format of the returned results.
-
-        verbose : bool, default=False
-            Print the final solver summary and final network solution.
-
-        statistics : bool, default=False
-            Print per-evaluation solver progress and export detailed statistics when filename is provided.
-
-        static : bool, default=False
-            Skip nonlinear solving and perform a static evaluation instead.
-
-            Equivalent to calling :meth:`static_evaluate`.
-
-        dt, t_final : float, optional
-            When both are provided, ``SteadyState.solve`` performs a
-            quasi-steady time sweep instead of a single steady-state solve.  The
-            transient runtime is used to march from the current network time to
-            ``t_final``, but every dynamic component is forced to satisfy
-            derivative = 0 at each timestep unless it is listed in
-            ``exceptions``.  HDF5 output is written under ``transient/runs``
-            using the normal transient time-history layout.
-
-        save_dt : float, optional
-            Output interval for a quasi-steady time sweep.  If omitted, every
-            accepted timestep is saved.
-
-        exceptions : iterable of Component, optional
-            Dynamic components that are excluded from the forced-steady
-            treatment during a quasi-steady time sweep.  These components keep
-            their normal transient integration residuals.
-
-        max_step_retries : int, default=8
-            Maximum automatic half-step retries for quasi-steady time sweeps.
-
-        minimum_dt : float, optional
-            Smallest automatic retry timestep for quasi-steady time sweeps.
-
-        solver_method : str, default="trf"
-            SciPy ``least_squares`` algorithm.
-
-            Common options:
-
-            - ``"trf"`` : Trust Region Reflective (recommended)
-            - ``"dogbox"``
-            - ``"lm"`` (unconstrained only)
-
-        jacobian_method : str, default="3-point"
-            Finite-difference Jacobian approximation method.
-
-            Options:
-
-            - ``"2-point"``
-            - ``"3-point"``
-
-        ftol : float, default=1e-8
-            Relative cost-function convergence tolerance.
-
-        xtol : float, default=1e-8
-            Iteration-variable convergence tolerance.
-
-        gtol : float, default=1e-8
-            Gradient convergence tolerance.
-
-        rtol : float, default=1e-2
-            Residual acceptance tolerance.
-
-            After convergence, the maximum absolute residual must be below this
-            value for the solve to be considered successful.
-
-        state_max_passes : int, default=5
-            Maximum number of derived-state settling passes performed during
-            solver iterations and after convergence.
-
-        state_tolerance : float, default=1e-10
-            Convergence tolerance used when settling derived states.
-
-        ignore_balances : None, "all", or iterable of str, optional
-            User ``Balance`` objects to exclude from this solve. Ignoring a
-            balance removes both its residual and its associated iteration
-            variable. Component balances are not affected.
-
-        Returns
-        -------
-        dict or model result object
-            Exported network records. Model-option evaluation returns a dict
-            keyed by option name.
-
-        Notes
-        -----
-        Solver variables are collected from component ``dynamics``, component
-        ``balances``, and user ``Balance`` objects.  Bounds defined on those
-        States are automatically passed to the nonlinear solver.
-
-        For debugging a network, it is often useful to first call
-        :meth:`static_evaluate` before attempting a full solve.
-        """
+        """Solve the network steady state."""
         self._ignore_balances = ignore_balances
         self._runtime_cache = None
 

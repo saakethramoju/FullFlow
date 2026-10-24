@@ -7,14 +7,7 @@ from typing import Any
 
 
 def normalize_ignore_balances(ignore_balances: Any) -> frozenset[str] | str | None:
-    """Normalize the public ``ignore_balances`` solver argument.
-
-    Accepted values are:
-
-    * ``None``: include every user ``Balance``.
-    * ``"all"``: skip every user ``Balance``.
-    * iterable of names: skip only balances whose ``name`` is listed.
-    """
+    """Normalize the public ``ignore_balances`` solver argument."""
     if ignore_balances is None:
         return None
 

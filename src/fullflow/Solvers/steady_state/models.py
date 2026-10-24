@@ -1,10 +1,4 @@
-"""Model-option orchestration for steady-state solving.
-
-FullFlow ``Model`` objects let one network try alternative component
-implementations, such as choked vs. unchoked flow. This file keeps that fallback
-logic out of the public ``SteadyState`` wrapper so the API file stays small and
-the model behavior can be debugged in one place.
-"""
+"""Model-option orchestration for steady-state solving."""
 
 from __future__ import annotations
 
@@ -29,11 +23,7 @@ class ModelFailure:
 
     @classmethod
     def from_error(cls, network, error: Exception, model: Any = None) -> "ModelFailure":
-        """Create a diagnostic record from an exception.
-
-        When ``model`` is omitted, the failure is treated as a whole-network
-        setup/evaluation failure rather than one selected model option failure.
-        """
+        """Create a diagnostic record from an exception."""
         if model is None:
             option = ", ".join(
                 f"{candidate.name}={candidate.active_option_name or '<unbuilt>'}"
@@ -58,23 +48,11 @@ class ModelManager:
     """Small helper for finding and building network ``Model`` objects."""
 
     def __init__(self, network) -> None:
-        """Initialize the object and register any FullFlow state wiring.
-        
-                Constructor parameters are documented on the class docstring and in the
-                function signature.  Component constructors normally call
-                ``Component.setup()``, which converts plain scalars to ``State`` objects,
-                preserves supplied state-like objects, creates output states for optional
-                ``None`` arguments, stores metadata, and registers the component with its
-                network."""
+        """Initialize the object and register any FullFlow state wiring."""
         self.network = network
 
     def get(self, model: str | Any | None):
-        """Resolve a model name/object passed to ``solve(model=...)``.
-
-        ``None`` means the caller is not asking to iterate over a specific
-        model. In that case all unbuilt models are simply built with their first
-        options before the network is evaluated.
-        """
+        """Resolve a model name/object passed to ``solve(model=...)``."""
         if model is None:
             return None
 
@@ -109,13 +87,7 @@ class ModelManager:
 
 
 class ModelOptionRunner:
-    """Run static/solve operations through optional model selection.
-
-    Model-option runs are exported as complete independent run groups under::
-
-        /<network>/steady_state/runs/base
-        /<network>/steady_state/runs/<model>/<option>
-    """
+    """Run static/solve operations through optional model selection."""
 
     def __init__(
         self,
@@ -124,14 +96,7 @@ class ModelOptionRunner:
         printer,
         success_printer: Callable[[bool], None],
     ) -> None:
-        """Initialize the object and register any FullFlow state wiring.
-        
-                Constructor parameters are documented on the class docstring and in the
-                function signature.  Component constructors normally call
-                ``Component.setup()``, which converts plain scalars to ``State`` objects,
-                preserves supplied state-like objects, creates output states for optional
-                ``None`` arguments, stores metadata, and registers the component with its
-                network."""
+        """Initialize the object and register any FullFlow state wiring."""
         self.network = network
         self.model_manager = model_manager
         self.printer = printer
