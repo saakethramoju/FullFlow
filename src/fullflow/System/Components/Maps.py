@@ -109,6 +109,7 @@ class Map(Component):
         "_combined_interpolator",
         "_last_interpolation_point",
         "_last_interpolation_values",
+        "_point_metadata",
     }
 
     def __init__(
@@ -249,6 +250,15 @@ class Map(Component):
         )
         self._last_interpolation_point = None
         self._last_interpolation_values = None
+        self._point_metadata = tuple(
+            (
+                input_name,
+                self.axis_values[input_name][0],
+                self.axis_values[input_name][-1],
+                self.axis_spacing[input_name] == "log",
+            )
+            for input_name in self.input_names
+        )
 
     def _validate_output_name(self, output_name: str) -> None:
         if not isinstance(output_name, str) or not output_name.strip():
@@ -529,30 +539,25 @@ class Map(Component):
 
     def _point(self):
         point = []
+        inputs = self.inputs.value
+        extrapolate = self.extrapolate.value
 
-        for input_name in self.input_names:
-            value = float(self.inputs.value[input_name].value)
-
+        for input_name, lower, upper, logarithmic in self._point_metadata:
+            value = float(inputs[input_name].value)
             if not np.isfinite(value):
                 raise MapRangeError(f"{self.name}: input '{input_name}' must be finite.")
-
-            lower = self.axis_values[input_name][0]
-            upper = self.axis_values[input_name][-1]
-
-            if not self.extrapolate.value and (value < lower or value > upper):
+            if not extrapolate and (value < lower or value > upper):
                 raise MapRangeError(
                     f"{self.name}: input '{input_name}'={value} is outside the map range "
                     f"[{lower}, {upper}]. Set extrapolate=True to allow extrapolation."
                 )
-
-            point.append(
-                _interpolation_point_value(
-                    self.name,
-                    input_name,
-                    value,
-                    self.axis_spacing[input_name],
-                )
-            )
+            if logarithmic:
+                if value <= 0.0:
+                    raise MapRangeError(
+                        f"{self.name}: log-spaced input '{input_name}' must be positive."
+                    )
+                value = np.log(value)
+            point.append(value)
 
         return np.asarray(point, dtype=float)
 

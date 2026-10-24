@@ -1,26 +1,17 @@
-"""Runtime network view used by the steady-state solver.
-
-``Network`` is intentionally kept as a simple container. This module holds the
-solver-specific interpretation of that container: which states are iteration
-variables, which residuals exist, what labels should be shown in diagnostics,
-and which component methods need to be called.
-
-The cache is rebuilt whenever ``network.version`` changes. That gives fast
-residual evaluations during a solve while still supporting model replacement,
-component registration, and future transient solvers that may build their own
-runtime views.
-"""
+"""Runtime network view used by the steady-state solver."""
 
 from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+import copy
 import math
 from typing import Any
 
 import numpy as np
 
 from fullflow.System.State import (
+    State,
     is_assignable_state_like,
     is_state_like,
     resolve_value,
@@ -48,22 +39,10 @@ class IterationItem:
 
 
 class RuntimeCache:
-    """Cached solver metadata for one ``Network`` instance.
-
-    The cache is deliberately solver-side rather than network-side. ``Network``
-    only stores components, balances, models, and tracked states. ``RuntimeCache``
-    decides how those objects should be interpreted for steady-state solving.
-    """
+    """Cached solver metadata for one ``Network`` instance."""
 
     def __init__(self, network, ignore_balances=None) -> None:
-        """Initialize the object and register any FullFlow state wiring.
-        
-                Constructor parameters are documented on the class docstring and in the
-                function signature.  Component constructors normally call
-                ``Component.setup()``, which converts plain scalars to ``State`` objects,
-                preserves supplied state-like objects, creates output states for optional
-                ``None`` arguments, stores metadata, and registers the component with its
-                network."""
+        """Initialize the object and register any FullFlow state wiring."""
         self.network = network
         self.ignore_balances = ignore_balances
         self._active_sensor_balance_owner_ids: set[int] = set()
@@ -82,12 +61,7 @@ class RuntimeCache:
         return self
 
     def refresh(self) -> None:
-        """Rebuild all cached lists, labels, and validation checks.
-
-        This is called before each top-level operation and whenever the solver
-        detects a network version change. Keeping the expensive collection work
-        here makes individual residual calls simpler and faster.
-        """
+        """Rebuild all cached lists, labels, and validation checks."""
         self.component_list = tuple(self.network.component_list)
         self.active_component_list = tuple(
             component
@@ -295,13 +269,7 @@ class RuntimeCache:
         return items
 
     def _validate_no_component_balance_overlap(self) -> None:
-        """Reject States solved by both a component and a Balance.
-
-        A component iteration variable is owned by the component equations. A
-        ``Balance`` variable is owned by a user algebraic target. Allowing the
-        same State in both places would create two independent solve intents for
-        one unknown and is almost always a modeling mistake.
-        """
+        """Reject States solved by both a component and a Balance."""
         component_ids = {id(item.state) for item in self.component_items}
         balance_ids = {id(item.state) for item in self.balance_items}
         overlap_ids = component_ids & balance_ids
@@ -461,12 +429,7 @@ class RuntimeCache:
             pre_evaluation()
 
     def _collect_state_refs(self) -> tuple[Any, ...]:
-        """Collect non-iteration State objects reachable from the network.
-
-        These references are used only for fixed-point convergence checks. The
-        traversal includes common containers so components can store States in
-        lists, tuples, and dictionaries.
-        """
+        """Collect non-iteration State objects reachable from the network."""
         refs: list[Any] = []
         seen: set[int] = set()
 
@@ -503,6 +466,93 @@ class RuntimeCache:
 
         return tuple(refs)
 
+    def collect_state_values_compact(self, out: list[float | None] | None = None) -> list[float | None]:
+        refs = self.state_refs
+        if out is None or len(out) != len(refs):
+            out = [None] * len(refs)
+        for index, state in enumerate(refs):
+            try:
+                value = float(state.value) if state.is_assigned else None
+                out[index] = value if value is not None and math.isfinite(value) else None
+            except (TypeError, ValueError, OverflowError, AttributeError):
+                out[index] = None
+        return out
+
+    @staticmethod
+    def max_state_change_compact(old: list[float | None], new: list[float | None]) -> float:
+        change = 0.0
+        for before, after in zip(old, new):
+            if after is None:
+                if before is not None:
+                    return math.inf
+                continue
+            if before is None:
+                change = max(change, abs(after))
+            else:
+                change = max(change, abs(after - before) / max(abs(after), 1.0))
+        return change
+
+    def snapshot_mutable_states(self):
+        snapshot = []
+        seen = set()
+        for state in (*self.iteration_variables, *self.state_refs):
+            if id(state) in seen:
+                continue
+            seen.add(id(state))
+            if isinstance(state, State):
+                snapshot.append(("state", state, self._copy_value(state._value),
+                                 self._copy_value(state._previous),
+                                 self._copy_value(state._second_previous)))
+            elif is_assignable_state_like(state):
+                try:
+                    snapshot.append(("proxy", state, self._copy_value(state.value)))
+                except (TypeError, ValueError, AttributeError):
+                    continue
+        return snapshot
+
+    @staticmethod
+    def _copy_value(value):
+        if is_state_like(value):
+            return value
+        if isinstance(value, dict):
+            return {RuntimeCache._copy_value(k): RuntimeCache._copy_value(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [RuntimeCache._copy_value(item) for item in value]
+        if isinstance(value, tuple):
+            return tuple(RuntimeCache._copy_value(item) for item in value)
+        if isinstance(value, set):
+            return {RuntimeCache._copy_value(item) for item in value}
+        try:
+            return copy.deepcopy(value)
+        except Exception:
+            return value
+
+    @staticmethod
+    def restore_mutable_states(snapshot) -> None:
+        for item in snapshot:
+            if item[0] == "state":
+                _, state, value, previous, second_previous = item
+                state._value = RuntimeCache._copy_value(value)
+                state._previous = RuntimeCache._copy_value(previous)
+                state._second_previous = RuntimeCache._copy_value(second_previous)
+            else:
+                _, state, value = item
+                state.value = RuntimeCache._copy_value(value)
+
+    @staticmethod
+    def _append_residuals(residual_source: Any, append) -> None:
+        if callable(residual_source):
+            residual_source = residual_source()
+        if residual_source is None:
+            return
+        if isinstance(residual_source, (list, tuple)):
+            for value in residual_source:
+                if callable(value):
+                    value = value()
+                append(float(resolve_value(value)))
+            return
+        append(float(resolve_value(residual_source)))
+
     def collect_state_values(self) -> dict[int, float]:
         """Return numeric values for assigned non-iteration states."""
         values: dict[int, float] = {}
@@ -538,40 +588,25 @@ class RuntimeCache:
     @staticmethod
     def flatten_residuals(residual_source: Any) -> list[float]:
         """Convert callable, State, or numeric residual values into floats."""
-        if callable(residual_source):
-            residual_source = residual_source()
-        if residual_source is None:
-            return []
-        if not isinstance(residual_source, (list, tuple)):
-            residual_source = (residual_source,)
-
         values: list[float] = []
-        for value in residual_source:
-            if callable(value):
-                value = value()
-            values.append(float(resolve_value(value)))
+        RuntimeCache._append_residuals(residual_source, values.append)
         return values
 
     def collect_residuals(self) -> np.ndarray:
-        """Evaluate and flatten all component and balance residuals.
-
-        Component residual failures get a richer message because they are most
-        often caused by an unassigned State referenced inside a residual
-        expression. Balance residuals are intentionally allowed to raise their
-        original errors directly because they are user-provided functions.
-        """
+        """Evaluate and flatten all component and balance residuals."""
         residuals: list[float] = []
+        append = residuals.append
 
         for component in self.active_component_list:
             try:
                 # Dynamic equations become steady-state trim equations by
                 # driving the derivative itself to zero.
                 for equation in component_dynamics(component):
-                    residuals.extend(self.flatten_residuals(equation.derivative))
+                    self._append_residuals(equation.derivative, append)
 
                 # Algebraic balances are separate non-storage equations.
                 for equation in self._component_balance_equations(component):
-                    residuals.extend(self.flatten_residuals(equation.residual))
+                    self._append_residuals(equation.residual, append)
             except Exception as error:
                 original = str(error).splitlines()[0]
                 raise SolverSetupError(
@@ -588,6 +623,6 @@ class RuntimeCache:
 
         for balance in self.balance_list:
             for equation in balance_object_equations(balance):
-                residuals.extend(self.flatten_residuals(equation.residual))
+                self._append_residuals(equation.residual, append)
 
         return np.array(residuals, dtype=float)

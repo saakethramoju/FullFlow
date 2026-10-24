@@ -12,14 +12,13 @@ from scipy.optimize import OptimizeResult
 
 @dataclass(frozen=True, slots=True)
 class ModifiedNewtonOptions:
-    """Internal numerical-solver controls."""
-
     max_iterations: int = 14
     max_jacobian_builds: int = 3
     max_backtracks: int = 9
     max_relative_evaluations: int = 4
     refresh_ratio: float = 0.80
     sufficient_decrease: float = 1.0e-4
+    secant_error_limit: float = 0.65
 
 
 class ModifiedNewtonFailure(RuntimeError):
@@ -59,6 +58,7 @@ def solve_modified_newton(
     total_iterations = 0
     matrix = None
     reused_jacobian = False
+    last_secant_error = None
     eps = np.cbrt(np.finfo(float).eps) if jacobian_method == "3-point" else np.sqrt(np.finfo(float).eps)
     max_evals = max(20, opt.max_relative_evaluations * (len(x0) + 1))
 
@@ -115,23 +115,38 @@ def solve_modified_newton(
 
     for iteration in range(opt.max_iterations):
         total_iterations = iteration + 1
-        if not len(f) or float(np.max(np.abs(f))) <= rtol:
+        if float(np.max(np.abs(f))) <= rtol:
             break
         if matrix is None:
             matrix = build_jacobian(y, f)
 
         try:
+            column_norm = np.max(np.abs(matrix), axis=0)
+            positive_norm = column_norm[column_norm > 0.0]
+            if not len(positive_norm):
+                raise linalg.LinAlgError("Zero Jacobian")
+            reference = float(np.median(positive_norm))
+            column_scale = np.clip(
+                reference / np.maximum(column_norm, np.finfo(float).tiny),
+                1.0e-8, 1.0e8,
+            )
+            scaled_matrix = matrix * column_scale[np.newaxis, :]
+            if not np.all(np.isfinite(scaled_matrix)):
+                raise linalg.LinAlgError("Non-finite scaled Jacobian")
             if len(f) == len(y):
                 with np.errstate(over="raise", invalid="raise"):
-                    direction = linalg.solve(matrix, -f, check_finite=False, assume_a="gen")
+                    scaled_direction = linalg.solve(
+                        scaled_matrix, -f, check_finite=False, assume_a="gen",
+                    )
             else:
-                direction, _, rank, _ = linalg.lstsq(
-                    matrix, -f, cond=1.0e-12, check_finite=False,
+                scaled_direction, _, rank, _ = linalg.lstsq(
+                    scaled_matrix, -f, cond=1.0e-12, check_finite=False,
                     lapack_driver="gelsy",
                 )
                 if rank < len(y):
                     raise linalg.LinAlgError("Rank-deficient Jacobian")
-        except (linalg.LinAlgError, ValueError, FloatingPointError):
+            direction = column_scale * scaled_direction
+        except (linalg.LinAlgError, ValueError, FloatingPointError, OverflowError):
             matrix = None
             if builds >= opt.max_jacobian_builds:
                 raise ModifiedNewtonFailure("Cannot solve Newton direction.")
@@ -164,13 +179,22 @@ def solve_modified_newton(
 
         dy = trial_y - y
         df = trial_f - f
+        predicted_df = matrix @ dy
+        prediction_scale = max(float(np.linalg.norm(df)), float(np.linalg.norm(predicted_df)))
+        if prediction_scale > 0.0 and np.isfinite(prediction_scale):
+            last_secant_error = float(np.linalg.norm(df - predicted_df)) / prediction_scale
+        else:
+            last_secant_error = None
         y, f = trial_y, trial_f
         converged = float(np.max(np.abs(f))) <= rtol
         denom = float(np.dot(dy, dy))
-        if not np.isfinite(denom) or denom <= 1.0e-24:
+        if (not np.isfinite(denom) or denom <= 1.0e-24
+                or last_secant_error is None
+                or not np.isfinite(last_secant_error)
+                or last_secant_error > opt.secant_error_limit):
             matrix = None
         else:
-            matrix += np.outer(df - matrix @ dy, dy) / denom
+            matrix += np.outer(df - predicted_df, dy) / denom
             updates += 1
             if not np.all(np.isfinite(matrix)) or float(np.linalg.norm(f)) > opt.refresh_ratio * old_norm:
                 matrix = None
@@ -179,7 +203,7 @@ def solve_modified_newton(
     else:
         raise ModifiedNewtonFailure("Modified Newton iteration limit reached.")
 
-    if not np.all(np.isfinite(f)) or (len(f) and np.max(np.abs(f)) > rtol):
+    if not np.all(np.isfinite(f)) or float(np.max(np.abs(f))) > rtol:
         raise ModifiedNewtonFailure("Modified Newton did not reach the residual tolerance.")
 
     return OptimizeResult(
@@ -195,6 +219,8 @@ def solve_modified_newton(
         jacobian=matrix.copy() if matrix is not None else None,
         jacobian_scale=scale.copy() if matrix is not None else None,
         jacobian_reused=reused_jacobian,
+        jacobian_rebuilt=builds > 0,
+        jacobian_secant_error=last_secant_error,
         cost=0.5 * float(np.dot(f, f)),
         optimality=float(np.max(np.abs(f))) if len(f) else 0.0,
         method="newton-broyden",

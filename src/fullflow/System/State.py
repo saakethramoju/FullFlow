@@ -219,6 +219,9 @@ class State:
         lower = -math.inf if lower is None else float(lower)
         upper = math.inf if upper is None else float(upper)
 
+        if math.isnan(lower) or math.isnan(upper):
+            raise ValueError("State bounds cannot be NaN.")
+
         if lower > upper:
             raise ValueError(
                 f"Invalid bounds: lower bound {lower} is greater than upper bound {upper}."
@@ -263,6 +266,8 @@ class State:
         return f"{self._labels[0]} [{self._code}; also: {extra}]"
 
     def _validate_bounds(self, value: float) -> None:
+        if math.isnan(value) and self._requires_numeric_value():
+            raise ValueError(f"State {self._diagnostic_name()} cannot be NaN when bounded.")
         if value < self._lower_bound:
             raise ValueError(
                 f"State {self._diagnostic_name()} value {value} is below "
@@ -293,7 +298,7 @@ class State:
         if self._expr is not None:
             try:
                 return self._expr()
-            except Exception:
+            except UnassignedStateError:
                 if self._value is not None:
                     return self._value
                 raise
@@ -438,11 +443,16 @@ class State:
         keep_feasible: bool | None = None,
     ) -> "State":
         """Update bounds in place and return ``self`` for chaining."""
-        self._lower_bound, self._upper_bound = self._normalize_bounds(bounds)
-        if keep_feasible is not None:
-            self._keep_feasible = bool(keep_feasible)
+        lower, upper = self._normalize_bounds(bounds)
+        feasible = self._keep_feasible if keep_feasible is None else bool(keep_feasible)
         if self._value is not None and isinstance(self._value, Real):
-            self._validate_bounds(float(self._value))
+            value = float(self._value)
+            if math.isnan(value) and (lower != -math.inf or upper != math.inf or feasible):
+                raise ValueError(f"State {self._diagnostic_name()} cannot be NaN when bounded.")
+            if value < lower or value > upper:
+                raise ValueError(f"State {self._diagnostic_name()} value {value} is outside bounds ({lower}, {upper}).")
+        self._lower_bound, self._upper_bound = lower, upper
+        self._keep_feasible = feasible
         return self
 
     def _value_string_for_display(self) -> str:

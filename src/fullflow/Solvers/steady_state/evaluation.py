@@ -1,21 +1,4 @@
-"""Derived-state evaluation for steady-state solves.
-
-A FullFlow component can have two kinds of outputs:
-
-* **Solver variables** controlled by SciPy's nonlinear solver.
-* **Derived states** updated by each component's ``evaluate_states()`` method.
-
-During every residual call the nonlinear solver tries a new vector of solver
-variables.  The derived states then need to be recomputed without letting
-component code accidentally overwrite those trial values.
-
-``StateEvaluator`` also makes component order much less fragile.  If a component
-tries to read an output that has not been produced yet in the current pass, the
-evaluator postpones that component and tries it again after the remaining
-components have had a chance to run.  This keeps simple explicit components such
-as heat-transfer calculators readable: they do not need fake initial output
-values just to satisfy construction order.
-"""
+"""Derived-state evaluation for steady-state solves."""
 
 from __future__ import annotations
 
@@ -26,13 +9,7 @@ from fullflow.Exceptions import FullFlowConfigurationError, UnassignedStateError
 
 
 def _is_unassigned_state_error(error: BaseException) -> bool:
-    """Return ``True`` when an exception was caused by an unassigned State.
-
-    This is intentionally narrow.  Physical/modeling errors such as negative
-    areas, invalid coefficients, division by zero, or custom component mistakes
-    should still fail immediately.  Only the common order-of-evaluation case is
-    deferred.
-    """
+    """Return ``True`` when an exception was caused by an unassigned State."""
     current: BaseException | None = error
     seen: set[int] = set()
 
@@ -53,97 +30,58 @@ def _callable_name(evaluate_states: Callable[[], None]) -> str:
 
 
 class StateEvaluator:
-    """Repeatedly call component ``evaluate_states()`` methods until settled.
-
-    Parameters
-    ----------
-    cache_getter:
-        Callable returning the current :class:`RuntimeCache`. The getter lets
-        the evaluator survive model changes because it can always request the
-        latest cached network view.
-    """
+    """Repeatedly call component ``evaluate_states()`` methods until settled."""
 
     def __init__(self, cache_getter: Callable[[], RuntimeCache]) -> None:
-        """Initialize the object and register any FullFlow state wiring.
-        
-                Constructor parameters are documented on the class docstring and in the
-                function signature.  Component constructors normally call
-                ``Component.setup()``, which converts plain scalars to ``State`` objects,
-                preserves supplied state-like objects, creates output states for optional
-                ``None`` arguments, stores metadata, and registers the component with its
-                network."""
+        """Initialize the object and register any FullFlow state wiring."""
         self._cache_getter = cache_getter
 
     def run(self, max_passes: int = 20, tolerance: float = 1e-10) -> None:
-        """Evaluate all component-derived states.
-
-        Components are evaluated repeatedly until derived State values stop
-        changing.  If a component depends on another component's output but is
-        listed earlier in the network, it is deferred for the current pass and
-        retried later.  This preserves the simple component authoring model:
-
-            evaluate_states() reads inputs and writes outputs
-
-        without forcing users to manually order every component perfectly.
-        """
         cache = self._cache_getter()
         iteration_snapshot = cache.snapshot_iteration_variables()
-        all_callables = list(cache.evaluate_state_callables)
-        last_deferred_errors: dict[Callable[[], None], BaseException] = {}
+        callables = cache.evaluate_state_callables
+        all_callables = callables
+        deferred_errors: dict[Callable[[], None], BaseException] = {}
+        old_values = cache.collect_state_values_compact()
+        new_values: list[float | None] = [None] * len(old_values)
+        max_change = float("inf")
 
         for _ in range(max_passes):
-            old_values = cache.collect_state_values()
-            pending: list[Callable[[], None]] = []
-            evaluated_count = 0
-
+            pending = []
+            completed = 0
             for evaluate_states in all_callables:
-                cache.restore_iteration_variables(iteration_snapshot)
                 try:
                     evaluate_states()
                 except Exception as error:
-                    cache.restore_iteration_variables(iteration_snapshot)
                     if _is_unassigned_state_error(error):
                         pending.append(evaluate_states)
-                        last_deferred_errors[evaluate_states] = error
+                        deferred_errors[evaluate_states] = error
                         continue
                     raise
                 finally:
                     cache.restore_iteration_variables(iteration_snapshot)
+                completed += 1
+                deferred_errors.pop(evaluate_states, None)
 
-                evaluated_count += 1
-
-            new_values = cache.collect_state_values()
-
-            if not pending and cache.max_state_change(old_values, new_values) < tolerance:
+            cache.collect_state_values_compact(new_values)
+            max_change = cache.max_state_change_compact(old_values, new_values)
+            if not pending and max_change < tolerance:
                 return
-
-            # Retry only the components that were not ready yet.  On the next
-            # pass, already-evaluated components will still be revisited after a
-            # successful pending pass because ``all_callables`` is restored once
-            # everything has run at least once.
+            old_values, new_values = new_values, old_values
             if pending:
-                if evaluated_count == 0:
+                if completed == 0:
                     break
-                all_callables = pending + [c for c in cache.evaluate_state_callables if c not in pending]
+                pending_set = set(pending)
+                all_callables = tuple(pending) + tuple(c for c in callables if c not in pending_set)
             else:
-                all_callables = list(cache.evaluate_state_callables)
+                all_callables = callables
 
-        if last_deferred_errors:
-            lines = [
-                "Component evaluation did not settle because one or more components still referenced unassigned States.",
-                "",
-                "Deferred components:",
-            ]
-            for evaluate_states, error in last_deferred_errors.items():
+        if deferred_errors:
+            lines = ["Component evaluation could not resolve unassigned States:"]
+            for evaluate_states, error in deferred_errors.items():
                 lines.append(f"  - {_callable_name(evaluate_states)}: {str(error).splitlines()[0]}")
-            lines.extend(
-                [
-                    "",
-                    "Likely fixes:",
-                    "  - Give the missing input State an initial value",
-                    "  - Connect it to a component that computes it",
-                    "  - Make it a dynamics or balances solve variable",
-                    "  - Check for an accidental circular dependency with no initial guess",
-                ]
-            )
-            raise FullFlowConfigurationError("\n".join(lines)) from None
+            raise FullFlowConfigurationError("\n".join(lines))
+        raise FullFlowConfigurationError(
+            f"Steady-state derived states did not settle after {max_passes} passes "
+            f"(change={max_change:.3e}, tolerance={tolerance:.3e})."
+        )

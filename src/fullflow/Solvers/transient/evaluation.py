@@ -44,9 +44,10 @@ class TransientStateEvaluator:
         """Evaluate components until non-unknown states settle."""
         cache = cache or self._cache_getter()
         iteration_snapshot = cache.snapshot_iteration_variables()
-        all_callables = list(cache.evaluate_state_callables)
+        callables = cache.evaluate_state_callables
+        all_callables = callables
         last_deferred_errors: dict[Callable[[], None], BaseException] = {}
-
+        max_change = float("inf")
 
         old_values = cache._collect_state_values_compact() if max_passes > 0 else []
         new_values: list[float | None] = [None] * len(old_values)
@@ -69,6 +70,7 @@ class TransientStateEvaluator:
                     cache.restore_iteration_variables(iteration_snapshot)
 
                 evaluated_count += 1
+                last_deferred_errors.pop(evaluate_states, None)
 
             max_change = cache._collect_state_values_compact_change(old_values, new_values)
             if not pending and max_change < tolerance:
@@ -80,9 +82,10 @@ class TransientStateEvaluator:
             if pending:
                 if evaluated_count == 0:
                     break
-                all_callables = pending + [c for c in cache.evaluate_state_callables if c not in pending]
+                pending_set = set(pending)
+                all_callables = tuple(pending) + tuple(c for c in callables if c not in pending_set)
             else:
-                all_callables = list(cache.evaluate_state_callables)
+                all_callables = callables
 
         if last_deferred_errors:
             lines = [
@@ -93,3 +96,9 @@ class TransientStateEvaluator:
             for evaluate_states, error in last_deferred_errors.items():
                 lines.append(f"  - {_callable_name(evaluate_states)}: {str(error).splitlines()[0]}")
             raise FullFlowConfigurationError("\n".join(lines)) from None
+
+        if max_change >= tolerance:
+            raise FullFlowConfigurationError(
+                f"Transient derived states did not settle after {max_passes} passes "
+                f"(change={max_change:.3e}, tolerance={tolerance:.3e})."
+            )

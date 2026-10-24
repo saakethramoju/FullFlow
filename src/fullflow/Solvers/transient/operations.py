@@ -80,13 +80,17 @@ class TransientStepSolve:
         self._accepted_step_ids: tuple[int, ...] | None = None
         self._accepted_step_version: int | None = None
         self._accepted_residual_count: int | None = None
+        self._accepted_control_values: tuple | None = None
+        self._control_source_key = None
+        self._control_sources = ()
 
     def _record_accepted_step(
         self, cache, previous_x: np.ndarray, t_new: float, dt: float, residual_count: int,
-        *, jacobian=None, jacobian_scale=None, jacobian_method=None, jacobian_reused=False,
+        *, jacobian=None, jacobian_scale=None, jacobian_method=None,
+        jacobian_reused=False, jacobian_rebuilt=False,
     ) -> None:
         """Store history after an accepted step."""
-        reuse_age = self._newton_reuse_age + 1 if jacobian_reused else 0
+        reuse_age = self._newton_reuse_age + 1 if jacobian_reused and not jacobian_rebuilt else 0
         self._clear_newton_jacobian()
         self._previous_step_x = np.array(previous_x, dtype=float, copy=True)
         self._accepted_step_x = cache.iteration_value_array().copy()
@@ -95,6 +99,7 @@ class TransientStepSolve:
         self._accepted_step_ids = tuple(id(state) for state in cache.iteration_variables)
         self._accepted_step_version = getattr(cache, "version", None)
         self._accepted_residual_count = residual_count
+        self._accepted_control_values = self._control_values(cache)
         if jacobian is not None and jacobian_scale is not None:
             matrix = np.asarray(jacobian, dtype=float)
             scale = np.asarray(jacobian_scale, dtype=float)
@@ -106,25 +111,40 @@ class TransientStepSolve:
                 self._newton_jacobian_scale = scale.copy()
                 self._newton_jacobian_method = jacobian_method
                 self._newton_cache_id = id(cache)
-                self._newton_control_values = self._control_values(cache)
+                self._newton_control_values = self._accepted_control_values
                 self._newton_reuse_age = reuse_age
 
-    @staticmethod
-    def _control_values(cache) -> tuple:
+    def _control_values(self, cache) -> tuple:
+        components = tuple(getattr(cache, "component_list", ()))
+        component_ids = tuple(id(component) for component in components)
+        cache_key = (id(cache), component_ids)
+        if self._control_source_key != cache_key:
+            sources = []
+            for component in components:
+                if "_has_primary_sequence" in getattr(component, "__dict__", ()) or getattr(component, "_has_primary_sequence", False):
+                    sources.append((component, True))
+                if getattr(type(component), "command_entries", None) is not None:
+                    sources.append((component, False))
+            self._control_sources = tuple(sources)
+            self._control_source_key = cache_key
+
         values = []
-        for component in getattr(cache, "component_list", ()):
-            if getattr(component, "_has_primary_sequence", False):
+        for component, primary in self._control_sources:
+            if primary:
+                if not getattr(component, "_has_primary_sequence", False):
+                    continue
                 target = getattr(component, "target", None)
                 if target is not None:
                     try:
                         values.append((id(target), True, float(target.value)))
                     except (TypeError, ValueError, AttributeError):
                         pass
-            for entry in getattr(component, "command_entries", ()):
-                try:
-                    values.append((id(entry.target), bool(entry.is_active), float(entry.target.value)))
-                except (TypeError, ValueError, AttributeError):
-                    pass
+            else:
+                for entry in component.command_entries:
+                    try:
+                        values.append((id(entry.target), bool(entry.is_active), float(entry.target.value)))
+                    except (TypeError, ValueError, AttributeError):
+                        pass
         return tuple(values)
 
     @staticmethod
@@ -144,11 +164,12 @@ class TransientStepSolve:
     def _initial_newton_jacobian(
         self, cache, x0: np.ndarray, old_time: float, dt: float,
         residual_count: int, jacobian_method: str,
+        *, probe_x=None, probe_residual=None, baseline_residual=None,
     ) -> tuple[np.ndarray | None, np.ndarray | None]:
         if self._newton_jacobian is None or self._newton_jacobian_scale is None:
             return None, None
         valid = (
-            self._newton_reuse_age < 4
+            self._newton_reuse_age < 8
             and self._newton_cache_id == id(cache)
             and self._newton_jacobian_method == jacobian_method
             and self._accepted_step_time is not None
@@ -165,6 +186,24 @@ class TransientStepSolve:
             )
         )
         if not valid:
+            self._clear_newton_jacobian()
+            return None, None
+
+        probe_error = None
+        if probe_x is not None and probe_residual is not None and baseline_residual is not None:
+            delta = (np.asarray(probe_x, dtype=float) - x0) / self._newton_jacobian_scale
+            if np.all(np.isfinite(delta)) and float(np.max(np.abs(delta))) > 1.0e-9:
+                actual = np.asarray(probe_residual, dtype=float) - baseline_residual
+                expected = self._newton_jacobian @ delta
+                divisor = max(float(np.linalg.norm(actual)), float(np.linalg.norm(expected)))
+                if divisor > 0.0 and np.isfinite(divisor):
+                    probe_error = float(np.linalg.norm(actual - expected)) / divisor
+                else:
+                    probe_error = float("inf")
+
+        if (probe_error is not None and (not np.isfinite(probe_error) or probe_error > 0.65)) or (
+            self._newton_reuse_age >= 4 and (probe_error is None or probe_error > 0.35)
+        ):
             self._clear_newton_jacobian()
             return None, None
         return self._newton_jacobian, self._newton_jacobian_scale
@@ -189,6 +228,9 @@ class TransientStepSolve:
             return None
         if self._accepted_residual_count != residual_count:
             return None
+        if (self._accepted_control_values is None or
+                self._controls_changed(self._accepted_control_values, self._control_values(cache))):
+            return None
         if prior.shape != x0.shape or last.shape != x0.shape:
             return None
         if not np.array_equal(last, x0):
@@ -196,6 +238,11 @@ class TransientStepSolve:
 
         guess = x0 + (dt / old_dt) * (x0 - prior)
         if not np.all(np.isfinite(guess)) or np.array_equal(guess, x0):
+            return None
+        normalized_change = np.abs(guess - x0) / np.maximum(
+            np.maximum(np.abs(x0), np.abs(prior)), 1.0,
+        )
+        if float(np.max(normalized_change)) > 2.0:
             return None
         if np.any(guess < cache.lower_bound_array()) or np.any(guess > cache.upper_bound_array()):
             return None
@@ -428,17 +475,17 @@ class TransientStepSolve:
         cache = self._cache_getter()
         accepted_snapshot = cache.snapshot_mutable_states()
         accepted_time = float(self.network.time.value)
-        self.network.time.value = t_new
-        if hasattr(cache, "configure_sensor_balances"):
-            cache.configure_sensor_balances(t_new, stop_on_missing=True)
-        cache.set_transient_context(dt=dt)
-        cache.apply_sequence_commands(t_new)
-        self._active_cache = cache
-        x0 = cache.iteration_value_array()
-        self._last_valid_x = None
-        self._last_valid_residual = None
-
         try:
+            self.network.time.value = t_new
+            if hasattr(cache, "configure_sensor_balances"):
+                cache.configure_sensor_balances(t_new, stop_on_missing=True)
+            cache.set_transient_context(dt=dt)
+            cache.apply_sequence_commands(t_new)
+            self._active_cache = cache
+            x0 = cache.iteration_value_array()
+            self._last_valid_x = None
+            self._last_valid_residual = None
+
             predictor_start = time.perf_counter()
             self.network.time.value = t_new
             r0 = self.residual(x0)
@@ -488,6 +535,8 @@ class TransientStepSolve:
 
             guess = self._predict_initial_guess(cache, x0, accepted_time, dt, len(r0))
             use_prediction = False
+            probe_x = None
+            probe_residual = None
             if guess is not None:
                 try:
                     predicted_residual = self.residual(guess)
@@ -495,10 +544,16 @@ class TransientStepSolve:
                         float(np.max(np.abs(predicted_residual)))
                         if len(predicted_residual) else 0.0
                     )
-                    use_prediction = (
+                    prediction_valid = (
                         self._last_debug_error is None
                         and len(predicted_residual) == len(r0)
                         and np.all(np.isfinite(predicted_residual))
+                    )
+                    if prediction_valid:
+                        probe_x = guess
+                        probe_residual = predicted_residual.copy()
+                    use_prediction = (
+                        prediction_valid
                         and (max_predicted <= least_squares_settings.rtol
                              or max_predicted < 0.95 * max_r0)
                     )
@@ -560,6 +615,8 @@ class TransientStepSolve:
                 jacobian, jacobian_scale = self._initial_newton_jacobian(
                     cache, x0, accepted_time, dt, len(r0),
                     least_squares_settings.jacobian_method,
+                    probe_x=probe_x, probe_residual=probe_residual,
+                    baseline_residual=r0,
                 )
                 try:
                     newton_sol, _ = self._try_modified_newton(
@@ -599,6 +656,7 @@ class TransientStepSolve:
                         jacobian_scale=newton_sol.jacobian_scale,
                         jacobian_method=least_squares_settings.jacobian_method,
                         jacobian_reused=newton_sol.jacobian_reused,
+                        jacobian_rebuilt=newton_sol.jacobian_rebuilt,
                     )
                     newton_sol.fun = accepted_residual
                     newton_sol.cost = 0.5 * float(np.dot(accepted_residual, accepted_residual))

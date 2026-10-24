@@ -1,18 +1,4 @@
-"""One-shot steady-state operations.
-
-This file contains the executable pieces that the public ``SteadyState`` wrapper
-calls after model options have been selected:
-
-``StaticEvaluation``
-    Runs pre-evaluation and derived-state propagation without nonlinear solving.
-``NonlinearSolve``
-    Builds the iteration vector, calls SciPy ``least_squares``, checks the final
-    residual, and writes the solution back into the network.
-
-The classes here intentionally do not know about model fallback, printing, or
-user-facing argument names. That keeps numerical behavior isolated and easier to
-debug.
-"""
+"""One-shot steady-state operations."""
 
 from __future__ import annotations
 
@@ -49,23 +35,10 @@ class SolveDiagnostics:
 
 
 class StaticEvaluation:
-    """Evaluate a network without changing any iteration variable by solving.
-
-    Static evaluation is useful for networks whose outputs are fully determined
-    by assigned inputs and component ``evaluate_states()`` methods. It also acts
-    as the degenerate solve path when a network has no iteration variables and
-    no residuals.
-    """
+    """Evaluate a network without changing any iteration variable by solving."""
 
     def __init__(self, network, refresh_cache: Callable[[], Any], evaluator) -> None:
-        """Initialize the object and register any FullFlow state wiring.
-        
-                Constructor parameters are documented on the class docstring and in the
-                function signature.  Component constructors normally call
-                ``Component.setup()``, which converts plain scalars to ``State`` objects,
-                preserves supplied state-like objects, creates output states for optional
-                ``None`` arguments, stores metadata, and registers the component with its
-                network."""
+        """Initialize the object and register any FullFlow state wiring."""
         self.network = network
         self.refresh_cache = refresh_cache
         self.evaluator = evaluator
@@ -125,14 +98,7 @@ class NonlinearSolve:
         residual_function: Callable[[np.ndarray], np.ndarray],
         static_runner: StaticEvaluation,
     ) -> None:
-        """Initialize the object and register any FullFlow state wiring.
-        
-                Constructor parameters are documented on the class docstring and in the
-                function signature.  Component constructors normally call
-                ``Component.setup()``, which converts plain scalars to ``State`` objects,
-                preserves supplied state-like objects, creates output states for optional
-                ``None`` arguments, stores metadata, and registers the component with its
-                network."""
+        """Initialize the object and register any FullFlow state wiring."""
         self.network = network
         self.refresh_cache = refresh_cache
         self.evaluator = evaluator
@@ -150,12 +116,7 @@ class NonlinearSolve:
         group_path: str = "steady_state/runs/base",
         metadata: dict[str, Any] | None = None,
     ):
-        """Run one steady-state solve on the current concrete network.
-
-        The model system is handled one layer above this class. By the time this
-        method runs, ``network.component_list`` already contains the components
-        for the active model options.
-        """
+        """Run one steady-state solve on the current concrete network."""
         ls_settings = least_squares_settings or LeastSquaresSettings()
         state_settings = state_settings or StateEvaluationSettings(max_passes=5)
         statistics = statistics or SolverStatistics(enabled=False)
@@ -165,123 +126,129 @@ class NonlinearSolve:
         # Let components prepare themselves, then rebuild the runtime view in
         # case those hooks changed network structure or iteration metadata.
         cache = self.refresh_cache()
-        cache.run_pre_evaluation()
-        cache = self.refresh_cache()
-        if hasattr(cache, "configure_sensor_balances"):
-            cache.configure_sensor_balances(float(self.network.time.value), stop_on_missing=True)
+        accepted_snapshot = cache.snapshot_mutable_states()
+        try:
+            cache.run_pre_evaluation()
+            cache = self.refresh_cache()
+            if hasattr(cache, "configure_sensor_balances"):
+                cache.configure_sensor_balances(float(self.network.time.value), stop_on_missing=True)
 
-        x0 = np.array(cache.iteration_values, dtype=float)
-        statistics.reset()
-        statistics.configure(
-            cache=cache,
-            least_squares_settings=ls_settings,
-            state_settings=state_settings,
-            x0=x0,
-        )
-
-        # Compute derived states and the initial residual once before calling
-        # SciPy. This catches bad setup early and lets us detect static networks.
-        self.evaluator.run(
-            max_passes=state_settings.max_passes,
-            tolerance=state_settings.tolerance,
-        )
-        r0 = cache.collect_residuals()
-        statistics.record(x0, r0, cache, phase="initial")
-
-        # Seed the residual callback's invalid-trial history with the known-good
-        # initial point.  This lets temporary invalid thermodynamic trial points
-        # inside SciPy's finite-difference/Jacobian search receive a large
-        # residual penalty instead of aborting the solve.
-        residual_owner = getattr(self.residual_function, "__self__", None)
-        if residual_owner is not None:
-            if hasattr(residual_owner, "_last_valid_x"):
-                residual_owner._last_valid_x = np.array(x0, dtype=float)
-            if hasattr(residual_owner, "_last_valid_residual"):
-                residual_owner._last_valid_residual = np.array(r0, dtype=float)
-
-        if len(x0) == 0 and len(r0) == 0:
-            return self.static_runner.run_once(
-                filename=filename,
-                return_type=return_type,
+            x0 = np.array(cache.iteration_values, dtype=float)
+            statistics.reset()
+            statistics.configure(
+                cache=cache,
+                least_squares_settings=ls_settings,
                 state_settings=state_settings,
-                group_path=group_path,
-                metadata=metadata,
+                x0=x0,
             )
 
-        if len(r0) < len(x0):
-            raise SolverSetupError(
-                "SteadyState solve requires at least as many residuals as iteration variables. "
-                f"Got {len(x0)} iteration variables and {len(r0)} residuals."
+            # Compute derived states and the initial residual once before calling
+            # SciPy. This catches bad setup early and lets us detect static networks.
+            self.evaluator.run(
+                max_passes=state_settings.max_passes,
+                tolerance=state_settings.tolerance,
+            )
+            r0 = cache.collect_residuals()
+            statistics.record(x0, r0, cache, phase="initial")
+
+            # Seed the residual callback's invalid-trial history with the known-good
+            # initial point.  This lets temporary invalid thermodynamic trial points
+            # inside SciPy's finite-difference/Jacobian search receive a large
+            # residual penalty instead of aborting the solve.
+            residual_owner = getattr(self.residual_function, "__self__", None)
+            if residual_owner is not None:
+                if hasattr(residual_owner, "_last_valid_x"):
+                    residual_owner._last_valid_x = np.array(x0, dtype=float)
+                if hasattr(residual_owner, "_last_valid_residual"):
+                    residual_owner._last_valid_residual = np.array(r0, dtype=float)
+
+            if len(x0) == 0 and len(r0) == 0:
+                return self.static_runner.run_once(
+                    filename=filename,
+                    return_type=return_type,
+                    state_settings=state_settings,
+                    group_path=group_path,
+                    metadata=metadata,
+                )
+
+            if len(r0) < len(x0):
+                raise SolverSetupError(
+                    "SteadyState solve requires at least as many residuals as iteration variables. "
+                    f"Got {len(x0)} iteration variables and {len(r0)} residuals."
+                )
+
+            solver_kwargs = self._least_squares_kwargs(cache, x0, ls_settings)
+
+            start_time = time.perf_counter()
+            try:
+                sol = least_squares(**solver_kwargs)
+            except Exception:
+                statistics.export(statistics_filename)
+                raise
+            elapsed_time = time.perf_counter() - start_time
+
+            statistics.finalize(
+                sol=sol,
+                elapsed_time=elapsed_time,
+                cache=cache,
+                least_squares_settings=ls_settings,
+                state_settings=state_settings,
+                overconstrained=len(r0) > len(x0),
             )
 
-        solver_kwargs = self._least_squares_kwargs(cache, x0, ls_settings)
+            try:
+                self._check_solution(sol, ls_settings, cache, statistics)
+            except Exception:
+                statistics.export(statistics_filename)
+                raise
 
-        start_time = time.perf_counter()
-        try:
-            sol = least_squares(**solver_kwargs)
-        except Exception:
+            # ``least_squares`` does not automatically update the user's States.
+            # Push the accepted solution back into the network, then recompute all
+            # derived outputs one final time so saved/printed results are current.
+            cache.assign_iteration_values(sol.x)
+            self.evaluator.run(
+                max_passes=state_settings.max_passes,
+                tolerance=state_settings.tolerance,
+            )
+            records = self.network.save(filename=filename, return_type=return_type, group_path=group_path, metadata=metadata)
+
+            if filename is not None:
+                write_tables(
+                    HDF5Target(filename, f"{safe_group_name(self.network.name)}/{group_path}"),
+                    {
+                        "diagnostics": [
+                            {
+                                "solver_type": "steady_state",
+                                "success": bool(getattr(sol, "success", False)),
+                                "status": getattr(sol, "status", None),
+                                "message": str(getattr(sol, "message", "")),
+                                "function_evaluations": getattr(sol, "nfev", None),
+                                "jacobian_evaluations": getattr(sol, "njev", None),
+                                "cost": getattr(sol, "cost", None),
+                                "optimality": getattr(sol, "optimality", None),
+                                "max_abs_residual": float(np.max(np.abs(cache.collect_residuals()))) if len(cache.collect_residuals()) else 0.0,
+                                "residual_count": len(cache.collect_residuals()),
+                                "variable_count": len(sol.x),
+                                "solve_time_s": elapsed_time,
+                            }
+                        ]
+                    },
+                )
+
             statistics.export(statistics_filename)
-            raise
-        elapsed_time = time.perf_counter() - start_time
 
-        statistics.finalize(
-            sol=sol,
-            elapsed_time=elapsed_time,
-            cache=cache,
-            least_squares_settings=ls_settings,
-            state_settings=state_settings,
-            overconstrained=len(r0) > len(x0),
-        )
-
-        try:
-            self._check_solution(sol, ls_settings, cache, statistics)
-        except Exception:
-            statistics.export(statistics_filename)
-            raise
-
-        # ``least_squares`` does not automatically update the user's States.
-        # Push the accepted solution back into the network, then recompute all
-        # derived outputs one final time so saved/printed results are current.
-        cache.assign_iteration_values(sol.x)
-        self.evaluator.run(
-            max_passes=state_settings.max_passes,
-            tolerance=state_settings.tolerance,
-        )
-        records = self.network.save(filename=filename, return_type=return_type, group_path=group_path, metadata=metadata)
-
-        if filename is not None:
-            write_tables(
-                HDF5Target(filename, f"{safe_group_name(self.network.name)}/{group_path}"),
-                {
-                    "diagnostics": [
-                        {
-                            "solver_type": "steady_state",
-                            "success": bool(getattr(sol, "success", False)),
-                            "status": getattr(sol, "status", None),
-                            "message": str(getattr(sol, "message", "")),
-                            "function_evaluations": getattr(sol, "nfev", None),
-                            "jacobian_evaluations": getattr(sol, "njev", None),
-                            "cost": getattr(sol, "cost", None),
-                            "optimality": getattr(sol, "optimality", None),
-                            "max_abs_residual": float(np.max(np.abs(cache.collect_residuals()))) if len(cache.collect_residuals()) else 0.0,
-                            "residual_count": len(cache.collect_residuals()),
-                            "variable_count": len(sol.x),
-                            "solve_time_s": elapsed_time,
-                        }
-                    ]
-                },
+            diagnostics = SolveDiagnostics(
+                sol=sol,
+                x0=x0,
+                settings=ls_settings,
+                overconstrained=len(r0) > len(x0),
+                elapsed_time=elapsed_time,
             )
+            return records, diagnostics
 
-        statistics.export(statistics_filename)
-
-        diagnostics = SolveDiagnostics(
-            sol=sol,
-            x0=x0,
-            settings=ls_settings,
-            overconstrained=len(r0) > len(x0),
-            elapsed_time=elapsed_time,
-        )
-        return records, diagnostics
+        except Exception:
+            cache.restore_mutable_states(accepted_snapshot)
+            raise
 
     def _least_squares_kwargs(
         self,

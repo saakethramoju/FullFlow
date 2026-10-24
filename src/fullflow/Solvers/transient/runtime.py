@@ -1028,20 +1028,26 @@ class TransientRuntimeCache:
         return resolve_numeric(self._current_derivative(item, derivatives_by_owner))
 
     @staticmethod
-    def flatten_residuals(residual_source: Any) -> list[float]:
-        """Convert callable, State, or numeric residuals into floats."""
+    def _append_residuals(residual_source: Any, append) -> None:
         if callable(residual_source):
             residual_source = residual_source()
         if residual_source is None:
-            return []
-        if not isinstance(residual_source, (list, tuple)):
-            residual_source = (residual_source,)
+            return
+        if isinstance(residual_source, (list, tuple)):
+            for value in residual_source:
+                if callable(value):
+                    value = value()
+                append(resolve_numeric(value))
+            return
+        if callable(residual_source):
+            residual_source = residual_source()
+        append(resolve_numeric(residual_source))
 
+    @staticmethod
+    def flatten_residuals(residual_source: Any) -> list[float]:
+        """Convert callable, State, or numeric residuals into floats."""
         values: list[float] = []
-        for value in residual_source:
-            if callable(value):
-                value = value()
-            values.append(resolve_numeric(value))
+        TransientRuntimeCache._append_residuals(residual_source, values.append)
         return values
 
     @staticmethod
@@ -1062,32 +1068,30 @@ class TransientRuntimeCache:
     def collect_residuals(self, dt: float) -> np.ndarray:
         """Collect transient, algebraic, and balance residuals."""
         residuals: list[float] = []
-
-
+        append = residuals.append
+        append_residuals = self._append_residuals
         derivatives_by_owner: dict[int, list[Any]] = {}
 
         for item in self.transient_items:
             derivative = self._derivative_value(item, derivatives_by_owner)
-
             if item.force_steady:
-                residuals.append(derivative)
+                append(derivative)
                 continue
 
             state = float(item.state.value)
             previous = float(item.state.previous)
-            scale = self._transient_scale(item, dt=dt, derivative=derivative)
-            residuals.append((state - previous - dt * derivative) / scale)
+            flux = dt * derivative
+            scale = max(abs(state), abs(previous), abs(flux), 1.0)
+            append((state - previous - flux) / scale)
 
         for component in self.algebraic_residual_owners:
             for equation in self._component_balance_equations(component):
-                residuals.extend(self.flatten_residuals(equation.residual))
+                append_residuals(equation.residual, append)
 
         for balance in self.balance_residual_owners:
+            append_residuals(balance._residual, append)
 
-
-            residuals.extend(self.flatten_residuals(balance._residual))
-
-        return np.array(residuals, dtype=float)
+        return np.asarray(residuals, dtype=float)
 
     def validate_residual_count(self, residuals: np.ndarray) -> None:
         """Fail early if there are fewer equations than unknowns."""
@@ -1192,21 +1196,20 @@ class TransientRuntimeCache:
 
         return values
 
+    @staticmethod
+    def _settling_value(state: Any) -> float | None:
+        try:
+            if type(state) is State and state._expr is None:
+                value = state._value
+                return float(value) if value is not None else None
+            return float(state.value) if state.is_assigned else None
+        except Exception:
+            return None
+
     def _collect_state_values_compact(self) -> list[float | None]:
         """Snapshot non-iteration States in cached reference order."""
-        values: list[float | None] = []
-        append = values.append
-
-        for state in self.state_refs:
-            try:
-                if state.is_assigned:
-                    append(float(state.value))
-                else:
-                    append(None)
-            except Exception:
-                append(None)
-
-        return values
+        read_value = self._settling_value
+        return [read_value(state) for state in self.state_refs]
 
     def _collect_state_values_compact_change(
         self,
@@ -1215,12 +1218,9 @@ class TransientRuntimeCache:
     ) -> float:
         """Update a reusable snapshot while calculating the fixed-point change."""
         max_change = 0.0
+        read_value = self._settling_value
         for index, state in enumerate(self.state_refs):
-            try:
-                value = float(state.value) if state.is_assigned else None
-            except Exception:
-                value = None
-
+            value = read_value(state)
             output_values[index] = value
             if value is None:
                 continue
