@@ -9,7 +9,7 @@ if TYPE_CHECKING:
 
 
 class PID(Component):
-    """Transient-only proportional-integral-derivative controller."""
+    """PID controller with output limits and integral anti-windup."""
 
     TRANSIENT_ONLY = True
 
@@ -29,242 +29,95 @@ class PID(Component):
     ) -> None:
         self.setup()
 
-        self.error = State(0.0).add_label(
-            f"{self.name}:error"
-        )
-
-        self.integral_error = State(0.0).add_label(
-            f"{self.name}:integral_error"
-        )
-
-        self.integral_error_dot = State(0.0).add_label(
-            f"{self.name}:integral_error_dot"
-        )
-
-        self.proportional = State(0.0).add_label(
-            f"{self.name}:proportional"
-        )
-        self.integral = State(0.0).add_label(
-            f"{self.name}:integral"
-        )
-        self.derivative = State(0.0).add_label(
-            f"{self.name}:derivative"
-        )
-
-        self.raw_command = State(0.0).add_label(
-            f"{self.name}:raw_command"
-        )
-
-        self.saturated = State(False).add_label(
-            f"{self.name}:saturated"
-        )
-
-        self.command_bias = State().add_label(
-            f"{self.name}:command_bias"
-        )
-
+        self.error = State(0.0)
+        self.integral_error = State(0.0)
+        self.integral_error_dot = State(0.0)
+        self.proportional = State(0.0)
+        self.integral = State(0.0)
+        self.derivative = State(0.0)
+        self.raw_command = State(0.0)
+        self.saturated = State(False)
+        self.command_bias = State()
 
         if self.command.is_derived:
-            raise ValueError(
-                f"{self.name}: command must be a writable State, "
-                "not a derived State."
-            )
+            raise ValueError(f"{self.name}: command must be a writable State.")
 
         if self.minimum.is_assigned and self.maximum.is_assigned:
-            if float(self.minimum.value) > float(self.maximum.value):
-                raise ValueError(
-                    f"{self.name}: minimum must be less than or equal "
-                    "to maximum."
-                )
+            if self.minimum.value > self.maximum.value:
+                raise ValueError(f"{self.name}: minimum must not exceed maximum.")
 
         if not self.command.is_assigned and self.trim.is_assigned:
             self.command.value = float(self.trim.value)
 
     def evaluate_states(self) -> None:
-        """Evaluate the PID command and dynamic integral-error derivative."""
+        trim = float(self.trim.value) if self.trim.is_assigned else 0.0
+        minimum = float(self.minimum.value) if self.minimum.is_assigned else None
+        maximum = float(self.maximum.value) if self.maximum.is_assigned else None
 
-
-        feedback = float(self.feedback.value)
-        setpoint = float(self.setpoint.value)
-
-        proportional_gain = float(self.proportional_gain.value)
-        integral_gain = float(self.integral_gain.value)
-        derivative_gain = float(self.derivative_gain.value)
-
-        trim = (
-            float(self.trim.value)
-            if self.trim.is_assigned
-            else 0.0
-        )
-
-        minimum = (
-            float(self.minimum.value)
-            if self.minimum.is_assigned
-            else None
-        )
-        maximum = (
-            float(self.maximum.value)
-            if self.maximum.is_assigned
-            else None
-        )
-
-        if (
-            minimum is not None
-            and maximum is not None
-            and minimum > maximum
-        ):
-            raise ValueError(
-                f"{self.name}: minimum must be less than or equal "
-                "to maximum."
-            )
+        if minimum is not None and maximum is not None and minimum > maximum:
+            raise ValueError(f"{self.name}: minimum must not exceed maximum.")
 
         if not self.command.is_assigned:
-            if self.trim.is_assigned:
-                self.command.value = trim
-            else:
-                raise ValueError(
-                    f"{self.name}: PID requires either a trim value or "
-                    "an initialized command State."
-                )
+            if not self.trim.is_assigned:
+                raise ValueError(f"{self.name}: initialize command or provide trim.")
+            self.command.value = trim
 
+        error = float(self.setpoint.value) - float(self.feedback.value)
+        kp = float(self.proportional_gain.value)
+        ki = float(self.integral_gain.value)
+        kd = float(self.derivative_gain.value)
+        integral_error = float(self.integral_error.value)
 
-        error = setpoint - feedback
-
-        proportional = proportional_gain * error
-
-        integral = (
-            integral_gain
-            * float(self.integral_error.value)
-        )
-
+        proportional = kp * error
+        integral = ki * integral_error
 
         if not self.command_bias.is_assigned:
-            self.command_bias.value = (
-                float(self.command.value)
-                - trim
-                - proportional
-                - integral
-            )
+            self.command_bias.value = float(self.command.value) - trim - proportional - integral
 
-
-        time = float(self.network.time.value)
-
+        dt = 0.0
         try:
-            previous_time = float(self.network.time.previous)
-            dt = time - previous_time
+            dt = float(self.network.time.value) - float(self.network.time.previous)
         except ValueError:
-            dt = 0.0
+            pass
 
-        if dt > 0.0:
+        derivative = 0.0
+        if dt > 0.0 and kd != 0.0:
             try:
-                previous_error = float(self.error.previous)
-            except ValueError:
-                previous_error = error
-
-            error_rate = (
-                error - previous_error
-            ) / dt
-        else:
-            error_rate = 0.0
-
-        derivative = (
-            derivative_gain
-            * error_rate
-        )
-
-
-        raw_command = (
-            trim
-            + float(self.command_bias.value)
-            + proportional
-            + integral
-            + derivative
-        )
-
-
-        command = raw_command
-        saturated = False
-
-        if minimum is not None and command < minimum:
-            command = minimum
-            saturated = True
-
-        if maximum is not None and command > maximum:
-            command = maximum
-            saturated = True
-
-
-        candidate_integral_error = float(
-            self.integral_error.value
-        )
-
-        if dt > 0.0:
-            try:
-                candidate_integral_error = (
-                    float(self.integral_error.previous)
-                    + error * dt
-                )
+                derivative = kd * (error - float(self.error.previous)) / dt
             except ValueError:
                 pass
 
-        candidate_integral = (
-            integral_gain
-            * candidate_integral_error
+        raw_command = trim + float(self.command_bias.value) + proportional + integral + derivative
+        command = raw_command
+        if minimum is not None:
+            command = max(command, minimum)
+        if maximum is not None:
+            command = min(command, maximum)
+
+        candidate = integral_error
+        if dt > 0.0:
+            try:
+                candidate = float(self.integral_error.previous) + error * dt
+            except ValueError:
+                pass
+
+        candidate_command = raw_command + ki * (candidate - integral_error)
+        direction = ki * error
+        hold = (
+            maximum is not None and candidate_command > maximum and direction > 0.0
+        ) or (
+            minimum is not None and candidate_command < minimum and direction < 0.0
         )
-
-        candidate_raw_command = (
-            trim
-            + float(self.command_bias.value)
-            + proportional
-            + candidate_integral
-            + derivative
-        )
-
-        integral_direction = (
-            integral_gain
-            * error
-        )
-
-        hold_integral = False
-
-        if (
-            maximum is not None
-            and candidate_raw_command > maximum
-            and integral_direction > 0.0
-        ):
-            hold_integral = True
-
-        if (
-            minimum is not None
-            and candidate_raw_command < minimum
-            and integral_direction < 0.0
-        ):
-            hold_integral = True
-
-        self.integral_error_dot.value = (
-            0.0
-            if hold_integral
-            else error
-        )
-
 
         self.error.value = error
         self.proportional.value = proportional
         self.integral.value = integral
         self.derivative.value = derivative
-
+        self.integral_error_dot.value = 0.0 if hold else error
         self.raw_command.value = raw_command
-        self.saturated.value = saturated
-
+        self.saturated.value = command != raw_command
         self.command.value = command
 
     @property
     def dynamics(self):
-        """Return the PID integral-error dynamic equation."""
-
-        return [
-            (
-                self.integral_error,
-                self.integral_error_dot,
-            )
-        ]
+        return [(self.integral_error, self.integral_error_dot)]

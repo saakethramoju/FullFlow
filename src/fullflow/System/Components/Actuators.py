@@ -9,7 +9,7 @@ if TYPE_CHECKING:
 
 
 class Actuator(Component):
-    """Command-to-position actuator with optional saturation and rate limiting."""
+    """Command-to-position actuator with optional limits and slew rate."""
 
     def __init__(
         self,
@@ -20,47 +20,8 @@ class Actuator(Component):
         minimum: State | float | None = None,
         maximum: State | float | None = None,
         rate_limit: State | float | None = None,
-    ):
-        """Initialize the object and register any FullFlow state wiring."""
+    ) -> None:
         self.setup()
-
-    def _limits(self):
-        minimum = None
-        maximum = None
-
-        if self.minimum.is_assigned:
-            minimum = float(self.minimum.value)
-
-        if self.maximum.is_assigned:
-            maximum = float(self.maximum.value)
-
-        if minimum is not None and maximum is not None and minimum > maximum:
-            raise ValueError(
-                f"{self.name}: minimum must be less than or equal to maximum."
-            )
-
-        return minimum, maximum
-
-    def _clamp(self, value: float):
-        minimum, maximum = self._limits()
-
-        saturated = False
-
-        if minimum is not None and value < minimum:
-            value = minimum
-            saturated = True
-
-        if maximum is not None and value > maximum:
-            value = maximum
-            saturated = True
-
-        return value, saturated
-
-    def _initialize(self):
-        self._initialized = True
-
-        self.previous_time = State(float(self.network.time.value))
-
         self.velocity = State(0.0)
         self.position_error = State(0.0)
         self.raw_command = State(0.0)
@@ -68,90 +29,58 @@ class Actuator(Component):
         self.rate_limited = State(False)
         self.saturated = State(False)
 
+    def evaluate_states(self) -> None:
         if not self.command.is_assigned:
-            raise ValueError(
-                f"{self.name}: Actuator requires an initialized command."
-            )
+            raise ValueError(f"{self.name}: command is uninitialized.")
 
-        raw_command = float(self.command.value)
-        limited_command, saturated = self._clamp(raw_command)
+        raw = float(self.command.value)
+        minimum = float(self.minimum.value) if self.minimum.is_assigned else None
+        maximum = float(self.maximum.value) if self.maximum.is_assigned else None
 
-        self.raw_command.value = raw_command
-        self.limited_command.value = limited_command
+        if minimum is not None and maximum is not None and minimum > maximum:
+            raise ValueError(f"{self.name}: minimum must not exceed maximum.")
 
-        if not self.position.is_assigned:
-            self.position.value = limited_command
-        else:
-            position, position_saturated = self._clamp(float(self.position.value))
-            self.position.value = position
-            saturated = saturated or position_saturated
+        command = raw
+        if minimum is not None:
+            command = max(command, minimum)
+        if maximum is not None:
+            command = min(command, maximum)
 
-        self.position_error.value = limited_command - float(self.position.value)
-        self.saturated.value = saturated
+        initial = float(self.position.value) if self.position.is_assigned else command
+        position = initial
+        if minimum is not None:
+            position = max(position, minimum)
+        if maximum is not None:
+            position = min(position, maximum)
+        saturated = raw != command or position != initial
 
-    def evaluate_states(self):
-        """Evaluate the component for the current network state."""
-        if not hasattr(self, "_initialized"):
-            self._initialize()
-
-        if not self.command.is_assigned:
-            raise ValueError(
-                f"{self.name}: Actuator command is uninitialized."
-            )
-
-        time = float(self.network.time.value)
-        dt = time - float(self.previous_time.value)
-
-        raw_command = float(self.command.value)
-        command, command_saturated = self._clamp(raw_command)
-
-        position = float(self.position.value)
-
-        self.raw_command.value = raw_command
-        self.limited_command.value = command
-
+        previous = position
+        dt = 0.0
         rate_limited = False
-        saturated = command_saturated
-
         if self.rate_limit.is_assigned:
+            try:
+                dt = float(self.network.time.value) - float(self.network.time.previous)
+                previous = float(self.position.previous)
+            except ValueError:
+                dt = 0.0
+
             if dt > 0.0:
-                rate_limit = abs(float(self.rate_limit.value))
-                max_step = rate_limit * dt
-
-                delta = command - position
-
-                if delta > max_step:
-                    delta = max_step
-                    rate_limited = True
-
-                if delta < -max_step:
-                    delta = -max_step
-                    rate_limited = True
-
-                next_position = position + delta
-                next_position, position_saturated = self._clamp(next_position)
-
-                self.position.value = next_position
-                self.velocity.value = (next_position - position) / dt
-                self.previous_time.value = time
-
-                saturated = saturated or position_saturated
-
-            else:
-                next_position = position
-                self.velocity.value = 0.0
-
+                step = abs(float(self.rate_limit.value)) * dt
+                rate_limited = abs(command - previous) > step
+                position = max(previous - step, min(command, previous + step))
         else:
-            next_position, position_saturated = self._clamp(command)
+            position = command
 
-            self.position.value = next_position
-            self.velocity.value = 0.0
+        unclamped = position
+        if minimum is not None:
+            position = max(position, minimum)
+        if maximum is not None:
+            position = min(position, maximum)
 
-            if dt > 0.0:
-                self.previous_time.value = time
-
-            saturated = saturated or position_saturated
-
-        self.position_error.value = command - float(self.position.value)
+        self.position.value = position
+        self.velocity.value = (position - previous) / dt if dt > 0.0 else 0.0
+        self.position_error.value = command - position
+        self.raw_command.value = raw
+        self.limited_command.value = command
         self.rate_limited.value = rate_limited
-        self.saturated.value = saturated
+        self.saturated.value = saturated or position != unclamped
