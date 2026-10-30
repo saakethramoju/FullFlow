@@ -44,10 +44,16 @@ class Transient:
         self.history = TransientHistory()
         self.step_diagnostics: list[StepDiagnostics] = []
 
-    def linearize(self, inputs=None, outputs=None, filename=None, *, times=None):
+    def linearize(
+        self, inputs=None, outputs=None, filename=None, *, times=None,
+        verbose=False,
+    ):
         """Linearize the latest accepted point or selected saved times."""
         from fullflow.Solvers.linearization.solver import linearize
-        return linearize(self, inputs=inputs, outputs=outputs, filename=filename, times=times)
+        return linearize(
+            self, inputs=inputs, outputs=outputs, filename=filename, times=times,
+            verbose=verbose,
+        )
 
     def run(self, *args: Any, **kwargs: Any):
         """Alias for :meth:`solve` so ``Transient(network).run()`` works."""

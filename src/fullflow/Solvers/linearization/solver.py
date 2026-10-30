@@ -43,6 +43,10 @@ class LinearizationResult:
         from .results import save_linearization
         return save_linearization(self, filename)
 
+    def print(self, *, console=None):
+        from .diagnostics import print_linearization
+        print_linearization(self, console=console)
+
 
 def _step(value, state):
     step = 1e-5 * max(abs(value), 1e-3)
@@ -109,12 +113,15 @@ def _balance_tolerance(solver):
     return max(1e-6, float(getattr(settings, "rtol", 1e-6)))
 
 
-def linearize(solver, inputs: Sequence | None = None, outputs: Sequence | None = None, filename=None, *, times=None):
+def linearize(
+    solver, inputs: Sequence | None = None, outputs: Sequence | None = None,
+    filename=None, *, times=None, verbose=False,
+):
     """Linearize the last accepted operating point in physical state coordinates."""
     if times is not None:
         if not hasattr(solver, "step_solver"):
             raise LinearizationError("times is only supported by Transient.linearize().")
-        return _linearize_many(solver, inputs, outputs, filename, times)
+        return _linearize_many(solver, inputs, outputs, filename, times, verbose)
     if getattr(solver, "_linearization_issue", None) and hasattr(solver, "step_solver"):
         raise LinearizationError(solver._linearization_issue)
     try:
@@ -219,6 +226,9 @@ def linearize(solver, inputs: Sequence | None = None, outputs: Sequence | None =
             if not str(filename).strip():
                 raise LinearizationError("filename must not be empty.")
             result.save(filename)
+        if verbose:
+            from .diagnostics import print_linearization
+            print_linearization(result, console=getattr(solver, "console", None))
         return result
     except LinearizationError:
         raise
@@ -230,7 +240,7 @@ def linearize(solver, inputs: Sequence | None = None, outputs: Sequence | None =
         point.snapshot.restore()
 
 
-def _linearize_many(solver, inputs, outputs, filename, times):
+def _linearize_many(solver, inputs, outputs, filename, times, verbose=False):
     from .results import save_linearizations
 
     current = solver._linearization_source
@@ -262,7 +272,12 @@ def _linearize_many(solver, inputs, outputs, filename, times):
             checkpoint.restore()
             solver._linearization_source = checkpoint
             solver._linearization_issue = None
-            results[time_value] = linearize(solver, inputs=inputs, outputs=outputs)
+            results[time_value] = linearize(
+                solver,
+                inputs=inputs,
+                outputs=outputs,
+                verbose=verbose,
+            )
         if filename is not None:
             save_linearizations(results, filename, solver.network.name)
         return results

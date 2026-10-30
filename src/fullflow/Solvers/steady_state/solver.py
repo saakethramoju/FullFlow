@@ -68,11 +68,17 @@ class SteadyState:
             self._print_last_success,
         )
 
-    def linearize(self, inputs=None, outputs=None, filename=None, *, times=None):
+    def linearize(
+        self, inputs=None, outputs=None, filename=None, *, times=None,
+        verbose=False,
+    ):
         """Linearize the most recent converged equilibrium."""
         from fullflow.Solvers.linearization.solver import linearize
         if times is None:
-            return linearize(self, inputs=inputs, outputs=outputs, filename=filename)
+            return linearize(
+                self, inputs=inputs, outputs=outputs, filename=filename,
+                verbose=verbose,
+            )
 
         from fullflow.Solvers.linearization.checkpoints import OperatingCheckpoint
         from fullflow.Solvers.linearization.results import save_linearizations
@@ -98,7 +104,12 @@ class SteadyState:
                 checkpoint.restore()
                 self._runtime_cache = None
                 self._linearization_source = OperatingCheckpoint(self.network, self._cache())
-                results[time_value] = linearize(self, inputs=inputs, outputs=outputs)
+                results[time_value] = linearize(
+                    self,
+                    inputs=inputs,
+                    outputs=outputs,
+                    verbose=verbose,
+                )
         finally:
             current.restore()
             self._runtime_cache = None
