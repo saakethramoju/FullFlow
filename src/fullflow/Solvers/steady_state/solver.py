@@ -30,6 +30,7 @@ class SteadyState:
         self.statistics = SolverStatistics(console=self.console)
         self._runtime_cache: RuntimeCache | None = None
         self._ignore_balances = None
+        self._linearization_source = None
         self._active_state_settings = StateEvaluationSettings()
 
         # Retain the latest trial for failure diagnostics.
@@ -64,6 +65,11 @@ class SteadyState:
             self.printer,
             self._print_last_success,
         )
+
+    def linearize(self, inputs=None, outputs=None, filename=None):
+        """Linearize the most recent converged equilibrium."""
+        from fullflow.Solvers.linearization.solver import linearize
+        return linearize(self, inputs=inputs, outputs=outputs, filename=filename)
 
     def run(self, *args: Any, **kwargs: Any):
         """Alias for :meth:`solve` so ``SteadyState(network).run()`` works."""
@@ -246,6 +252,8 @@ class SteadyState:
             self._last_static_elapsed_time = None
             self._last_solve_diagnostics = diagnostics
 
+        from fullflow.Solvers.linearization.checkpoints import OperatingCheckpoint
+        self._linearization_source = OperatingCheckpoint(self.network, self._cache())
         return solution
 
     def _solve_forced_steady_time_sweep_once(
@@ -323,6 +331,7 @@ class SteadyState:
         state_tolerance: float = 1e-10,
     ):
         """Evaluate the network without nonlinear solving."""
+        self._linearization_source = None
         self._ignore_balances = None
         self._runtime_cache = None
 
@@ -382,6 +391,7 @@ class SteadyState:
         ignore_balances=None,
     ):
         """Solve the network steady state."""
+        self._linearization_source = None
         self._ignore_balances = ignore_balances
         self._runtime_cache = None
 

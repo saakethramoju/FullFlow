@@ -62,7 +62,6 @@ examples = [
     "matplotlib>=3.8",
 ]
 dev = [
-    "pytest>=8.0",
     "build>=1.2",
     "twine>=5.0",
 ]
@@ -94,12 +93,10 @@ source-include = [
     "CITATION.cff",
     "docs/**",
     "examples/**",
-    "tests/**",
 ]
 
 [dependency-groups]
 dev = [
-    "pytest>=8.0",
     "build>=1.2",
     "twine>=5.0",
 ]

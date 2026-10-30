@@ -32,6 +32,8 @@ class Transient:
         self._ignore_balances = None
         self._force_steady = None
         self._force_steady_exceptions = None
+        self._linearization_source = None
+        self._linearization_points = {}
         self.evaluator = TransientStateEvaluator(self._cache)
         self.step_solver = TransientStepSolve(
             network,
@@ -41,6 +43,11 @@ class Transient:
         self.printer = TransientPrinter(network, self._cache, self.console)
         self.history = TransientHistory()
         self.step_diagnostics: list[StepDiagnostics] = []
+
+    def linearize(self, inputs=None, outputs=None, filename=None, *, times=None):
+        """Linearize the latest accepted point or selected saved times."""
+        from fullflow.Solvers.linearization.solver import linearize
+        return linearize(self, inputs=inputs, outputs=outputs, filename=filename, times=times)
 
     def run(self, *args: Any, **kwargs: Any):
         """Alias for :meth:`solve` so ``Transient(network).run()`` works."""
@@ -225,6 +232,10 @@ class Transient:
     ):
         """Advance the network with optional model-option selection."""
 
+        self._linearization_source = None
+        self._linearization_points = {}
+        self._linearization_issue = None
+
         def run_once(
             filename: str | None = None,
             return_type: str = "dict",
@@ -297,6 +308,9 @@ class Transient:
         metadata: dict[str, Any] | None = None,
     ):
         """Advance the network from its current time to ``t_final``."""
+        self._linearization_source = None
+        self._linearization_points = {}
+        self._linearization_issue = None
         self._ignore_balances = ignore_balances
         self._force_steady = force_steady
         self._force_steady_exceptions = force_steady_exceptions
@@ -352,6 +366,9 @@ class Transient:
         self.network.reset_sequence_aborts()
         self.network.initialize_sensor_conditions(float(self.network.time.value))
         self.history.append(self.network, float(self.network.time.value))
+        from fullflow.Solvers.linearization.checkpoints import OperatingCheckpoint, discrete_signature
+        self._linearization_points[float(self.network.time.value)] = (OperatingCheckpoint(self.network, cache), None)
+        previous_mode = discrete_signature(cache)
         sequence_breakpoints = self._collect_sequence_breakpoints()
         next_save_time = None if save_dt is None else float(self.network.time.value) + float(save_dt)
 
@@ -480,6 +497,15 @@ class Transient:
 
             # Refresh structural changes before the next step.
             self._cache()
+            current_mode = discrete_signature(self._cache())
+            switched = current_mode != previous_mode
+            previous_mode = current_mode
+            issue = "An event or operating mode changed at this timestep." if step_events or abort_record or switched else None
+            retain = save_output and (save_dt is not None or diagnostics.time >= t_final - 1e-10)
+            if retain or issue:
+                checkpoint = OperatingCheckpoint(self.network, self._cache())
+                self._linearization_points[float(diagnostics.time)] = (checkpoint, issue)
+            self._linearization_issue = issue
 
             if abort_record is not None:
                 break
@@ -526,4 +552,5 @@ class Transient:
             self.printer.print_sensor_event_summary(self.network.sensor_event_list)
             self.printer.print_network_solution()
 
+        self._linearization_source = OperatingCheckpoint(self.network, self._cache())
         return format_records(self.history.public_records, return_type)
