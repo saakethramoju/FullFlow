@@ -91,7 +91,7 @@ class SteadyState:
                     if abs(saved - time_value) <= 1e-9 * max(1.0, abs(time_value))
                 ]
                 if len(matches) != 1:
-                    raise ValueError(f"No unique saved operating point at t={time_value:g}. Use save_dt when solving.")
+                    raise ValueError(f"No unique accepted operating point at t={time_value:g}.")
                 checkpoint, issue = self._linearization_points[matches[0]]
                 if issue:
                     raise ValueError(f"Cannot linearize a switching event at t={time_value:g}: {issue}")

@@ -501,10 +501,8 @@ class Transient:
             switched = current_mode != previous_mode
             previous_mode = current_mode
             issue = "An event or operating mode changed at this timestep." if step_events or abort_record or switched else None
-            retain = save_output and (save_dt is not None or diagnostics.time >= t_final - 1e-10)
-            if retain or issue:
-                checkpoint = OperatingCheckpoint(self.network, self._cache())
-                self._linearization_points[float(diagnostics.time)] = (checkpoint, issue)
+            checkpoint = OperatingCheckpoint(self.network, self._cache())
+            self._linearization_points[float(diagnostics.time)] = (checkpoint, issue)
             self._linearization_issue = issue
 
             if abort_record is not None:

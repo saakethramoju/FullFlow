@@ -79,6 +79,7 @@ class OperatingPointEvaluator:
         )
         self._trial_snapshot = None
         self._trial_inputs = {}
+        self.solver.evaluator.run(max_passes=12, tolerance=1e-10)
         self.x0 = np.array([_number(state) for state in self.states], dtype=float)
         self.w0 = np.array([_number(variable) for variable in self.variables], dtype=float)
         self.time = float(self.network.time.value)

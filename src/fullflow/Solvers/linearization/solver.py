@@ -249,7 +249,7 @@ def _linearize_many(solver, inputs, outputs, filename, times):
     for time_value in requested:
         matches = [t for t in solver._linearization_points if abs(t - time_value) <= 1e-9 * max(1.0, abs(time_value))]
         if len(matches) != 1:
-            raise LinearizationError(f"No unique saved operating point at t={time_value:g}. Use save_dt when solving.")
+            raise LinearizationError(f"No unique accepted operating point at t={time_value:g}.")
         checkpoints[time_value] = solver._linearization_points[matches[0]]
 
     for time_value, (_, issue) in checkpoints.items():
