@@ -66,11 +66,13 @@ def _matrix_tables(name, matrix, row_symbol, column_symbol, width):
     tables = []
     for start, stop in blocks:
         suffix = "" if len(blocks) == 1 else f" — {column_symbol}[{start}:{stop}]"
+        title = f"{name} Matrix ({rows} × {columns}){suffix}"
         table = Table(
-            title=f"{name} Matrix ({rows} × {columns}){suffix}",
+            title=title,
             box=box.SIMPLE,
             show_header=True,
             header_style="bold",
+            min_width=min(width, len(title) + 2),
         )
         table.add_column("Row", justify="right", style="dim", no_wrap=True)
         for column in range(start, stop):

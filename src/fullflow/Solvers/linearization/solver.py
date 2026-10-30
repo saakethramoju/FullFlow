@@ -113,6 +113,10 @@ def _balance_tolerance(solver):
     return max(1e-6, float(getattr(settings, "rtol", 1e-6)))
 
 
+def _display_label(value):
+    return str(value).replace(":", ".", 1)
+
+
 def linearize(
     solver, inputs: Sequence | None = None, outputs: Sequence | None = None,
     filename=None, *, times=None, verbose=False,
@@ -150,8 +154,26 @@ def linearize(
     def label(state):
         if callable(state) and not is_state_like(state):
             return getattr(state, "__name__", "output")
-        names = point.cache.find_variable_labels(state)
-        return names[0] if names else str(getattr(state, "label", state))
+
+        lookup = getattr(state, "lookup", None)
+        attribute = getattr(state, "name", None)
+        if lookup is not None and attribute:
+            return f"{lookup.name}.{attribute}"
+
+        for dynamic_state, dynamic_label in zip(point.states, point.state_labels):
+            if dynamic_state is state:
+                return _display_label(dynamic_label)
+
+        names = list(getattr(state, "labels", ()))
+        names.extend(point.cache.find_variable_labels(state))
+        names = [
+            name for name in names
+            if "_attribute_cache" not in name and ".kwargs." not in name
+        ]
+        if names:
+            names.sort(key=lambda name: ("[" in name, len(name)))
+            return _display_label(names[0])
+        return _display_label(getattr(state, "label", state))
 
     w0 = point.w0
     u0 = np.asarray([_number(item) for item in inputs])
@@ -209,7 +231,7 @@ def linearize(
             xdot0=base[n:2 * n].copy(),
             u0=u0.copy(),
             y0=base[2 * n + k:].copy(),
-            states=point.state_labels,
+            states=tuple(_display_label(name) for name in point.state_labels),
             inputs=tuple(label(state) for state in inputs),
             outputs=tuple(label(state) for state in outputs),
             time=point.time,
