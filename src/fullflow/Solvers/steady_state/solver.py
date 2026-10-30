@@ -31,6 +31,8 @@ class SteadyState:
         self._runtime_cache: RuntimeCache | None = None
         self._ignore_balances = None
         self._linearization_source = None
+        self._linearization_points = {}
+        self._linearization_tolerance = None
         self._active_state_settings = StateEvaluationSettings()
 
         # Retain the latest trial for failure diagnostics.
@@ -66,10 +68,45 @@ class SteadyState:
             self._print_last_success,
         )
 
-    def linearize(self, inputs=None, outputs=None, filename=None):
+    def linearize(self, inputs=None, outputs=None, filename=None, *, times=None):
         """Linearize the most recent converged equilibrium."""
         from fullflow.Solvers.linearization.solver import linearize
-        return linearize(self, inputs=inputs, outputs=outputs, filename=filename)
+        if times is None:
+            return linearize(self, inputs=inputs, outputs=outputs, filename=filename)
+
+        from fullflow.Solvers.linearization.checkpoints import OperatingCheckpoint
+        from fullflow.Solvers.linearization.results import save_linearizations
+
+        requested = tuple(float(value) for value in times)
+        if not requested or len(set(requested)) != len(requested):
+            raise ValueError("times must contain distinct saved operating-point times.")
+
+        current = OperatingCheckpoint(self.network, self._cache())
+        source = self._linearization_source
+        results = {}
+        try:
+            for time_value in requested:
+                matches = [
+                    saved for saved in self._linearization_points
+                    if abs(saved - time_value) <= 1e-9 * max(1.0, abs(time_value))
+                ]
+                if len(matches) != 1:
+                    raise ValueError(f"No unique saved operating point at t={time_value:g}. Use save_dt when solving.")
+                checkpoint, issue = self._linearization_points[matches[0]]
+                if issue:
+                    raise ValueError(f"Cannot linearize a switching event at t={time_value:g}: {issue}")
+                checkpoint.restore()
+                self._runtime_cache = None
+                self._linearization_source = OperatingCheckpoint(self.network, self._cache())
+                results[time_value] = linearize(self, inputs=inputs, outputs=outputs)
+        finally:
+            current.restore()
+            self._runtime_cache = None
+            self._linearization_source = source
+
+        if filename is not None:
+            save_linearizations(results, filename, self.network.name, "steady_state")
+        return results
 
     def run(self, *args: Any, **kwargs: Any):
         """Alias for :meth:`solve` so ``SteadyState(network).run()`` works."""
@@ -317,6 +354,11 @@ class SteadyState:
         self._last_success_kind = "forced_steady_time_sweep"
         self._last_static_elapsed_time = None
         self._last_solve_diagnostics = None
+        self._linearization_points = dict(transient_solver._linearization_points)
+        self._linearization_tolerance = rtol
+        self._runtime_cache = None
+        from fullflow.Solvers.linearization.checkpoints import OperatingCheckpoint
+        self._linearization_source = OperatingCheckpoint(self.network, self._cache())
         return result
 
     def static_evaluate(
@@ -392,6 +434,8 @@ class SteadyState:
     ):
         """Solve the network steady state."""
         self._linearization_source = None
+        self._linearization_points = {}
+        self._linearization_tolerance = None
         self._ignore_balances = ignore_balances
         self._runtime_cache = None
 

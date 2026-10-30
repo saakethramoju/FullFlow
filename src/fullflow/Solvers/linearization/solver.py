@@ -101,6 +101,9 @@ def _solve(matrix, right):
 
 def _balance_tolerance(solver):
     """Use the tolerance under which the operating point was accepted."""
+    tolerance = getattr(solver, "_linearization_tolerance", None)
+    if tolerance is not None:
+        return max(1e-6, float(tolerance))
     diagnostics = getattr(solver, "_last_solve_diagnostics", None)
     settings = getattr(diagnostics, "settings", None)
     return max(1e-6, float(getattr(settings, "rtol", 1e-6)))
@@ -158,7 +161,7 @@ def linearize(solver, inputs: Sequence | None = None, outputs: Sequence | None =
         base = sample()
         if np.max(np.abs(base[2 * n:2 * n + k]), initial=0.0) > _balance_tolerance(solver):
             raise LinearizationError("The operating point does not satisfy its algebraic balances.")
-        if not point.transient and np.max(np.abs(base[n:2 * n]), initial=0.0) > 1e-5:
+        if not point.transient and np.max(np.abs(base[n:2 * n]), initial=0.0) > _balance_tolerance(solver):
             raise LinearizationError("The steady-state dynamic derivatives are not zero. Solve again before linearizing.")
         if not np.allclose(base[:n], point.x0, rtol=1e-8, atol=1e-9):
             raise LinearizationError("Physical states do not match the solved operating point.")

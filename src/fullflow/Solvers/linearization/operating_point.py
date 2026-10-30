@@ -97,7 +97,7 @@ class OperatingPointEvaluator:
             rows = self.solver.step_diagnostics
             if not rows:
                 raise OperatingPointError("Transient requires an accepted timestep before analysis.")
-        elif getattr(self.solver, "_last_success_kind", None) != "solve":
+        elif getattr(self.solver, "_last_success_kind", None) not in ("solve", "forced_steady_time_sweep"):
             raise OperatingPointError("SteadyState requires a successful nonlinear solve before analysis.")
 
     def _model_options(self):
