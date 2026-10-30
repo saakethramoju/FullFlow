@@ -79,12 +79,17 @@ class OperatingPointEvaluator:
         )
         self._trial_snapshot = None
         self._trial_inputs = {}
-        self.solver.evaluator.run(max_passes=12, tolerance=1e-10)
-        self.x0 = np.array([_number(state) for state in self.states], dtype=float)
-        self.w0 = np.array([_number(variable) for variable in self.variables], dtype=float)
-        self.time = float(self.network.time.value)
         self.snapshot = EvaluationSnapshot(self.network, self.cache)
         self.mode_signature = self.snapshot.modes
+        try:
+            self.solver.evaluator.run(max_passes=12, tolerance=1e-10)
+            if self.snapshot.mode_signature() != self.mode_signature:
+                raise OperatingPointError("An operating mode changed during baseline evaluation.")
+            self.x0 = np.array([_number(state) for state in self.states], dtype=float)
+            self.w0 = np.array([_number(variable) for variable in self.variables], dtype=float)
+            self.time = float(self.network.time.value)
+        finally:
+            self.snapshot.restore()
 
     def _check_source(self):
         source = getattr(self.solver, "_linearization_source", None)

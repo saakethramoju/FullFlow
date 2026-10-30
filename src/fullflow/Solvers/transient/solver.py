@@ -556,5 +556,9 @@ class Transient:
             self.printer.print_sensor_event_summary(self.network.sensor_event_list)
             self.printer.print_network_solution()
 
-        self._linearization_source = OperatingCheckpoint(self.network, self._cache())
+        final_time = float(self.network.time.value)
+        if final_time in self._linearization_points:
+            self._linearization_source = self._linearization_points[final_time][0]
+        else:
+            self._linearization_source = OperatingCheckpoint(self.network, self._cache())
         return format_records(self.history.public_records, return_type)

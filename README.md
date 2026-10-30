@@ -105,6 +105,9 @@ Pipe = DarcyWeisbach(
 solution = SteadyState(PipeNetwork).solve(verbose=True)
 ```
 
+For a broader reference on network, component, and state behavior, see
+**[SYSTEM.md](src/fullflow/System/SYSTEM.md)**.
+
 ## Core concepts
 
 ### State
@@ -999,6 +1002,10 @@ solution = SteadyState(network).solve(
 )
 ```
 
+For a more detailed explanation of steady-state solving, model options,
+residual evaluation, diagnostics, and solver settings, see
+**[STEADY_STATE_SOLVER.md](src/fullflow/Solvers/STEADY_STATE_SOLVER.md)**.
+
 The steady solver sequence is:
 
 1. build the selected model configuration,
@@ -1053,6 +1060,10 @@ integrated_state(n+1)
 
 This is why a fluid volume can iterate pressure while conserving mass, or
 iterate temperature while conserving internal energy.
+
+For additional discussion of the transient solver, timestep retries,
+accepted-state history, events, numerical controls, and the full API,
+see **[TRANSIENT_SOLVER.md](src/fullflow/Solvers/TRANSIENT_SOLVER.md)**.
 
 ### Transient residual normalization
 
@@ -1189,6 +1200,11 @@ the neglected storage/inertia is intentionally assumed instantaneous. Use
 `Transient` when startup lag, accumulation, water hammer, thermal soak, rotor
 acceleration, actuator motion, or another time-dependent effect matters.
 
+For more on quasi-steady sweeps and their relationship to ordinary
+transient integration, see
+**[STEADY_STATE_SOLVER.md](src/fullflow/Solvers/STEADY_STATE_SOLVER.md)**
+and **[TRANSIENT_SOLVER.md](src/fullflow/Solvers/TRANSIENT_SOLVER.md)**.
+
 ### Solver methods
 
 | Method | Characteristics |
@@ -1257,6 +1273,640 @@ When a solve fails:
 9. change Jacobian or solver methods only after the model equations and scaling
    are sound.
 
+## Linearization and local state-space models
+
+FullFlow can **linearize a solved nonlinear network** to determine how small changes
+in dynamic states and independent inputs affect state derivatives and selected
+outputs. The resulting continuous-time state-space model is useful for
+sensitivity studies, stability analysis, controller design, and constructing
+fast local approximations to fluid, thermal, and propulsion subsystems.
+
+Linearization uses the same `Network`, `State`, `Component`, `balances`, and
+`dynamics` equations as the nonlinear solvers. A separate linear model does not
+need to be written, and custom components do not need to provide analytical
+Jacobian functions.
+
+The detailed reference is **[LINEARIZATION.md](LINEARIZATION.md)**. This README
+explains the underlying mathematics, what the matrices represent, and the main
+API and numerical restrictions.
+
+### What a linear model means
+
+A nonlinear network can have pressure-dependent fluid properties, square-root
+orifice laws, nonlinear pump maps, heat-transfer correlations, and coupled
+storage equations. Solving the entire network accounts for all of these effects.
+Linearization instead describes the **local slopes** of the equations at one
+already-solved operating point.
+
+For a scalar output `y` and a scalar input `u`, the idea is
+
+\[
+y(u) \approx y_0 + \left.\frac{dy}{du}\right|_0(u-u_0).
+\]
+
+The subscript `0` identifies the operating point. The approximation becomes
+less reliable as the input moves farther from that point or crosses a
+nonsmooth boundary, such as a choking transition or valve-mode change.
+
+For a full dynamic network, FullFlow constructs
+
+\[
+\boxed{\delta\dot{x} = A\,\delta x + B\,\delta u},
+\qquad
+\boxed{\delta y = C\,\delta x + D\,\delta u}.
+\]
+
+The variables are:
+
+| Symbol | Meaning | Typical example |
+| --- | --- | --- |
+| `x` | Vector of **physical integrated states** | Fluid mass, internal energy, solid temperature, rotor speed |
+| `u` | Vector of selected independent inputs | Valve area, supply pressure, commanded heat rate |
+| `y` | Vector of selected outputs | Chamber pressure, mass flow, thrust, wall temperature |
+| `delta` | Small deviation from the operating point | `delta_u = u - u0` |
+| `xdot` | Rate of change of the physical states | `dm/dt`, `dU/dt` |
+
+The four matrices contain the coupled local derivatives:
+
+| Matrix | Shape | Interpretation |
+| --- | --- | --- |
+| `A = d(xdot)/dx` | `(n_states, n_states)` | How a state disturbance changes the state derivatives |
+| `B = d(xdot)/du` | `(n_states, n_inputs)` | How an input disturbance changes the state derivatives |
+| `C = dy/dx` | `(n_outputs, n_states)` | How physical states affect the selected outputs |
+| `D = dy/du` | `(n_outputs, n_inputs)` | Immediate input/output sensitivity with physical states held fixed |
+
+For example, if a tank has two physical states, `x = [mass, internal_energy]`,
+then `A` is a 2-by-2 matrix. Its off-diagonal entries describe coupling:
+changes in internal energy may affect the mass depletion rate, and changes in
+mass may affect the internal-energy rate.
+
+`B`, `C`, and `D` depend on the **order** of the input and output lists provided
+to `linearize()`. The returned result includes labels for every row and column.
+The units of each matrix entry depend on the units of its corresponding state,
+input, output, and time; FullFlow does not normalize the matrices for display.
+
+### Absolute values versus deviations
+
+The matrix equations above describe deviations. FullFlow also returns the
+operating-point vectors `x0`, `xdot0`, `u0`, and `y0`, so the absolute local
+approximation is
+
+\[
+\dot{x} \approx \dot{x}_0 + A(x-x_0) + B(u-u_0),
+\]
+
+\[
+y \approx y_0 + C(x-x_0) + D(u-u_0).
+\]
+
+At a converged steady-state equilibrium, `xdot0` should be approximately zero.
+During a transient, a tank may already be draining or a rotor may already be
+accelerating, so `xdot0` can be nonzero. Omitting that baseline rate would give
+an incorrect absolute prediction.
+
+For example, a transient tank losing `0.02 kg/s` should retain this nominal
+loss in its local model. The `A` and `B` matrices then describe how small
+changes to the state or valve command modify that loss rate.
+
+### Why the physical state vector is not the solver unknown vector
+
+FullFlow deliberately separates the variable used for nonlinear iteration
+from the quantity being integrated. A gas volume may solve for pressure while
+conserving mass; another equation may solve for temperature while conserving
+internal energy:
+
+```python
+@property
+def dynamics(self):
+    return [
+        (self.pressure, self.mass, self.mass_dot),
+        (self.temperature, self.internal_energy, self.energy_dot),
+    ]
+```
+
+In this example:
+
+- `pressure` and `temperature` are nonlinear **iteration variables**.
+- `mass` and `internal_energy` are the **physical dynamic states**.
+- `mass_dot` and `energy_dot` are the derivatives of those physical states.
+
+A naive Jacobian of state derivatives with respect to pressure and temperature
+would not be the desired `A` matrix: pressure and temperature are not the
+conserved state coordinates. The linearizer must account for how mass and
+internal energy depend on those iteration variables, including the connected
+property lookups and algebraic constraints.
+
+This is also why you should not normally choose the same `State` as both a
+solver iteration variable and an independent linearization input.
+
+### Differential-algebraic equations and implicit differentiation
+
+FullFlow combines differential equations with algebraic closure equations.
+Locally, the network can be written as
+
+\[
+\dot{x} = f(w,u), \qquad x = h(w,u),
+\]
+
+\[
+0 = g(w,u), \qquad y = q(w,u),
+\]
+
+where:
+
+- `w` contains all active nonlinear iteration variables;
+- `x = h(w,u)` maps those iteration variables to conserved physical states;
+- `g(w,u) = 0` contains active component and user `Balance` constraints;
+- `f(w,u)` gives the physical state derivatives;
+- `q(w,u)` evaluates requested outputs.
+
+For example, `w` might include pressures and temperatures, while `x`
+contains mass and internal energy. A pipe-flow balance can constrain the
+pressures and flow without introducing a new integrated state.
+
+Linearization must preserve both the dynamic-state definitions and the
+algebraic constraints. Small perturbations satisfy
+
+\[
+\delta x = h_w\,\delta w + h_u\,\delta u,
+\qquad
+0 = g_w\,\delta w + g_u\,\delta u,
+\]
+
+where a subscript such as `h_w` denotes a matrix of partial derivatives.
+Combining these equations gives
+
+\[
+M = \begin{bmatrix}h_w\\g_w\end{bmatrix},
+\qquad
+M\begin{bmatrix}w_x&w_u\end{bmatrix}
+=
+\begin{bmatrix}I&-h_u\\0&-g_u\end{bmatrix}.
+\]
+
+When `M` is **square and nonsingular**, this linear system determines how the
+iteration variables respond to changes in physical states or independent
+inputs while satisfying the network constraints. FullFlow then assembles
+
+\[
+\boxed{A = f_w w_x}, \qquad
+\boxed{B = f_u + f_w w_u},
+\]
+
+\[
+\boxed{C = q_w w_x}, \qquad
+\boxed{D = q_u + q_w w_u}.
+\]
+
+These are derivatives of the **coupled network**, not just derivatives of one
+isolated component. A valve-area input can change a flow rate, which affects
+node pressures, fluid properties, and several downstream outputs; the
+implicit sensitivity system accounts for the active algebraic coupling.
+
+FullFlow numerically estimates the required partial derivatives using
+**central finite differences** of the existing network equations, checks the
+estimates against smaller perturbations, and solves a dense sensitivity
+system. It does not symbolically differentiate Python source code, require
+user-written derivatives, or perform a complete nonlinear solve for each
+Jacobian column. It does not automatically apply a pseudoinverse to singular
+state transformations.
+
+This is a local first-order approximation. It is not a new integration method:
+the nonlinear transient solver still uses backward Euler, as described in
+[TRANSIENT_SOLVER.md](src/fullflow/Solvers/TRANSIENT_SOLVER.md).
+
+### Small worked mathematical example
+
+Consider a simplified model with one stored mass `m`, one iteration pressure
+`P`, one area input `a`, and one chamber-pressure output `Pc`:
+
+\[
+m = 2P, \qquad P_c = \frac{P+a}{2},
+\qquad \dot m = 2-P_c.
+\]
+
+These are illustrative normalized relationships, not realistic orifice or
+combustion equations. Eliminating `P` gives
+
+\[
+\dot m = 2 - \frac{m}{4} - \frac{a}{2},
+\qquad
+P_c = \frac{m}{4} + \frac{a}{2}.
+\]
+
+Choosing `x = m`, `u = a`, and `y = Pc`, the local matrices are
+
+\[
+A=-0.25, \qquad B=-0.5, \qquad C=0.25, \qquad D=0.5.
+\]
+
+For instance, `B = -0.5` means a small increase in area reduces the rate of
+mass accumulation. `D = 0.5` means the output immediately increases with area
+at fixed stored mass. The linearizer obtains these quantities from the
+component equations rather than requiring this algebra to be worked out by
+hand.
+
+### Steady-state linearization
+
+A steady-state solve finds a point where active algebraic balances and the
+dynamic derivatives are approximately zero. After a successful solve, call
+`linearize()` on the **same solver instance**:
+
+```python
+steady = SteadyState(network)
+steady.solve(verbose=True)
+
+result = steady.linearize(
+    inputs=[supply_pressure, valve_area],
+    outputs=[chamber_pressure, mass_flow],
+    filename="Linearization.h5",
+    verbose=True,
+)
+```
+
+Here `supply_pressure`, `valve_area`, `chamber_pressure`, and `mass_flow` stand
+for already-connected FullFlow states in your model; this snippet assumes
+they have been defined and wired into the network.
+
+The result is the local state-space model of the **converged equilibrium**. A
+static evaluation alone does not establish an equilibrium and is not a valid
+substitute for `steady.solve()`.
+
+To obtain just static input/output sensitivities from a feed network with no
+dynamic states, the `D` matrix can be useful on its own:
+
+```python
+steady = SteadyState(feed_network)
+steady.solve()
+
+result = steady.linearize(
+    inputs=[lox_inlet_pressure, fuel_inlet_pressure, throat_area],
+    outputs=[chamber_pressure, lox_mass_flow, fuel_mass_flow],
+)
+
+print(result.D)
+print(result.inputs)
+print(result.outputs)
+```
+
+For three inputs and three outputs, `D` has shape `(3, 3)`. Each column
+corresponds to one input and each row to one output. In an algebraic-only
+network, `A` has shape `(0, 0)`, `B` has shape `(0, n_inputs)`, and `C` has
+shape `(n_outputs, 0)`.
+
+This is **not** a promise that every feed-system model is linearizable: the
+active algebraic equations must still have a nonsingular local sensitivity
+system and behave smoothly under the perturbations.
+
+### Transient linearization at the final time
+
+A transient operating point generally has nonzero accumulation, so its
+linearization is a **frozen-time model** of the differential equations at
+that instant, not a new steady-state equilibrium.
+
+```python
+transient = Transient(network)
+transient.solve(dt=0.01, t_final=30.0)
+
+result = transient.linearize(
+    inputs=[valve_area],
+    outputs=[tank_pressure, outlet_mass_flow],
+)
+
+print(result.time)
+print(result.A)
+```
+
+When `times` is **omitted or `None`**, FullFlow analyzes the **last accepted
+transient operating point**. If the simulation reaches `t_final=30.0`, the
+result is normally at `t=30.0`. If it stops early, the result uses the
+last accepted time, which is recorded in `result.time`.
+
+The approximation includes the returned `xdot0`, because the nominal system
+may still be changing at the chosen time. It does not include the time
+derivative of a scheduled command or automatically predict future changes
+in control mode.
+
+### Transient linearization at multiple times
+
+To inspect how the same network changes as tanks drain, components heat up,
+or operating conditions evolve, request specific **accepted timesteps**:
+
+```python
+transient = Transient(network)
+transient.solve(dt=0.1, t_final=1.0)
+
+results = transient.linearize(
+    inputs=[valve_area],
+    outputs=[tank_pressure, outlet_mass_flow],
+    times=[0.1, 0.3, 0.9],
+    filename="Transient_Linearization.h5",
+)
+
+print(results[0.1].A)
+print(results[0.3].D)
+```
+
+A multi-time call returns a dictionary keyed by the **requested times**, with
+one `LinearizationResult` per operating point. The times must correspond to
+accepted solver timesteps within a small floating-point tolerance. FullFlow
+does **not interpolate** between timesteps or reconstruct earlier operating
+points from an HDF5 output file.
+
+Every accepted transient step is checkpointed for linearization, independently
+of `save_dt`:
+
+- `dt` specifies the requested numerical integration timestep; retries and
+  scheduled boundaries can produce shorter accepted steps.
+- `save_dt` controls sampling of saved outputs and **does not control which
+  accepted operating points may be linearized**.
+- `times` selects the accepted points to analyze, whether or not their values
+  were included in the saved output history.
+
+For example, `times=[0.1, 0.3]` can work after a `dt=0.1` solve with no
+`save_dt` specified. But `times=[0.15]` will fail if `0.15` was not an
+accepted timestep. A `save_dt` boundary can also cause the integration
+solver to land at an additional time; the two settings still have separate
+purposes.
+
+**Memory tradeoff:** retaining full checkpoints for every accepted step can
+use substantial memory in a long or complex simulation. The checkpoints live
+on the solver instance, and rerunning the transient replaces them. Choose a
+sensible timestep and be aware of this retention cost.
+
+### Quasi-steady sweeps and model options
+
+`SteadyState.solve(dt=..., t_final=...)` can carry out a quasi-steady time
+sweep that trims the system repeatedly rather than integrating all dynamics.
+For accepted quasi-steady operating points, `SteadyState.linearize(times=[...])`
+can return multiple equilibrium linearizations:
+
+```python
+steady = SteadyState(network)
+steady.solve(dt=0.1, t_final=1.0)
+
+results = steady.linearize(
+    inputs=[inlet_pressure],
+    outputs=[mass_flow],
+    times=[0.1, 0.5, 1.0],
+)
+```
+
+Quasi-steady results remain subject to the steady-equilibrium requirement.
+Time sweeps that leave selected components integrating dynamically are not
+necessarily true equilibria at each time and may be rejected if their
+dynamic derivatives are nonzero. A normal `Transient` solve should be used
+when accumulation and inertia are important.
+
+With `Model` options, the active model configuration is part of the operating
+point. The result records the selected options; a model-option change after
+solving invalidates the saved point. Linearization does not automatically
+analyze every model option or sweep every parameter combination.
+
+### Choosing inputs and outputs
+
+`inputs` specifies the **independent continuous inputs to perturb**. These
+must be writable, unique, connected FullFlow `State` objects belonging to the
+active network. Typical choices are a fixed boundary pressure, valve area,
+heat-load command, or other externally prescribed parameter.
+
+Do **not** choose a state that the nonlinear solver already varies as a
+`dynamics` or `balances` iteration variable, a physical integrated state,
+or a derived state that cannot be assigned. Inputs that components overwrite
+during equation evaluation are also rejected. A standalone `Balance` can
+reference an independent input registered through `network.track(...)`.
+
+`outputs` may be connected `State` objects or zero-argument callables. A
+callable output should be deterministic and free of side effects; it will
+be evaluated repeatedly during finite differences.
+
+```python
+result = steady.linearize(
+    inputs=[valve_area, inlet_pressure],
+    outputs=[mass_flow, chamber_pressure],
+)
+
+# Inputs label the D columns; outputs label its rows.
+print(result.inputs)
+print(result.outputs)
+print(result.D.shape)
+```
+
+`inputs=None` means **no selected input directions**; `outputs=None` means
+**no selected output quantities**. Dynamic-state derivatives and the related
+matrices are still calculated where the network provides dynamic equations.
+
+The current API is:
+
+```python
+steady.linearize(inputs=None, outputs=None, filename=None, *, times=None, verbose=False)
+transient.linearize(inputs=None, outputs=None, filename=None, *, times=None, verbose=False)
+```
+
+For transient analysis, `times=None` selects the final accepted point.
+For a quasi-steady sweep, `times` selects its accepted equilibria. All requested
+times must be distinct and finite. Pass `filename` to save results to HDF5,
+or use `result.save(filename)` on an individual result later.
+
+### Reading and using the result
+
+A single call returns a `LinearizationResult` with NumPy arrays and labels:
+
+| Attribute | Meaning |
+| --- | --- |
+| `A`, `B`, `C`, `D` | Continuous-time state-space matrices |
+| `x0` | Baseline physical dynamic states |
+| `xdot0` | Baseline derivatives of those dynamic states |
+| `u0` | Baseline selected input values |
+| `y0` | Baseline selected output values |
+| `states` | Labels identifying the state order |
+| `inputs`, `outputs` | Labels identifying the input/output order |
+| `time` | Solved operating time in seconds |
+| `model_options` | Active model-option names |
+| `network_name`, `solver_type` | Output metadata |
+| `diagnostics` | Residual and numerical conditioning information |
+| `jacobian` | Alias for `D`, the instantaneous input/output Jacobian |
+
+```python
+print(result.A.shape, result.B.shape, result.C.shape, result.D.shape)
+print(result.states)
+print(result.inputs)
+print(result.outputs)
+print(result.diagnostics)
+
+result.print()
+result.save("Linearization_Copy.h5")
+```
+
+If you want to use the matrices as a local predictor, construct state and
+input **deviations** in the exact order of the returned labels:
+
+```python
+import numpy as np
+
+dx = np.array([0.01, -0.02])  # Example only: two physical state deviations
+du = np.array([0.001])        # Example only: one input deviation
+
+# The vector lengths must agree with result.states and result.inputs.
+xdot_predicted = result.xdot0 + result.A @ dx + result.B @ du
+y_predicted = result.y0 + result.C @ dx + result.D @ du
+```
+
+This evaluates a **local approximation**. It does not advance the original
+network, run the nonlinear transient solver, or apply discrete events. For a
+multi-time result, select the desired operating point first, for example
+`result = results[0.3]`.
+
+### Interpreting the matrices for dynamics and control
+
+For an equilibrium with a constant input disturbance, the linear state
+evolution is
+
+\[
+\delta\dot{x} = A\,\delta x + B\,\delta u.
+\]
+
+The **eigenvalues of `A`** describe local small-signal dynamic behavior. For
+a continuous-time linear system, negative real parts correspond to decaying
+modes and positive real parts to growing modes. Complex eigenvalues can
+represent oscillatory behavior. This interpretation requires an appropriate
+smooth local model and does not prove global nonlinear stability.
+
+```python
+import numpy as np
+
+eigenvalues = np.linalg.eigvals(result.A)
+print(eigenvalues)
+```
+
+For a single stable real eigenvalue `lambda = -0.25 1/s`, the characteristic
+time constant is `tau = -1/lambda = 4 s`. A larger dynamic network can have
+multiple distinct timescales and coupled modes.
+
+`D` gives the **immediate** response of outputs to inputs with physical states
+held fixed. It is not generally the full eventual steady-state gain of a
+dynamic network. When the local equilibrium is stable and `A` is invertible,
+its constant-input steady-state sensitivity is
+
+\[
+K_{\mathrm{steady}} = D - C A^{-1} B.
+\]
+
+This relationship does not apply without qualification to systems with
+integrators, singular `A`, changing modes, or operating points that are not
+equilibria. For a purely algebraic feed network, `D` is the relevant local
+input/output sensitivity because there are no integrated states.
+
+FullFlow provides the matrices; it does **not** automatically design PID
+controllers, produce transfer functions, perform model-order reduction,
+interpolate matrices over a grid, or create a gain-scheduled controller. Such
+workflows can be built separately from the returned data.
+
+### Operating modes, valves, and switching events
+
+A relief valve can have different local equations when **closed** and **open**.
+When closed, an ideal valve may have zero relief flow and zero local flow
+sensitivity to pressure. When open, its flow may vary continuously with
+pressure and area. Both configurations can be linearized **separately**, if
+the operating point is valid and sufficiently far from a discontinuity.
+
+For a valve opening above one pressure and closing below another, hysteresis
+makes the current mode depend on its accepted history. The checkpoint system
+retains recognized command and state history so a selected point can be
+analyzed in its saved mode.
+
+A linearization **does not contain the switching rule itself**:
+
+- Away from a threshold, the active open or closed mode can be analyzed if its
+  equations remain smooth under small numerical perturbations.
+- At a recognized switching-event checkpoint, FullFlow rejects the request
+  instead of returning a derivative across the event.
+- Near a threshold, even a tiny disturbance may switch modes. The linear
+  model is then valid only on the side that retains the same active equations.
+- FullFlow does not calculate event-time sensitivities, saltation matrices,
+  mode-transition Jacobians, or the opening/closing times of future events.
+
+The mode checks detect recognized discrete flags and changes in active
+equations. They cannot guarantee detection of every possible hidden Python
+conditional or stateful external property model. Simulate actual switching
+with the nonlinear transient solver; use local matrices between events.
+
+### Numerical safeguards and limitations
+
+A solved nonlinear point is **necessary but not sufficient** for a reliable
+linearization. The local equations must also be smooth and sufficiently
+well-conditioned.
+
+FullFlow checks for stale operating points, changed active model options,
+invalid or overwritten inputs, inconsistent physical states, invalid
+perturbations, and singular or poorly conditioned sensitivity systems.
+Finite-difference columns are checked against estimates made with a smaller
+step. Failures raise `LinearizationError` rather than silently returning
+matrices that appear valid.
+
+The main limitations are:
+
+1. **Local approximation:** large changes in inputs or state require a new
+   operating point or a nonlinear simulation.
+2. **Fixed-time continuous dynamics:** the matrices describe the local
+   continuous-time model. They are not a discrete backward-Euler timestep
+   Jacobian and do not automatically include scheduled-command derivatives.
+3. **Fixed operating mode:** relief-valve switching, hysteresis transitions,
+   and other discrete events are not differentiable within a single model.
+4. **Regular DAE required:** the mapping from nonlinear iteration variables to
+   physical states and algebraic balances must be square and locally
+   invertible. Structurally singular or higher-index systems are not
+   generally supported.
+5. **Numerical derivatives:** property discontinuities, saturated logic,
+   small physical scales, numerical noise, or poor equation scaling can make
+   sensitivities inaccurate even when the nonlinear solve converged.
+6. **Independent inputs:** the selected inputs must be active, writable
+   `State` objects; neither integrated states nor nonlinear unknowns can be
+   prescribed as extra independent directions.
+7. **Checkpoint times only:** earlier times must correspond to accepted
+   timesteps from the same solver instance. FullFlow does not interpolate
+   arbitrary times or reload complete checkpoints from output traces.
+8. **Checkpoint memory:** every accepted transient timestep retains a
+   checkpoint, independently of `save_dt`, which may be expensive for long
+   runs with many components.
+9. **User-defined side effects:** snapshots can restore FullFlow states and
+   common nested mutable attributes, but cannot guarantee isolation of
+   arbitrary external objects, files, globals, closures, or hidden state.
+10. **No automatic reduced model:** the output consists of matrices and
+    metadata; it does not replace the nonlinear solver or automatically
+    construct an integrated surrogate model.
+
+For a production network, validate the predicted response against a small
+independent perturbation of the nonlinear model, verify matrix labels and
+units, and check that the operating point is not close to a mode transition.
+
+### HDF5 linearization results
+
+Setting `filename="Linearization.h5"` saves matrices, baseline vectors,
+variable labels, active model options, operating time, and numerical
+diagnostics. An individual steady-state result uses a hierarchy similar to:
+
+```text
+<Network>/linearization/steady_state/runs/base/
+    A, B, C, D
+    x0, xdot0, u0, y0
+    states, inputs, outputs, time
+    model_options/
+    diagnostics/
+```
+
+Transient results use `transient` instead of `steady_state`. Multiple-time
+results are stored under numbered `points/0`, `points/1`, and so on, each with
+its own `time` dataset. A named active model option can be reflected in the
+run path. Saving again to the same run path replaces the corresponding
+linearization result group, so use different filenames to retain multiple
+independent analyses.
+
+The linearization HDF5 structure is separate from the ordinary solver time
+history. See [LINEARIZATION.md](LINEARIZATION.md) for details of the result
+format and [EXPORTS.md](src/fullflow/Exports/EXPORTS.md) for general HDF5
+output behavior.
+
 ## HDF5 output
 
 Passing `filename="results.h5"` to a solver writes records to HDF5.  FullFlow
@@ -1268,6 +1918,9 @@ to be inspected with FullPlot or with ordinary `h5py` workflows.
 solution = SteadyState(network).solve(filename="solution.h5")
 history = Transient(network).solve(dt=0.01, t_final=1.0, filename="run.h5")
 ```
+
+For HDF5 layout and export options beyond linearization, see
+**[EXPORTS.md](src/fullflow/Exports/EXPORTS.md)**.
 
 ## Component catalog
 
@@ -1879,6 +2532,14 @@ The repository includes examples for:
 Examples that import ThermoProp require `fullflow[thermo]` or `fullflow[examples]`.
 
 # Documentation
+
+Detailed reference guides:
+
+- [System and component API](src/fullflow/System/SYSTEM.md)
+- [Steady-state solver](src/fullflow/Solvers/STEADY_STATE_SOLVER.md)
+- [Transient solver](src/fullflow/Solvers/TRANSIENT_SOLVER.md)
+- [Linearization](LINEARIZATION.md)
+- [HDF5 exports](src/fullflow/Exports/EXPORTS.md)
 
 Full documentation:
 

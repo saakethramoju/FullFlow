@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from bisect import bisect_left
 from dataclasses import dataclass
 import warnings
 
@@ -147,6 +148,11 @@ def linearize(
     available = {id(v) for v in point.variables + point.states}
     available.update(id(v) for v in getattr(point.cache, "state_refs", ()))
     available.update(id(v) for v in getattr(point.cache, "all_state_refs", ()))
+    available.update(
+        id(tracked["value"])
+        for tracked in solver.network.tracked_state_list
+        if is_assignable_state_like(tracked.get("value"))
+    )
     for state in inputs:
         if id(state) in protected or id(state) not in available:
             raise LinearizationError("Each input must be an independent State in the active network.")
@@ -274,15 +280,36 @@ def _linearize_many(solver, inputs, outputs, filename, times, verbose=False):
         raise LinearizationError(str(error)) from error
 
     requested = tuple(float(t) for t in times)
-    if not requested or len(set(requested)) != len(requested):
-        raise LinearizationError("times must contain distinct saved operating-point times.")
+    if not requested or len(set(requested)) != len(requested) or not np.isfinite(requested).all():
+        raise LinearizationError("times must contain distinct, finite operating-point times.")
 
+    accepted = sorted(solver._linearization_points)
     checkpoints = {}
     for time_value in requested:
-        matches = [t for t in solver._linearization_points if abs(t - time_value) <= 1e-9 * max(1.0, abs(time_value))]
-        if len(matches) != 1:
-            raise LinearizationError(f"No unique accepted operating point at t={time_value:g}.")
-        checkpoints[time_value] = solver._linearization_points[matches[0]]
+        index = bisect_left(accepted, time_value)
+        neighbors = accepted[max(0, index - 1):index + 1]
+        if not neighbors:
+            raise LinearizationError("No accepted operating-point checkpoints are available.")
+        closest = min(neighbors, key=lambda t: abs(t - time_value))
+        position = bisect_left(accepted, closest)
+        distances = []
+        if position > 0:
+            distances.append(closest - accepted[position - 1])
+        if position + 1 < len(accepted):
+            distances.append(accepted[position + 1] - closest)
+        tolerance = 1e-9 * max(1.0, abs(time_value))
+        if distances:
+            tolerance = min(tolerance, 0.25 * min(distances))
+        if abs(closest - time_value) > tolerance:
+            raise LinearizationError(
+                f"No accepted operating point at t={time_value:g}. "
+                f"Closest accepted time is t={closest:.12g} "
+                f"({len(accepted)} checkpoints, from t={accepted[0]:.12g} "
+                f"to t={accepted[-1]:.12g}). "
+                "Requested times must match accepted solver timesteps; "
+                "no interpolation is performed."
+            )
+        checkpoints[time_value] = solver._linearization_points[closest]
 
     for time_value, (_, issue) in checkpoints.items():
         if issue:

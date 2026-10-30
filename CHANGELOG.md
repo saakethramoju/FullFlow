@@ -1,5 +1,19 @@
 # Changelog
 
+## 4.0.0
+
+FullFlow 4.0.0 adds local linearization of coupled nonlinear network models for sensitivity analysis and control-system development.
+
+### Linearization
+
+* Added `SteadyState.linearize()` and `Transient.linearize()` as native solver methods, without import-time class modification.
+* Added continuous-time state-space linearization in physical conserved-state coordinates, returning `A`, `B`, `C`, and `D`, baseline vectors, variable labels, and operating-point metadata.
+
+### Limitations
+
+* Models are local, continuous-time, and valid only within a fixed operating mode.
+* The implementation does not include event-time sensitivities, automatic state-space simulation, model reduction, or universal protection against side effects in arbitrary custom components.
+
 ## 3.0.0
 
 FullFlow 3.0.0 focuses on solver performance, transient robustness, consistent

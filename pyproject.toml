@@ -1,6 +1,6 @@
 [project]
 name = "fullflow"
-version = "3.0.0"
+version = "4.0.0"
 description = "Python-native fluid, thermal, propulsion, control, and transient network simulation."
 readme = "README.md"
 license = "GPL-3.0-only"
@@ -83,6 +83,7 @@ build-backend = "uv_build"
 [tool.uv.build-backend]
 source-include = [
     "README.md",
+    "LINEARIZATION.md",
     "CHANGELOG.md",
     "LICENSE",
     "THIRD_PARTY_LICENSES.md",
