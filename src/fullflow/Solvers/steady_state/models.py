@@ -104,6 +104,7 @@ class ModelOptionRunner:
 
     @staticmethod
     def _metadata(*, model_name: str | None = None, option_name: str | None = None, evaluate_all: bool = False) -> dict[str, Any]:
+        """Return metadata describing the selected model option."""
         return {
             "solve_type": "steady_state",
             "run_type": "base" if model_name is None else "model_option",

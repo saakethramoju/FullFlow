@@ -400,6 +400,7 @@ class SteadyState:
             group_path: str = "steady_state/runs/base",
             metadata: dict[str, Any] | None = None,
         ):
+            """Run one solver attempt for the selected model."""
             return self._static_evaluate_once(
                 filename=filename,
                 return_type=return_type,
@@ -464,6 +465,7 @@ class SteadyState:
                 group_path: str = "transient/runs/base",
                 metadata: dict[str, Any] | None = None,
             ):
+                """Run one quasi-steady time-sweep attempt."""
                 return self._solve_forced_steady_time_sweep_once(
                     dt=float(dt),
                     t_final=float(t_final),
@@ -505,6 +507,7 @@ class SteadyState:
                 metadata: dict[str, Any] | None = None,
                 verbose_override: bool | None = None,
             ):
+                """Run one time sweep for a selected model option."""
                 metadata = {} if metadata is None else dict(metadata)
                 metadata.setdefault("run_mode", "forced_steady_time_sweep")
                 return run_time_sweep_once(
@@ -560,6 +563,7 @@ class SteadyState:
             group_path: str = "steady_state/runs/base",
             metadata: dict[str, Any] | None = None,
         ):
+            """Run one solver attempt for the selected model."""
             return self._solve_once(
                 filename=filename,
                 return_type=return_type,

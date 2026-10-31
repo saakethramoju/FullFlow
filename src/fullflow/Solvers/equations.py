@@ -64,6 +64,7 @@ def _is_unassigned_state_error(error: BaseException) -> bool:
 
 
 def _callable_name(method: Any) -> str:
+    """Return a readable name for a callable."""
     owner = getattr(method, "__self__", None)
     if owner is not None:
         return f"{getattr(owner, 'name', type(owner).__name__)} ({type(owner).__name__})"

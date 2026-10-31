@@ -35,28 +35,33 @@ SENSOR_ROLE_BOLD_STYLES = {
 
 
 def _sensor_role(value: Any) -> str:
+    """Return the normalized role for a sensor event."""
     return str(value or "event").lower()
 
 
 def _sensor_role_text(value: Any, *, upper: bool = True) -> Text:
+    """Return display text for a sensor role."""
     role = _sensor_role(value)
     label = role.upper() if upper else role
     return _plain(label, SENSOR_ROLE_BOLD_STYLES.get(role, "bold"))
 
 
 def _sensor_action_text(value: Any, role: str | None = None) -> Text:
+    """Return display text for a sensor action."""
     action = str(value or "")
     style = SENSOR_ROLE_BOLD_STYLES.get(_sensor_role(role)) if role else None
     return _plain(action, style)
 
 
 def _sensor_crossing_text(value: Any, role: str | None = None) -> Text:
+    """Return display text for a threshold crossing."""
     crossing = str(value or "")
     style = SENSOR_ROLE_STYLES.get(_sensor_role(role)) if role else None
     return _plain(crossing, style)
 
 
 def _sensor_value_text(value: Any, role: str, fmt: str = ".6g") -> Text:
+    """Format a sensor value for diagnostics."""
     try:
         text = format(float(value), fmt)
     except Exception:
@@ -65,10 +70,12 @@ def _sensor_value_text(value: Any, role: str, fmt: str = ".6g") -> Text:
 
 
 def _sensor_line_style(event: Any) -> str | None:
+    """Return the normal console style for a sensor event."""
     return SENSOR_ROLE_STYLES.get(_sensor_role(getattr(event, "role", "event")))
 
 
 def _sensor_line_bold_style(event: Any) -> str | None:
+    """Return the emphasized console style for a sensor event."""
     return SENSOR_ROLE_BOLD_STYLES.get(_sensor_role(getattr(event, "role", "event")))
 
 

@@ -1,3 +1,5 @@
+"""Evaluate and validate nonlinear operating points for linearization."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
@@ -20,6 +22,7 @@ class OperatingPointError(RuntimeError):
 
 
 def _number(value):
+    """Convert a state-like value to a finite scalar."""
     if is_state_like(value):
         value = value.value
     elif callable(value):
@@ -50,6 +53,7 @@ class OperatingPointEvaluator:
     """Evaluate frozen storage states with active algebraic balances satisfied."""
 
     def __init__(self, solver):
+        """Initialize the helper and its solver state."""
         self.solver = solver
         self.network = solver.network
         self.transient = hasattr(solver, "step_solver")
@@ -92,6 +96,7 @@ class OperatingPointEvaluator:
             self.snapshot.restore()
 
     def _check_source(self):
+        """Validate that a solved operating point is available."""
         source = getattr(self.solver, "_linearization_source", None)
         if source is None:
             raise OperatingPointError("A successful solve is required before linearization.")
@@ -104,19 +109,26 @@ class OperatingPointEvaluator:
             if not rows:
                 raise OperatingPointError("Transient requires an accepted timestep before analysis.")
         elif getattr(self.solver, "_last_success_kind", None) not in ("solve", "forced_steady_time_sweep"):
-            raise OperatingPointError("SteadyState requires a successful nonlinear solve before analysis.")
+            if not (
+                getattr(self.solver, "_last_success_kind", None) == "static"
+                and not self.solver._cache().iteration_variables
+            ):
+                raise OperatingPointError("SteadyState requires a successful nonlinear solve before analysis.")
 
     def _model_options(self):
+        """Return the active model-option selections."""
         return tuple(
             (model.name, model.active_option_name)
             for model in self.network.model_list
         )
 
     def _component_balances(self, component):
+        """Return the balances owned by a component."""
         method = getattr(self.cache, "_component_balance_equations", None)
         return method(component) if method is not None else component_balances(component)
 
     def _validate_equations(self):
+        """Validate the operating-point equation structure."""
         ids = [id(variable) for variable in self.variables]
         if len(ids) != len(set(ids)):
             raise OperatingPointError("Dynamic and algebraic equations share a solve variable.")
@@ -129,12 +141,14 @@ class OperatingPointEvaluator:
             raise OperatingPointError("Active equation variables do not match the solver's iteration variables.")
 
     def _check_configuration(self):
+        """Validate the solver configuration for linearization."""
         if self.network.version != self.version or self._model_options() != self.models:
             raise OperatingPointError("Network structure or model option changed. Solve again before analysis.")
         if tuple(self.cache.iteration_variables) != self.variables:
             raise OperatingPointError("Solver equation ordering changed. Solve again before analysis.")
 
     def _equations(self):
+        """Assemble the operating-point equations and variables."""
         dynamics = tuple(eq for c in self.components for eq in component_dynamics(c))
         balances = tuple(eq for c in self.components for eq in self._component_balances(c)) + tuple(
             eq for b in self.cache.balance_list for eq in balance_object_equations(b)
@@ -182,6 +196,7 @@ class OperatingPointEvaluator:
             self.snapshot.restore()
 
     def _residual(self, w, x):
+        """Evaluate operating-point residuals for trial variables."""
         self._trial_snapshot.restore()
         for state, value in zip(self.variables, w):
             state.value = float(value)

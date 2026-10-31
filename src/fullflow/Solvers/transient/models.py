@@ -20,6 +20,7 @@ class NetworkStateSnapshot:
 
     @staticmethod
     def _snapshot_value(value: Any) -> Any:
+        """Return a restorable copy of a network value."""
         if is_state_like(value):
             return value
 
@@ -63,11 +64,13 @@ class NetworkStateSnapshot:
 
     @classmethod
     def capture(cls, network) -> "NetworkStateSnapshot":
+        """Capture a restorable snapshot of the network state."""
         states: list[State] = []
         seen_objects: set[int] = set()
         seen_states: set[int] = set()
 
         def visit(value: Any) -> None:
+            """Visit nested values while collecting checkpoint data."""
             value_id = id(value)
             if value_id in seen_objects:
                 return
@@ -97,6 +100,7 @@ class NetworkStateSnapshot:
         return cls(states)
 
     def restore(self) -> None:
+        """Restore the captured network and solver state."""
         for state, (value, previous, second_previous) in self.values.items():
             state._value = self._snapshot_value(value)
             state._previous = self._snapshot_value(previous)
@@ -125,6 +129,7 @@ class TransientModelOptionRunner:
         self.metadata_extra = {} if metadata_extra is None else dict(metadata_extra)
 
     def _metadata(self, *, model_name: str | None = None, option_name: str | None = None, evaluate_all: bool = False) -> dict[str, Any]:
+        """Return metadata describing the selected model option."""
         metadata = {
             "solve_type": self.metadata_solve_type,
             "run_type": "base" if model_name is None else "model_option",
@@ -190,6 +195,7 @@ class TransientModelOptionRunner:
         verbose: bool,
         run_once: Callable[..., Any],
     ):
+        """Run model options until the first successful solve."""
         failures: list[ModelFailure] = []
 
         for option_name in selected_model.order:
@@ -233,6 +239,7 @@ class TransientModelOptionRunner:
         verbose: bool,
         run_once: Callable[..., Any],
     ):
+        """Run and collect every selected model option."""
         results: dict[str, Any] = {}
         failures: list[ModelFailure] = []
         last_success_option = None

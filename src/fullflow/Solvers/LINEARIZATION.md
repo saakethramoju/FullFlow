@@ -8,17 +8,17 @@ This feature is useful for sensitivity analysis, local stability analysis, contr
 
 For physical dynamic states `x`, independent inputs `u`, and selected outputs `y`, FullFlow returns
 
-\[
+```math
 \delta\dot{x}=A\,\delta x+B\,\delta u,\qquad
 \delta y=C\,\delta x+D\,\delta u.
-\]
+```
 
 The deltas are **differences from the solved operating point**, not absolute values. The model also records `x0`, `xdot0`, `u0`, and `y0`. To predict absolute quantities near the operating point, use
 
-\[
+```math
 \dot{x}\approx\dot{x}_0+A(x-x_0)+B(u-u_0),\qquad
 y\approx y_0+C(x-x_0)+D(u-u_0).
-\]
+```
 
 For a steady-state equilibrium, `xdot0` should be approximately zero. During a transient it can be nonzero. A transient linearization is a local, **frozen-time** approximation; it does not include the explicit time derivative of a scheduled command or changes in the active mode.
 
@@ -31,7 +31,7 @@ The matrices have these shapes:
 | `C` | `(n_outputs, n_states)` | State deviation to output |
 | `D` | `(n_outputs, n_inputs)` | Input deviation to output with physical states held fixed |
 
-For a purely algebraic network without dynamic storage, `A`, `B`, and `C` have empty state dimensions, but `D` can still provide the feed-system input/output sensitivities.
+For a purely algebraic network without dynamic storage, `A`, `B`, and `C` have empty state dimensions, but `D` can still provide the feed-system input/output sensitivities. A successful `SteadyState.solve()` of a network with no solver unknowns can also be linearized.
 
 ## API
 
@@ -141,31 +141,31 @@ The singular or badly conditioned state transformation produces a `Linearization
 
 FullFlow networks can be expressed locally as a differential-algebraic system:
 
-\[
+```math
 \dot{x}=f(w,u),\qquad x=h(w,u),\qquad 0=g(w,u),\qquad y=q(w,u),
-\]
+```
 
 where `w` contains the solver's iteration variables. These variables need not be the same as the integrated physical states `x`; for instance, a volume can solve for pressure while integrating mass and internal energy.
 
 FullFlow numerically differentiates the equations at the solved operating point and forms
 
-\[
+```math
 M=\begin{bmatrix} h_w \\ g_w \end{bmatrix}.
-\]
+```
 
 If `M` is square and nonsingular, the implicit function theorem gives
 
-\[
+```math
 \begin{bmatrix}w_x&w_u\end{bmatrix}
 =M^{-1}\begin{bmatrix}I&-h_u\\0&-g_u\end{bmatrix}.
-\]
+```
 
 The final matrices are
 
-\[
+```math
 A=f_w w_x,\quad B=f_u+f_w w_u,\quad
 C=q_w w_x,\quad D=q_u+q_w w_u.
-\]
+```
 
 The implementation uses central finite differences of the network's existing equations, with a second estimate at half the step size as a consistency check. It uses scaled dense linear algebra for the implicit transformation. It does not require analytical derivatives, symbolically differentiate user code, or re-solve the entire nonlinear network for every Jacobian column.
 
@@ -199,7 +199,7 @@ For a transient run the path uses `transient` instead of `steady_state`. When ex
 
 For multiple operating points, results are written under numbered `points/0`, `points/1`, and so on, with each point's own `time` dataset.
 
-`result.save(filename)` writes the individual result. Saving an individual result to a path already occupied by an earlier individual result **replaces that group**; multi-time saving replaces the existing `points` group for that run path. Use separate filenames when you need to retain several analyses of the same network/run path.
+`result.save(filename)` writes or replaces the individual result while preserving any saved `points/` group at the same run path. Multi-time saving replaces the existing `points/` group for the matching run path while preserving the base result. Use separate filenames to retain multiple different base analyses or point selections for the same run.
 
 ## Diagnostics and error handling
 
@@ -223,7 +223,7 @@ The returned `diagnostics` currently includes:
 8. **Accepted-point requirement.** An earlier transient time must match an accepted solver timestep with an in-memory checkpoint from the same solver instance. Output sampling is independent; HDF5 traces alone do not reconstruct internal model/command history.
 9. **Snapshot scope.** Checkpointing restores FullFlow State values/history, recognized mutable containers, and nested component attributes to a bounded depth. It cannot guarantee restoration of arbitrary external resources, closures, global variables, or custom side effects.
 10. **No guarantee for arbitrary custom branches.** Mode checks recognize exposed discrete flags and equation changes, but cannot exhaustively analyze every user-written conditional.
-11. **Special dynamic modes.** The transient `force_steady` configuration is not supported for ordinary transient linearization. A successful nonlinear steady-state equilibrium, rather than `static=True`, is required for steady-state linearization.
+11. **Special dynamic modes.** The transient `force_steady` configuration is not supported for ordinary transient linearization. Steady-state linearization requires a successful nonlinear equilibrium, except for networks with no solver equations, which can be analyzed after `SteadyState.solve()`. Calling `static=True` does not initialize a linearization checkpoint.
 12. **Storage and scaling.** Checkpoints consume memory proportional to the number of retained points and the size of the network state. Dense sensitivity solves scale poorly for very large systems. Absolute residual tolerances and conditioning are affected by equation units/scaling.
 
 ## Practical validation

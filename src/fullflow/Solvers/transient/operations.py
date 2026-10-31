@@ -36,10 +36,12 @@ class StepDiagnostics:
 
     @property
     def max_residual(self) -> float:
+        """Return the maximum absolute step residual."""
         return float(np.max(np.abs(self.residual))) if len(self.residual) else 0.0
 
     @property
     def rms_residual(self) -> float:
+        """Return the root-mean-square step residual."""
         return float(np.sqrt(np.mean(self.residual**2))) if len(self.residual) else 0.0
 
 
@@ -47,6 +49,7 @@ class TransientStepSolve:
     """Solve one implicit timestep with safeguarded Newton and SciPy fallback."""
 
     def __init__(self, network, cache_getter: Callable[[], Any], evaluator) -> None:
+        """Initialize the helper and its solver state."""
         self.network = network
         self._cache_getter = cache_getter
         self.evaluator = evaluator
@@ -63,6 +66,7 @@ class TransientStepSolve:
         self._reset_prediction_history()
 
     def _clear_newton_jacobian(self) -> None:
+        """Discard any cached modified-Newton Jacobian."""
         self._newton_jacobian: np.ndarray | None = None
         self._newton_jacobian_scale: np.ndarray | None = None
         self._newton_jacobian_method: str | None = None
@@ -115,6 +119,7 @@ class TransientStepSolve:
                 self._newton_reuse_age = reuse_age
 
     def _control_values(self, cache) -> tuple:
+        """Return the current transient control values."""
         components = tuple(getattr(cache, "component_list", ()))
         component_ids = tuple(id(component) for component in components)
         cache_key = (id(cache), component_ids)
@@ -149,6 +154,7 @@ class TransientStepSolve:
 
     @staticmethod
     def _controls_changed(previous: tuple, current: tuple) -> bool:
+        """Return whether transient controls changed."""
         if len(previous) != len(current):
             return True
         for old, new in zip(previous, current):
@@ -166,6 +172,7 @@ class TransientStepSolve:
         residual_count: int, jacobian_method: str,
         *, probe_x=None, probe_residual=None, baseline_residual=None,
     ) -> tuple[np.ndarray | None, np.ndarray | None]:
+        """Build or reuse the initial Newton Jacobian."""
         if self._newton_jacobian is None or self._newton_jacobian_scale is None:
             return None, None
         valid = (
@@ -267,6 +274,7 @@ class TransientStepSolve:
         early_stop = [False]
         if _HAS_LEAST_SQUARES_CALLBACK and settings.solver_method != "lm":
             def accepted_iteration(intermediate_result):
+                """Record an accepted intermediate Newton iteration."""
                 values = getattr(intermediate_result, "fun", None)
                 if values is None:
                     return

@@ -249,6 +249,7 @@ class Transient:
             metadata: dict[str, Any] | None = None,
             verbose_override: bool | None = None,
         ):
+            """Run one solver attempt for the selected model."""
             return self._solve_no_model(
                 dt=dt,
                 t_final=t_final,

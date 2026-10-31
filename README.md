@@ -1789,7 +1789,9 @@ K_{\mathrm{steady}} = D - C A^{-1} B.
 This relationship does not apply without qualification to systems with
 integrators, singular `A`, changing modes, or operating points that are not
 equilibria. For a purely algebraic feed network, `D` is the relevant local
-input/output sensitivity because there are no integrated states.
+input/output sensitivity because there are no integrated states. Such a network
+can be linearized after a successful `SteadyState.solve()` even when there are
+no nonlinear solve variables.
 
 FullFlow provides the matrices; it does **not** automatically design PID
 controllers, produce transfer functions, perform model-order reduction,
@@ -1892,9 +1894,10 @@ diagnostics. An individual steady-state result uses a hierarchy similar to:
 Transient results use `transient` instead of `steady_state`. Multiple-time
 results are stored under numbered `points/0`, `points/1`, and so on, each with
 its own `time` dataset. A named active model option can be reflected in the
-run path. Saving again to the same run path replaces the corresponding
-linearization result group, so use different filenames to retain multiple
-independent analyses.
+run path. Saving a single result replaces the base matrices while preserving saved
+`points/` at the same run path. Saving multiple times replaces only the
+corresponding `points/` group. Use different filenames to retain independent
+analyses of the same operating points.
 
 The linearization HDF5 structure is separate from the ordinary solver time
 history. See [LINEARIZATION.md](src/fullflow/Solvers/LINEARIZATION.md) for

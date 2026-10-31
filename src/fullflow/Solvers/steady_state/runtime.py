@@ -114,6 +114,7 @@ class RuntimeCache:
 
     @staticmethod
     def _sensor_extend_enabled(component: Any) -> bool:
+        """Return whether a sensor extends solver iteration."""
         try:
             return bool(component._extend_enabled)
         except Exception:
@@ -127,12 +128,14 @@ class RuntimeCache:
 
     @staticmethod
     def _set_sensor_state(component: Any, name: str, value: Any) -> None:
+        """Set a sensor state while preserving its type."""
         state = getattr(component, name, None)
         if is_state_like(state):
             state.value = value
 
     @staticmethod
     def _finite_number(value: Any) -> float:
+        """Return a finite scalar value or None."""
         try:
             number = float(value)
         except Exception:
@@ -291,10 +294,12 @@ class RuntimeCache:
 
     @staticmethod
     def _state_paths(value: Any, target: Any, prefix: str) -> list[str]:
+        """Find object paths that reference a target state."""
         paths: list[str] = []
         seen: set[int] = set()
 
         def collect(item: Any, path: str) -> None:
+            """Collect matching states or paths from nested values."""
             item_id = id(item)
             if item_id in seen:
                 return
@@ -425,6 +430,7 @@ class RuntimeCache:
         seen: set[int] = set()
 
         def add_state(state: Any) -> None:
+            """Add a unique state reference to the collection."""
             state_id = id(state)
             if state_id in self.iteration_ids or state_id in seen:
                 return
@@ -432,6 +438,7 @@ class RuntimeCache:
             refs.append(state)
 
         def collect(value: Any) -> None:
+            """Collect matching states or paths from nested values."""
             if is_state_like(value):
                 add_state(value)
                 try:
@@ -458,6 +465,7 @@ class RuntimeCache:
         return tuple(refs)
 
     def collect_state_values_compact(self, out: list[float | None] | None = None) -> list[float | None]:
+        """Collect state values into a reusable compact array."""
         refs = self.state_refs
         if out is None or len(out) != len(refs):
             out = [None] * len(refs)
@@ -471,6 +479,7 @@ class RuntimeCache:
 
     @staticmethod
     def max_state_change_compact(old: list[float | None], new: list[float | None]) -> float:
+        """Return the largest change between compact state arrays."""
         change = 0.0
         for before, after in zip(old, new):
             if after is None:
@@ -484,6 +493,7 @@ class RuntimeCache:
         return change
 
     def snapshot_mutable_states(self):
+        """Capture mutable state values for rollback."""
         snapshot = []
         seen = set()
         for state in (*self.iteration_variables, *self.state_refs):
@@ -503,6 +513,7 @@ class RuntimeCache:
 
     @staticmethod
     def _copy_value(value):
+        """Return a safe copy of a mutable state value."""
         if is_state_like(value):
             return value
         if isinstance(value, dict):
@@ -520,6 +531,7 @@ class RuntimeCache:
 
     @staticmethod
     def restore_mutable_states(snapshot) -> None:
+        """Restore mutable state values from a snapshot."""
         for item in snapshot:
             if item[0] == "state":
                 _, state, value, previous, second_previous = item
@@ -532,6 +544,7 @@ class RuntimeCache:
 
     @staticmethod
     def _append_residuals(residual_source: Any, append) -> None:
+        """Append normalized residual values from a source."""
         if callable(residual_source):
             residual_source = residual_source()
         if residual_source is None:

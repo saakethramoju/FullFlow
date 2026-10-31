@@ -1,3 +1,5 @@
+"""Format and print linearization diagnostics and matrices."""
+
 from __future__ import annotations
 
 from rich import box
@@ -7,10 +9,12 @@ from rich.text import Text
 
 
 def _text(value, style=None):
+    """Return styled diagnostic text."""
     return Text(str(value), style=style)
 
 
 def _summary(result):
+    """Build the linearization summary table."""
     table = Table(
         title=f"Linearized State-Space Model at t = {result.time:g} s",
         box=box.SIMPLE_HEAVY,
@@ -28,6 +32,7 @@ def _summary(result):
 
 
 def _variables(result, width):
+    """Build tables describing linearization variables."""
     table = Table(
         title="State-Space Variables",
         box=box.SIMPLE,
@@ -56,6 +61,7 @@ def _variables(result, width):
 
 
 def _matrix_tables(name, matrix, row_symbol, column_symbol, width):
+    """Build formatted tables for one state-space matrix."""
     rows, columns = matrix.shape
     block_size = max(1, (max(40, width) - 14) // 16)
     blocks = [(0, 0)] if columns == 0 else [
@@ -95,6 +101,7 @@ def _matrix_tables(name, matrix, row_symbol, column_symbol, width):
 
 
 def print_linearization(result, *, console=None):
+    """Print a formatted linearization report."""
     console = console or Console()
     console.print()
     console.print(_summary(result))

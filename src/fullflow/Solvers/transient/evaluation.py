@@ -9,6 +9,7 @@ from fullflow.Exceptions import FullFlowConfigurationError, UnassignedStateError
 
 
 def _is_unassigned_state_error(error: BaseException) -> bool:
+    """Return whether an exception reports an unassigned state."""
     current: BaseException | None = error
     seen: set[int] = set()
 
@@ -22,6 +23,7 @@ def _is_unassigned_state_error(error: BaseException) -> bool:
 
 
 def _callable_name(evaluate_states: Callable[[], None]) -> str:
+    """Return a readable name for a callable."""
     owner = getattr(evaluate_states, "__self__", None)
     if owner is not None:
         return f"{getattr(owner, 'name', type(owner).__name__)} ({type(owner).__name__})"
@@ -33,6 +35,7 @@ class TransientStateEvaluator:
 
     def __init__(self, cache_getter: Callable[[], TransientRuntimeCache]) -> None:
 
+        """Initialize the helper and its solver state."""
         self._cache_getter = cache_getter
 
     def run(

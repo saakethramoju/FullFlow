@@ -73,6 +73,7 @@ class TransientRuntimeCache:
         force_steady_exceptions=None,
     ) -> None:
 
+        """Initialize the helper and its solver state."""
         self.network = network
         self.ignore_balances = ignore_balances
         self.force_steady = force_steady
@@ -181,6 +182,7 @@ class TransientRuntimeCache:
 
     @staticmethod
     def _sensor_extend_enabled(component: Any) -> bool:
+        """Return whether a sensor extends solver iteration."""
         try:
             return bool(component._extend_enabled)
         except Exception:
@@ -194,12 +196,14 @@ class TransientRuntimeCache:
 
     @staticmethod
     def _set_sensor_state(component: Any, name: str, value: Any) -> None:
+        """Set a sensor state while preserving its type."""
         state = getattr(component, name, None)
         if is_state_like(state):
             state.value = value
 
     @staticmethod
     def _finite_number(value: Any) -> float:
+        """Return a finite scalar value or None."""
         try:
             number = float(value)
         except Exception:
@@ -452,17 +456,21 @@ class TransientRuntimeCache:
         return {id(component) for component in selected_components}
 
     def _component_transient_variables(self, component: Any) -> list[Any]:
+        """Return a component's transient iteration variables."""
         return self._transient_variable_lists[id(component)]
 
     def _component_transient_states(self, component: Any) -> list[Any]:
+        """Return a component's integrated transient states."""
         return self._transient_state_lists[id(component)]
 
     def _component_transient_derivatives(self, component: Any) -> list[Any]:
 
 
+        """Return a component's transient derivatives."""
         return [equation.derivative for equation in component_dynamics(component)]
 
     def _component_is_dynamic(self, component: Any) -> bool:
+        """Return whether a component contributes transient dynamics."""
         return id(component) in self.dynamic_component_ids
 
     @staticmethod
@@ -475,6 +483,7 @@ class TransientRuntimeCache:
         return isinstance(value, Real)
 
     def _validate_derivative(self, component: Any, derivative: Any, index: int) -> None:
+        """Validate one component transient derivative."""
         if self._is_valid_derivative(derivative):
             return
         raise SolverSetupError(
@@ -552,6 +561,7 @@ class TransientRuntimeCache:
         seen: set[int] = set()
 
         def add(state: Any, owner: Any) -> None:
+            """Add a unique transient-history state and its owner."""
             if not is_state_like(state):
                 raise SolverSetupError(f"{owner.name}: dynamic integrated state must be State-like.")
             if not callable(getattr(state, "store_previous", None)):
@@ -640,10 +650,12 @@ class TransientRuntimeCache:
 
     @staticmethod
     def _state_paths(value: Any, target: Any, prefix: str) -> list[str]:
+        """Find object paths that reference a target state."""
         paths: list[str] = []
         seen: set[int] = set()
 
         def collect(item: Any, path: str) -> None:
+            """Collect matching states or paths from nested values."""
             item_id = id(item)
             if item_id in seen:
                 return
@@ -1029,6 +1041,7 @@ class TransientRuntimeCache:
 
     @staticmethod
     def _append_residuals(residual_source: Any, append) -> None:
+        """Append normalized residual values from a source."""
         if callable(residual_source):
             residual_source = residual_source()
         if residual_source is None:
@@ -1112,6 +1125,7 @@ class TransientRuntimeCache:
         seen: set[int] = set()
 
         def add_state(state: Any) -> None:
+            """Add a unique state reference to the collection."""
             state_id = id(state)
             if state_id in seen:
                 return
@@ -1119,6 +1133,7 @@ class TransientRuntimeCache:
             refs.append(state)
 
         def collect(value: Any) -> None:
+            """Collect matching states or paths from nested values."""
             if is_state_like(value):
                 add_state(value)
                 try:
@@ -1151,6 +1166,7 @@ class TransientRuntimeCache:
         seen: set[int] = set()
 
         def add_state(state: Any) -> None:
+            """Add a unique state reference to the collection."""
             state_id = id(state)
             if state_id in self.iteration_ids or state_id in seen:
                 return
@@ -1158,6 +1174,7 @@ class TransientRuntimeCache:
             refs.append(state)
 
         def collect(value: Any) -> None:
+            """Collect matching states or paths from nested values."""
             if is_state_like(value):
                 add_state(value)
                 try:
@@ -1198,6 +1215,7 @@ class TransientRuntimeCache:
 
     @staticmethod
     def _settling_value(state: Any) -> float | None:
+        """Return a comparable value for derived-state settling."""
         try:
             if type(state) is State and state._expr is None:
                 value = state._value

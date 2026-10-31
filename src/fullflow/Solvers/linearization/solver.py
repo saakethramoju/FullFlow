@@ -1,3 +1,5 @@
+"""Compute local continuous-time state-space linearizations."""
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -38,19 +40,23 @@ class LinearizationResult:
 
     @property
     def jacobian(self):
+        """Return the instantaneous input-output Jacobian."""
         return self.D
 
     def save(self, filename):
+        """Save this linearization result to HDF5."""
         from .results import save_linearization
         return save_linearization(self, filename)
 
     def print(self, *, console=None):
+        """Print this linearization result."""
         from .diagnostics import print_linearization
         print_linearization(self, console=console)
 
 
 def _step(value, state):
-    step = 1e-5 * max(abs(value), 1e-3)
+    """Choose a finite-difference step for a value."""
+    step = 1e-5 * (abs(value) if value != 0 else 1e-3)
     if isinstance(getattr(state, "value", None), bool):
         raise LinearizationError("Boolean States cannot be continuous linearization variables.")
     lower = float(getattr(state, "lower_bound", -np.inf))
@@ -59,12 +65,13 @@ def _step(value, state):
         step = min(step, 0.49 * (value - lower))
     if np.isfinite(upper):
         step = min(step, 0.49 * (upper - value))
-    if step <= max(1e-12 * abs(value), 1e-15):
+    if step <= max(1e-12 * abs(value), 1e-24):
         raise LinearizationError(f"Cannot perturb {getattr(state, 'label', state)} within its bounds.")
     return step
 
 
 def _column(evaluate, value, state):
+    """Evaluate one finite-difference derivative column."""
     step = _step(value, state)
     last_error = None
     for _ in range(5):
@@ -87,6 +94,7 @@ def _column(evaluate, value, state):
 
 
 def _solve(matrix, right):
+    """Solve a linear sensitivity system with validation."""
     if matrix.shape[0] == 0:
         return np.zeros((0, right.shape[1])), 1.0
     row = np.maximum(np.max(np.abs(matrix), axis=1), 1e-30)
@@ -115,6 +123,7 @@ def _balance_tolerance(solver):
 
 
 def _display_label(value):
+    """Return a readable label for a state-like value."""
     return str(value).replace(":", ".", 1)
 
 
@@ -158,6 +167,7 @@ def linearize(
             raise LinearizationError("Each input must be an independent State in the active network.")
 
     def label(state):
+        """Return a unique label for a selected variable."""
         if callable(state) and not is_state_like(state):
             return getattr(state, "__name__", "output")
 
@@ -188,6 +198,7 @@ def linearize(
     count = n + n + k + r
 
     def sample(w=w0, u=u0):
+        """Evaluate the local equations at trial variables and inputs."""
         overrides = {state: float(value) for state, value in zip(inputs, u)}
         x, f, g, y = point.evaluate_raw(w, overrides, outputs)
         return np.concatenate((x, f, g, y))
@@ -269,6 +280,7 @@ def linearize(
 
 
 def _linearize_many(solver, inputs, outputs, filename, times, verbose=False):
+    """Linearize several saved transient operating points."""
     from .results import save_linearizations
 
     current = solver._linearization_source

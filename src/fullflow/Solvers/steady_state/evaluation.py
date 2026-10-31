@@ -23,6 +23,7 @@ def _is_unassigned_state_error(error: BaseException) -> bool:
 
 
 def _callable_name(evaluate_states: Callable[[], None]) -> str:
+    """Return a readable name for a callable."""
     owner = getattr(evaluate_states, "__self__", None)
     if owner is not None:
         return f"{getattr(owner, 'name', type(owner).__name__)} ({type(owner).__name__})"
@@ -37,6 +38,7 @@ class StateEvaluator:
         self._cache_getter = cache_getter
 
     def run(self, max_passes: int = 20, tolerance: float = 1e-10) -> None:
+        """Run derived-state evaluation to convergence."""
         cache = self._cache_getter()
         iteration_snapshot = cache.snapshot_iteration_variables()
         callables = cache.evaluate_state_callables

@@ -1,3 +1,5 @@
+"""Capture and restore solver operating points for linearization."""
+
 from __future__ import annotations
 
 from collections import OrderedDict
@@ -19,6 +21,7 @@ _DIAGNOSTIC_ATTRIBUTES = {
 
 
 def _copy(value):
+    """Return a checkpoint-safe copy of a value."""
     if is_state_like(value):
         return value
     if isinstance(value, (str, int, float, bool, type(None), bytes)):
@@ -35,6 +38,7 @@ def _copy(value):
 
 
 def _field_names(obj):
+    """Return the declared field names for an object."""
     if is_dataclass(obj):
         return tuple(f.name for f in fields(obj))
     return tuple(vars(obj)) if hasattr(obj, '__dict__') else ()
@@ -44,6 +48,7 @@ class OperatingCheckpoint:
     """Capture accepted State values and mutable component history."""
 
     def __init__(self, network, cache=None):
+        """Initialize the helper and its solver state."""
         self.network = network
         self.version = network.version
         self.models = tuple((m.name, m.active_option_name) for m in network.model_list)
@@ -57,9 +62,11 @@ class OperatingCheckpoint:
         self.modes = self.mode_signature()
 
     def _capture_attributes(self):
+        """Capture mutable attributes needed to restore the operating point."""
         seen = set()
 
         def visit(obj, depth):
+            """Visit nested values while collecting checkpoint data."""
             if depth > 4 or id(obj) in seen or is_state_like(obj) or obj is self.network:
                 return
             seen.add(id(obj))
@@ -95,6 +102,7 @@ class OperatingCheckpoint:
             visit(balance, 0)
 
     def _signature(self):
+        """Return the checkpoint signature used for validation."""
         values = []
         for state in self.states.states:
             raw = state._value
@@ -105,6 +113,7 @@ class OperatingCheckpoint:
         return values
 
     def mode_signature(self):
+        """Return the signature of the active discrete operating mode."""
         flags = []
         for state in self.states.states:
             if isinstance(state._value, (bool, str)):
@@ -117,6 +126,7 @@ class OperatingCheckpoint:
         return tuple(flags)
 
     def validate(self):
+        """Validate that the checkpoint still matches the network."""
         if self.network.version != self.version or tuple((m.name, m.active_option_name) for m in self.network.model_list) != self.models:
             raise ValueError('Network structure or model option changed since the successful solve.')
         if not np.isclose(float(self.network.time.value), self.time, rtol=0, atol=1e-12):
@@ -151,6 +161,7 @@ class OperatingCheckpoint:
             raise ValueError('A component operating mode changed since the successful solve.')
 
     def restore(self):
+        """Restore the captured network and solver state."""
         if self.network.version != self.version:
             raise ValueError('Cannot restore a checkpoint after the network structure changes.')
         self.states.restore()
@@ -162,6 +173,7 @@ class OperatingCheckpoint:
 
 
 def discrete_signature(cache):
+    """Return a signature for the cache's discrete state."""
     values = tuple(
         (id(state), state._value)
         for state in getattr(cache, "all_state_refs", ())

@@ -79,6 +79,7 @@ def solve_modified_newton(
                     matrix = None
 
     def evaluate(candidate_y: np.ndarray) -> np.ndarray:
+        """Evaluate the residual at a candidate Newton iterate."""
         nonlocal count
         if count >= max_evals:
             raise ModifiedNewtonFailure("Modified Newton evaluation budget exhausted.")
@@ -92,6 +93,7 @@ def solve_modified_newton(
         return values
 
     def build_jacobian(current_y: np.ndarray, current_f: np.ndarray) -> np.ndarray:
+        """Build a finite-difference Newton Jacobian."""
         nonlocal builds
         if builds >= opt.max_jacobian_builds:
             raise ModifiedNewtonFailure("Jacobian refresh limit reached.")

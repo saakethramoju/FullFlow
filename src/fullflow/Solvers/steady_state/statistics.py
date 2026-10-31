@@ -30,6 +30,7 @@ class SolverStatistics:
         self.reset()
 
     def reset(self) -> None:
+        """Reset all collected solver statistics."""
         self.start_time = time.perf_counter()
         self.evaluation = 0
         self.previous_time: float | None = None
@@ -53,6 +54,7 @@ class SolverStatistics:
         state_settings=None,
         x0: Any | None = None,
     ) -> None:
+        """Configure statistics collection for a solver run."""
         if not self.enabled:
             return
 
@@ -119,6 +121,7 @@ class SolverStatistics:
 
     @staticmethod
     def _safe_float(value: Any) -> float:
+        """Convert a value to float without raising."""
         try:
             return float(value)
         except Exception:
@@ -126,6 +129,7 @@ class SolverStatistics:
 
     @staticmethod
     def _numeric_value(value: Any) -> float | None:
+        """Return a numeric representation when available."""
         try:
             numeric = float(value)
         except Exception:
@@ -138,6 +142,7 @@ class SolverStatistics:
 
     @staticmethod
     def _plain_value(value: Any) -> Any:
+        """Convert a value to a serializable plain-Python form."""
         if isinstance(value, np.generic):
             return value.item()
 
@@ -160,6 +165,7 @@ class SolverStatistics:
 
     @staticmethod
     def _variable_labels(cache) -> list[str]:
+        """Return labels for solver iteration variables."""
         labels: list[str] = []
 
         for variable in cache.iteration_variables:
@@ -169,6 +175,7 @@ class SolverStatistics:
 
     @staticmethod
     def _residual_labels(cache, residual_count: int) -> list[str]:
+        """Return labels for the current residual vector."""
         try:
             labels = cache.collect_residual_labels()
         except Exception:
@@ -184,6 +191,7 @@ class SolverStatistics:
 
 
     def _ensure_residual_metadata(self, residual_labels: list[str]) -> None:
+        """Initialize residual metadata when first available."""
         known_indices = {row["residual_index"] for row in self.residual_metadata}
 
         for i, label in enumerate(residual_labels):
@@ -200,6 +208,7 @@ class SolverStatistics:
 
     @staticmethod
     def _norms(values: np.ndarray, prefix: str) -> dict[str, Any]:
+        """Return named norms for a numeric vector."""
         if len(values) == 0:
             return {
                 f"{prefix}_count": 0,
@@ -251,6 +260,7 @@ class SolverStatistics:
         }
 
     def _record_network(self, evaluation: int, elapsed_time: float, cache) -> None:
+        """Record network values for one solver evaluation."""
         try:
             records = cache.network.save(filename=None, return_type="dict")
         except Exception as error:
@@ -282,6 +292,7 @@ class SolverStatistics:
             )
 
     def record(self, x: Any, residual: Any, cache, phase: str = "solver") -> None:
+        """Record one solver evaluation and its residuals."""
         if not self.enabled:
             return
 
@@ -458,6 +469,7 @@ class SolverStatistics:
         state_settings=None,
         overconstrained: bool = False,
     ) -> None:
+        """Finalize statistics from the completed solver result."""
         if not self.enabled:
             return
 
@@ -511,6 +523,7 @@ class SolverStatistics:
         self.final_summary = [final_row]
 
     def print_evaluation(self, row: dict[str, Any]) -> None:
+        """Print one solver-evaluation statistics row."""
         if not self.enabled:
             return
 
@@ -531,6 +544,7 @@ class SolverStatistics:
         residual: Any | None = None,
         residual_labels: list[str] | None = None,
     ) -> None:
+        """Print the largest residuals from a failed solve."""
         if not self.enabled:
             return
 
@@ -586,6 +600,7 @@ class SolverStatistics:
         self.console.print()
 
     def _table_dict(self) -> dict[str, list[dict[str, Any]]]:
+        """Return collected statistics as table dictionaries."""
         return {
             "evaluations": self.evaluations,
             "evaluation_metrics": self.evaluation_metrics,
@@ -600,6 +615,7 @@ class SolverStatistics:
 
     @staticmethod
     def _wide_table(rows: list[dict[str, Any]], index: str, columns: str, values: str) -> list[dict[str, Any]]:
+        """Pivot long-form statistics into a wide table."""
         if not rows:
             return []
 
@@ -627,6 +643,7 @@ class SolverStatistics:
         ]
 
     def export(self, filename: str | HDF5Target | None) -> None:
+        """Export collected solver statistics to HDF5."""
         if not self.enabled or filename is None:
             return
 
@@ -654,6 +671,7 @@ class SolverStatistics:
 
 
 def statistics_path(filename: str, network_name: str | None = None, table_group: str = "statistics") -> HDF5Target:
+    """Return the HDF5 target for solver statistics."""
     if network_name is None:
         return HDF5Target(filename, f"steady_state/runs/base/{safe_group_name(table_group)}")
     return HDF5Target(
@@ -663,6 +681,7 @@ def statistics_path(filename: str, network_name: str | None = None, table_group:
 
 
 def model_option_statistics_path(filename: str, model_name: str, option_name: str, network_name: str | None = None) -> HDF5Target:
+    """Return the HDF5 target for model-option statistics."""
     path = f"{run_group_path('steady_state', model_name=model_name, option_name=option_name)}/statistics"
     if network_name is None:
         return HDF5Target(filename, path)
