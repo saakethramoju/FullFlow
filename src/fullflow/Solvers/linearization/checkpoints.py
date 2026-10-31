@@ -16,6 +16,7 @@ _DIAGNOSTIC_ATTRIBUTES = {
     "_cache_hits",
     "_defer_count",
     "_evaluation_count",
+    "_last_error",
     "_reuse_count",
 }
 

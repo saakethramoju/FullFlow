@@ -50,7 +50,7 @@ dependencies = [
     "scipy>=1.11",
     "rich>=13.7",
     "h5py>=3.10",
-    "fullplot>=0.1.1",
+    "fullplot>=2.0.0",
 ]
 
 [project.optional-dependencies]
@@ -82,19 +82,12 @@ build-backend = "uv_build"
 
 [tool.uv.build-backend]
 source-include = [
-    "README.md",
-    "LINEARIZATION.md",
     "CHANGELOG.md",
-    "LICENSE",
     "THIRD_PARTY_LICENSES.md",
-    "PUBLISHING.md",
-    "CONTRIBUTING.md",
-    "CODE_OF_CONDUCT.md",
-    "SECURITY.md",
-    "CITATION.cff",
     "docs/**",
     "examples/**",
 ]
+source-exclude = [".DS_Store"]
 
 [dependency-groups]
 dev = [

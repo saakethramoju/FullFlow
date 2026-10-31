@@ -1893,9 +1893,10 @@ diagnostics. An individual steady-state result uses a hierarchy similar to:
 
 Transient results use `transient` instead of `steady_state`. Multiple-time
 results are stored under numbered `points/0`, `points/1`, and so on, each with
-its own `time` dataset. A named active model option can be reflected in the
-run path. Saving a single result replaces the base matrices while preserving saved
-`points/` at the same run path. Saving multiple times replaces only the
+its own `time` dataset. Active model options are represented by nested
+model/option segments in the run path, so different option combinations remain
+distinct. Saving a single result replaces the base matrices while preserving
+saved `points/` at the same run path. Saving multiple times replaces only the
 corresponding `points/` group. Use different filenames to retain independent
 analyses of the same operating points.
 

@@ -12,10 +12,14 @@ def _path(result, network_name, solver_type):
     """Return the HDF5 path for a linearization result."""
     base = f"{safe_group_name(network_name)}/linearization/{solver_type}/runs"
     selected = [(name, option) for name, option in result.model_options if option is not None]
-    if len(selected) == 1:
-        name, option = selected[0]
-        return f"{base}/{safe_group_name(name)}/{safe_group_name(option)}"
-    return f"{base}/base"
+    if not selected:
+        return f"{base}/base"
+    option_path = "/".join(
+        segment
+        for name, option in selected
+        for segment in (safe_group_name(name), safe_group_name(option))
+    )
+    return f"{base}/{option_path}"
 
 
 def _write(group, result):

@@ -195,7 +195,9 @@ An individual result is stored at a path resembling:
     diagnostics/
 ```
 
-For a transient run the path uses `transient` instead of `steady_state`. When exactly one named model option is selected, the run path includes its model/option name instead of `base`.
+For a transient run the path uses `transient` instead of `steady_state`.
+When one or more named model options are selected, the run path contains a
+nested model/option segment for each selection instead of `base`.
 
 For multiple operating points, results are written under numbered `points/0`, `points/1`, and so on, with each point's own `time` dataset.
 

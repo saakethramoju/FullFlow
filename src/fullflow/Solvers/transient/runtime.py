@@ -175,6 +175,8 @@ class TransientRuntimeCache:
     @staticmethod
     def _is_sensor_anchor_owner(component: Any) -> bool:
         """Return True for Sensor-like components that can act as balances."""
+        if getattr(type(component), "is_anchor", None) is None:
+            return False
         try:
             return bool(component.is_anchor)
         except Exception:
