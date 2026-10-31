@@ -36,13 +36,6 @@ For the full example set:
 pip3 install "fullflow[examples]"
 ```
 
-With `uv`:
-
-```bash
-uv add fullflow
-uv add "fullflow[examples]"
-```
-
 ## Required and optional dependencies
 
 Core FullFlow depends on:
@@ -1286,7 +1279,8 @@ Linearization uses the same `Network`, `State`, `Component`, `balances`, and
 need to be written, and custom components do not need to provide analytical
 Jacobian functions.
 
-The detailed reference is **[LINEARIZATION.md](LINEARIZATION.md)**. This README
+The detailed reference is
+**[LINEARIZATION.md](src/fullflow/Solvers/LINEARIZATION.md)**. This README
 explains the underlying mathematics, what the matrices represent, and the main
 API and numerical restrictions.
 
@@ -1300,9 +1294,9 @@ already-solved operating point.
 
 For a scalar output `y` and a scalar input `u`, the idea is
 
-\[
+```math
 y(u) \approx y_0 + \left.\frac{dy}{du}\right|_0(u-u_0).
-\]
+```
 
 The subscript `0` identifies the operating point. The approximation becomes
 less reliable as the input moves farther from that point or crosses a
@@ -1310,11 +1304,11 @@ nonsmooth boundary, such as a choking transition or valve-mode change.
 
 For a full dynamic network, FullFlow constructs
 
-\[
+```math
 \boxed{\delta\dot{x} = A\,\delta x + B\,\delta u},
 \qquad
 \boxed{\delta y = C\,\delta x + D\,\delta u}.
-\]
+```
 
 The variables are:
 
@@ -1351,13 +1345,13 @@ The matrix equations above describe deviations. FullFlow also returns the
 operating-point vectors `x0`, `xdot0`, `u0`, and `y0`, so the absolute local
 approximation is
 
-\[
+```math
 \dot{x} \approx \dot{x}_0 + A(x-x_0) + B(u-u_0),
-\]
+```
 
-\[
+```math
 y \approx y_0 + C(x-x_0) + D(u-u_0).
-\]
+```
 
 At a converged steady-state equilibrium, `xdot0` should be approximately zero.
 During a transient, a tank may already be draining or a rotor may already be
@@ -1404,13 +1398,13 @@ solver iteration variable and an independent linearization input.
 FullFlow combines differential equations with algebraic closure equations.
 Locally, the network can be written as
 
-\[
+```math
 \dot{x} = f(w,u), \qquad x = h(w,u),
-\]
+```
 
-\[
+```math
 0 = g(w,u), \qquad y = q(w,u),
-\]
+```
 
 where:
 
@@ -1427,36 +1421,36 @@ pressures and flow without introducing a new integrated state.
 Linearization must preserve both the dynamic-state definitions and the
 algebraic constraints. Small perturbations satisfy
 
-\[
+```math
 \delta x = h_w\,\delta w + h_u\,\delta u,
 \qquad
 0 = g_w\,\delta w + g_u\,\delta u,
-\]
+```
 
 where a subscript such as `h_w` denotes a matrix of partial derivatives.
 Combining these equations gives
 
-\[
+```math
 M = \begin{bmatrix}h_w\\g_w\end{bmatrix},
 \qquad
 M\begin{bmatrix}w_x&w_u\end{bmatrix}
 =
 \begin{bmatrix}I&-h_u\\0&-g_u\end{bmatrix}.
-\]
+```
 
 When `M` is **square and nonsingular**, this linear system determines how the
 iteration variables respond to changes in physical states or independent
 inputs while satisfying the network constraints. FullFlow then assembles
 
-\[
+```math
 \boxed{A = f_w w_x}, \qquad
 \boxed{B = f_u + f_w w_u},
-\]
+```
 
-\[
+```math
 \boxed{C = q_w w_x}, \qquad
 \boxed{D = q_u + q_w w_u}.
-\]
+```
 
 These are derivatives of the **coupled network**, not just derivatives of one
 isolated component. A valve-area input can change a flow rate, which affects
@@ -1480,25 +1474,25 @@ the nonlinear transient solver still uses backward Euler, as described in
 Consider a simplified model with one stored mass `m`, one iteration pressure
 `P`, one area input `a`, and one chamber-pressure output `Pc`:
 
-\[
+```math
 m = 2P, \qquad P_c = \frac{P+a}{2},
 \qquad \dot m = 2-P_c.
-\]
+```
 
 These are illustrative normalized relationships, not realistic orifice or
 combustion equations. Eliminating `P` gives
 
-\[
+```math
 \dot m = 2 - \frac{m}{4} - \frac{a}{2},
 \qquad
 P_c = \frac{m}{4} + \frac{a}{2}.
-\]
+```
 
 Choosing `x = m`, `u = a`, and `y = Pc`, the local matrices are
 
-\[
+```math
 A=-0.25, \qquad B=-0.5, \qquad C=0.25, \qquad D=0.5.
-\]
+```
 
 For instance, `B = -0.5` means a small increase in area reduces the rate of
 mass accumulation. `D = 0.5` means the output immediately increases with area
@@ -1762,9 +1756,9 @@ multi-time result, select the desired operating point first, for example
 For an equilibrium with a constant input disturbance, the linear state
 evolution is
 
-\[
+```math
 \delta\dot{x} = A\,\delta x + B\,\delta u.
-\]
+```
 
 The **eigenvalues of `A`** describe local small-signal dynamic behavior. For
 a continuous-time linear system, negative real parts correspond to decaying
@@ -1788,9 +1782,9 @@ held fixed. It is not generally the full eventual steady-state gain of a
 dynamic network. When the local equilibrium is stable and `A` is invertible,
 its constant-input steady-state sensitivity is
 
-\[
+```math
 K_{\mathrm{steady}} = D - C A^{-1} B.
-\]
+```
 
 This relationship does not apply without qualification to systems with
 integrators, singular `A`, changing modes, or operating points that are not
@@ -1903,9 +1897,9 @@ linearization result group, so use different filenames to retain multiple
 independent analyses.
 
 The linearization HDF5 structure is separate from the ordinary solver time
-history. See [LINEARIZATION.md](LINEARIZATION.md) for details of the result
-format and [EXPORTS.md](src/fullflow/Exports/EXPORTS.md) for general HDF5
-output behavior.
+history. See [LINEARIZATION.md](src/fullflow/Solvers/LINEARIZATION.md) for
+details of the result format and
+[EXPORTS.md](src/fullflow/Exports/EXPORTS.md) for general HDF5 output behavior.
 
 ## HDF5 output
 
@@ -2531,14 +2525,14 @@ The repository includes examples for:
 
 Examples that import ThermoProp require `fullflow[thermo]` or `fullflow[examples]`.
 
-# Documentation
+## Documentation
 
 Detailed reference guides:
 
 - [System and component API](src/fullflow/System/SYSTEM.md)
 - [Steady-state solver](src/fullflow/Solvers/STEADY_STATE_SOLVER.md)
 - [Transient solver](src/fullflow/Solvers/TRANSIENT_SOLVER.md)
-- [Linearization](LINEARIZATION.md)
+- [Linearization](src/fullflow/Solvers/LINEARIZATION.md)
 - [HDF5 exports](src/fullflow/Exports/EXPORTS.md)
 
 Full documentation:
