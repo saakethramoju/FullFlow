@@ -1,3 +1,5 @@
+# Approximate runtime: 0.8 seconds.
+
 """
 Lookup class and chained lookup example.
 

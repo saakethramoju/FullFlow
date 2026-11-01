@@ -1,3 +1,5 @@
+# Approximate runtime: 7.4 seconds.
+
 """
 COPV blowdown into a high-pressure downstream receiver.
 

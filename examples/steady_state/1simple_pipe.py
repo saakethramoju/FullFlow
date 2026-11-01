@@ -1,3 +1,5 @@
+# Approximate runtime: 1.9 seconds.
+
 """
 Pipe Flow with Darcy-Weisbach and Colebrook Friction Factor
 ===========================================================

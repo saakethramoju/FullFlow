@@ -1,3 +1,5 @@
+# Approximate runtime: 3.2 seconds.
+
 """
 Transient Solid Heat Transfer With Natural Convection
 ====================================================

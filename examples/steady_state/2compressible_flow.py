@@ -1,3 +1,5 @@
+# Approximate runtime: 2.1 seconds.
+
 """
 Compressible Diffuser, Volume, and Orifice Network
 ==================================================

@@ -1,3 +1,5 @@
+# Approximate runtime: 1.0 seconds.
+
 """Linearize a two-node feed system during a quasi-steady pressure sweep."""
 
 import fullplot as fplt

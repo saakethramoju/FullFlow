@@ -1,3 +1,5 @@
+# Approximate runtime: 7.3 seconds.
+
 """
 Transient particulate separator / flow splitter example.
 

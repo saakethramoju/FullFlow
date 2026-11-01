@@ -152,11 +152,11 @@ class SolverStatistics:
         if isinstance(value, dict):
             return {
                 SolverStatistics._plain_value(key): SolverStatistics._plain_value(item)
-                for key, item in value.items()
+                for key, item in tuple(value.items())
             }
 
         if isinstance(value, (list, tuple)):
-            return [SolverStatistics._plain_value(item) for item in value]
+            return [SolverStatistics._plain_value(item) for item in tuple(value)]
 
         if isinstance(value, (str, int, float, bool)) or value is None:
             return value

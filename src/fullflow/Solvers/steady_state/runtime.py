@@ -319,12 +319,12 @@ class RuntimeCache:
                 return
 
             if isinstance(item, dict):
-                for key, child in item.items():
+                for key, child in tuple(item.items()):
                     collect(child, f"{path}.{key}")
                 return
 
             if isinstance(item, (list, tuple)):
-                for index, child in enumerate(item):
+                for index, child in enumerate(tuple(item)):
                     collect(child, f"{path}[{index}]")
                 return
 
@@ -334,7 +334,7 @@ class RuntimeCache:
     @classmethod
     def state_label(cls, owner: Any, state: Any) -> str:
         """Best-effort ``owner:attribute`` label for diagnostics."""
-        for attr_name, attr_value in owner.__dict__.items():
+        for attr_name, attr_value in tuple(owner.__dict__.items()):
             paths = cls._state_paths(attr_value, state, f"{owner.name}:{attr_name}")
             if paths:
                 return paths[0]
@@ -346,7 +346,7 @@ class RuntimeCache:
         labels: list[str] = []
 
         for owner in self.component_list + self.balance_list:
-            for attr_name, attr_value in owner.__dict__.items():
+            for attr_name, attr_value in tuple(owner.__dict__.items()):
                 labels.extend(
                     self._state_paths(attr_value, target, f"{owner.name}.{attr_name}")
                 )
@@ -450,18 +450,18 @@ class RuntimeCache:
                 return
 
             if isinstance(value, dict):
-                for key, item in value.items():
+                for key, item in tuple(value.items()):
                     collect(key)
                     collect(item)
                 return
 
             if isinstance(value, (list, tuple, set, frozenset)):
-                for item in value:
+                for item in tuple(value):
                     collect(item)
                 return
 
         for owner in self.component_list + self.balance_list:
-            for value in owner.__dict__.values():
+            for value in tuple(owner.__dict__.values()):
                 collect(value)
 
         return tuple(refs)
@@ -519,13 +519,16 @@ class RuntimeCache:
         if is_state_like(value):
             return value
         if isinstance(value, dict):
-            return {RuntimeCache._copy_value(k): RuntimeCache._copy_value(v) for k, v in value.items()}
+            return {
+                RuntimeCache._copy_value(k): RuntimeCache._copy_value(v)
+                for k, v in tuple(value.items())
+            }
         if isinstance(value, list):
-            return [RuntimeCache._copy_value(item) for item in value]
+            return [RuntimeCache._copy_value(item) for item in tuple(value)]
         if isinstance(value, tuple):
             return tuple(RuntimeCache._copy_value(item) for item in value)
         if isinstance(value, set):
-            return {RuntimeCache._copy_value(item) for item in value}
+            return {RuntimeCache._copy_value(item) for item in tuple(value)}
         try:
             return copy.deepcopy(value)
         except Exception:

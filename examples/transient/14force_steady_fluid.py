@@ -1,3 +1,5 @@
+# Approximate runtime: 1.8 seconds.
+
 """
 Simple forced-steady fluid time-sweep example.
 

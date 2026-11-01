@@ -1,3 +1,5 @@
+# Approximate runtime: 4.4 seconds.
+
 """
 Simple gas tank filling example with a relief valve.
 

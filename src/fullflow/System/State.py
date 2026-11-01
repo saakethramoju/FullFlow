@@ -167,13 +167,13 @@ class State:
         if isinstance(value, Mapping):
             return {
                 key: cls.from_iterable(item)
-                for key, item in value.items()
+                for key, item in tuple(value.items())
             }
 
         if isinstance(value, list):
             return [
                 cls.from_iterable(item)
-                for item in value
+                for item in tuple(value)
             ]
 
         if isinstance(value, tuple):
@@ -699,12 +699,12 @@ def label_state_refs(value: Any, label: str, seen: set[int] | None = None) -> No
         return
 
     if isinstance(value, Mapping):
-        for key, item in value.items():
+        for key, item in tuple(value.items()):
             label_state_refs(item, f"{label}.{key}", seen)
         return
 
     if isinstance(value, list):
-        for index, item in enumerate(value):
+        for index, item in enumerate(tuple(value)):
             label_state_refs(item, f"{label}[{index}]", seen)
         return
 

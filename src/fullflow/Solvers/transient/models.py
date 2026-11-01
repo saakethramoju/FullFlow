@@ -27,22 +27,22 @@ class NetworkStateSnapshot:
         if isinstance(value, dict):
             return {
                 NetworkStateSnapshot._snapshot_value(key): NetworkStateSnapshot._snapshot_value(item)
-                for key, item in value.items()
+                for key, item in tuple(value.items())
             }
 
         if isinstance(value, list):
-            return [NetworkStateSnapshot._snapshot_value(item) for item in value]
+            return [NetworkStateSnapshot._snapshot_value(item) for item in tuple(value)]
 
         if isinstance(value, tuple):
             return tuple(NetworkStateSnapshot._snapshot_value(item) for item in value)
 
         if isinstance(value, set):
-            return {NetworkStateSnapshot._snapshot_value(item) for item in value}
+            return {NetworkStateSnapshot._snapshot_value(item) for item in tuple(value)}
 
         if isinstance(value, frozenset):
             return frozenset(
                 NetworkStateSnapshot._snapshot_value(item)
-                for item in value
+                for item in tuple(value)
             )
 
         try:
@@ -83,17 +83,17 @@ class NetworkStateSnapshot:
                 return
 
             if isinstance(value, dict):
-                for item in value.values():
+                for item in tuple(value.values()):
                     visit(item)
                 return
 
             if isinstance(value, (list, tuple, set, frozenset)):
-                for item in value:
+                for item in tuple(value):
                     visit(item)
                 return
 
             if hasattr(value, "__dict__"):
-                for item in vars(value).values():
+                for item in tuple(vars(value).values()):
                     visit(item)
 
         visit(network)

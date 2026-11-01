@@ -1,3 +1,5 @@
+# Approximate runtime: 2.2 seconds.
+
 """
 Simple forced-steady time-sweep example.
 

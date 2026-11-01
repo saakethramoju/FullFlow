@@ -1,3 +1,5 @@
+# Approximate runtime: 3.6 seconds.
+
 """
 GFSSP Example 15 Style Water-Hammer / Valve-Closure Model
 =========================================================

@@ -1,3 +1,5 @@
+# Approximate runtime without map generation: 1.7 seconds.
+
 """
 Finite-area combustor equilibrium nozzle example.
 

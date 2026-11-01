@@ -1,3 +1,5 @@
+# Approximate runtime: 1.3 seconds.
+
 """
 Transient FlowTube shock-diagnostic decay test.
 

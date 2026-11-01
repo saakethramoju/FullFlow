@@ -1,3 +1,5 @@
+# Approximate runtime without map generation: 2.4 seconds.
+
 """
 Oxygen-Rich Preburner / LOX Turbopump Example
 =============================================

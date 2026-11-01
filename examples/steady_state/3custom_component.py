@@ -1,3 +1,5 @@
+# Approximate runtime: 1.7 seconds.
+
 """
 Custom Component Example: Liquid Oxygen Pump Feed System
 ========================================================

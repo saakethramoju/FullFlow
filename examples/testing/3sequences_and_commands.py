@@ -1,3 +1,5 @@
+# Approximate runtime: 1.1 seconds.
+
 from pathlib import Path
 
 import h5py

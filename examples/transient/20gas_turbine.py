@@ -1,3 +1,5 @@
+# Approximate runtime without map generation: 7.5 seconds.
+
 """
 Transient Turbopump Startup: Combustion Map, Turbine Map, and Rotor
 ===================================================================

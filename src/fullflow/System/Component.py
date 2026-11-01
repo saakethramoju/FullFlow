@@ -222,7 +222,7 @@ class Component:
             return Component._format_value(value.value)
 
         if isinstance(value, list):
-            return [Component._format_value(item) for item in value]
+            return [Component._format_value(item) for item in tuple(value)]
 
         if isinstance(value, tuple):
             return tuple(Component._format_value(item) for item in value)
@@ -230,7 +230,7 @@ class Component:
         if isinstance(value, dict):
             return {
                 key: Component._format_value(item)
-                for key, item in value.items()
+                for key, item in tuple(value.items())
             }
 
         return value
@@ -239,7 +239,7 @@ class Component:
         skip_attrs = {"network"} | self.ignored_export_attributes
         lines = [f"Component {self.name} ({self.__class__.__name__})"]
 
-        for attr, value in self.__dict__.items():
+        for attr, value in tuple(self.__dict__.items()):
             if attr in skip_attrs:
                 continue
             lines.append(f"    {attr}: {self._format_value(value)}")

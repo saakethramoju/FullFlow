@@ -1,3 +1,5 @@
+# Approximate runtime: 3.1 seconds.
+
 """
 Simple reciprocating piston-cylinder example.
 

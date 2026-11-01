@@ -1,3 +1,5 @@
+# Approximate runtime: 78.2 seconds.
+
 """
 Smooth transient feed-system throttling example.
 

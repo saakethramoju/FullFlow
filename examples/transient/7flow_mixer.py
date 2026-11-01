@@ -1,3 +1,5 @@
+# Approximate runtime: 18.7 seconds.
+
 """
 Transient N2/O2/argon mixer example with inertial flow tubes.
 

@@ -30,11 +30,11 @@ def _copy(value):
     if isinstance(value, np.ndarray):
         return value.copy()
     if isinstance(value, OrderedDict):
-        return OrderedDict((_copy(k), _copy(v)) for k, v in value.items())
+        return OrderedDict((_copy(k), _copy(v)) for k, v in tuple(value.items()))
     if isinstance(value, dict):
-        return {_copy(k): _copy(v) for k, v in value.items()}
+        return {_copy(k): _copy(v) for k, v in tuple(value.items())}
     if isinstance(value, (list, tuple, set, frozenset)):
-        return type(value)(_copy(v) for v in value)
+        return type(value)(_copy(v) for v in tuple(value))
     return value
 
 
@@ -72,11 +72,11 @@ class OperatingCheckpoint:
                 return
             seen.add(id(obj))
             if isinstance(obj, (list, tuple, set, frozenset)):
-                for item in obj:
+                for item in tuple(obj):
                     visit(item, depth + 1)
                 return
             if isinstance(obj, dict):
-                for item in obj.values():
+                for item in tuple(obj.values()):
                     visit(item, depth + 1)
                 return
             if depth and getattr(type(obj), '__module__', '').startswith(('numpy', 'scipy', 'fullplot', 'builtins')):

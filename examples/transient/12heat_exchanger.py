@@ -1,3 +1,5 @@
+# Approximate runtime: 2.9 seconds.
+
 """
 Transient concentric-tube heat exchanger example.
 

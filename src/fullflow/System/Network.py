@@ -275,12 +275,12 @@ class Network:
                 return
 
             if isinstance(item, dict):
-                for key, child in item.items():
+                for key, child in tuple(item.items()):
                     collect(child, f"{path}.{key}")
                 return
 
             if isinstance(item, (list, tuple)):
-                for index, child in enumerate(item):
+                for index, child in enumerate(tuple(item)):
                     collect(child, f"{path}[{index}]")
                 return
 
@@ -289,7 +289,7 @@ class Network:
 
     @classmethod
     def _state_label(cls, owner: Any, state: State) -> str:
-        for attr_name, attr_value in owner.__dict__.items():
+        for attr_name, attr_value in tuple(owner.__dict__.items()):
             paths = cls._state_paths(attr_value, state, f"{owner.name}:{attr_name}")
             if paths:
                 return paths[0]
@@ -307,7 +307,7 @@ class Network:
                 return "<unavailable>"
 
         if isinstance(value, list):
-            return [Network._safe_value(item) for item in value]
+            return [Network._safe_value(item) for item in tuple(value)]
 
         if isinstance(value, tuple):
             return tuple(Network._safe_value(item) for item in value)
@@ -315,7 +315,7 @@ class Network:
         if isinstance(value, dict):
             return {
                 key: Network._safe_value(item)
-                for key, item in value.items()
+                for key, item in tuple(value.items())
             }
 
         return value
@@ -451,7 +451,7 @@ class Network:
         attribute = name if prefix is None else f"{prefix}.{name}"
 
         if flatten and isinstance(value, dict):
-            for key, item in value.items():
+            for key, item in tuple(value.items()):
                 self._append_tracked_records(
                     records,
                     str(key),
@@ -475,7 +475,7 @@ class Network:
         records: list[dict[str, Any]],
         ignored_attributes: set[str],
     ) -> None:
-        for attr_name, attr_value in owner.__dict__.items():
+        for attr_name, attr_value in tuple(owner.__dict__.items()):
             if attr_name in ignored_attributes or attr_name.startswith("_"):
                 continue
 

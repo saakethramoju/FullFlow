@@ -102,10 +102,10 @@ def _plain(value: Any) -> Any:
         return value.tolist()
 
     if isinstance(value, dict):
-        return {str(_plain(key)): _plain(item) for key, item in value.items()}
+        return {str(_plain(key)): _plain(item) for key, item in tuple(value.items())}
 
     if isinstance(value, (list, tuple)):
-        return [_plain(item) for item in value]
+        return [_plain(item) for item in tuple(value)]
 
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value

@@ -1,3 +1,5 @@
+# Approximate runtime: 2.0 seconds.
+
 """
 Transient Darcy-Weisbach Pipe With Colebrook Friction
 ====================================================

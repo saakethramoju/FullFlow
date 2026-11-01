@@ -1,3 +1,5 @@
+# Approximate runtime: 18.1 seconds.
+
 """
 Bang-bang pressurized methane tank transient example.
 

@@ -1,3 +1,5 @@
+# Approximate runtime without map generation: 70.2 seconds.
+
 from fullflow import *
 import fullplot as fplt
 from thermoprop import *

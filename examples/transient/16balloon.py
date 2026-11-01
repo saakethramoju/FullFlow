@@ -1,3 +1,5 @@
+# Approximate runtime: 2.0 seconds.
+
 """
 Simple balloon deflation example.
 

@@ -1,3 +1,5 @@
+# Approximate runtime: 1.0 seconds.
+
 from pathlib import Path
 
 import numpy as np

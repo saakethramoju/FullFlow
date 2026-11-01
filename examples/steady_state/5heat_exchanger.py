@@ -1,3 +1,5 @@
+# Approximate runtime: 1.9 seconds.
+
 """
 Steady-state concentric-tube heat exchanger example.
 

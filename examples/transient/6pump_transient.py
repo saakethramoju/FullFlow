@@ -1,3 +1,5 @@
+# Approximate runtime: 4.1 seconds.
+
 """
 Transient pump / valve / pipeline startup example.
 

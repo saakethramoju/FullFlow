@@ -1,3 +1,5 @@
+# Approximate map-generation-only runtime: 84.0 seconds (simulation not run).
+
 import numpy as np
 from scipy.constants import *
 
@@ -268,6 +270,7 @@ if generate_combustion_map:
         overwrite=True,
         raise_errors=True,
     )
+
 
 
 # -----------------------------------------------------------------------------
