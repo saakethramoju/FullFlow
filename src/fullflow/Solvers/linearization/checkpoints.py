@@ -55,7 +55,16 @@ class OperatingCheckpoint:
         self.models = tuple((m.name, m.active_option_name) for m in network.model_list)
         self.time = float(network.time.value)
         self.states = NetworkStateSnapshot.capture(network)
-        self.proxies = cache.snapshot_mutable_states() if cache is not None else None
+        self.proxies = []
+        if cache is not None:
+            for item in cache.snapshot_mutable_states():
+                if item[0] == "state":
+                    _, state, value, previous, second_previous = item
+                    if state not in self.states.values:
+                        self.states.states.append(state)
+                        self.states.values[state] = (value, previous, second_previous)
+                else:
+                    self.proxies.append(item)
         self.cache = cache
         self.attributes = []
         self._capture_attributes()
@@ -106,11 +115,11 @@ class OperatingCheckpoint:
         """Return the checkpoint signature used for validation."""
         values = []
         for state in self.states.states:
-            raw = state._value
+            raw = self.states.values[state][0]
             if isinstance(raw, (str, int, float, bool, type(None))):
                 values.append((state, raw, state._expr, state.bounds))
             elif isinstance(raw, np.ndarray):
-                values.append((state, raw.copy(), state._expr, state.bounds))
+                values.append((state, raw, state._expr, state.bounds))
         return values
 
     def mode_signature(self):

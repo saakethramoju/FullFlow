@@ -86,13 +86,13 @@ A_at_10s = results[10.0].A
 
 A `times` call returns a dictionary keyed by the **requested float times**. Requests must be unique and must match accepted solver timesteps (subject to a small floating-point time tolerance). No interpolation is performed.
 
-Checkpoint retention follows accepted timesteps:
+Operating points are stored with the in-memory solution records:
 
-- Every accepted transient timestep receives an in-memory checkpoint and is recorded in output history.
+- Every accepted transient timestep includes exported values and restorable model state.
 - The initial and final operating points are retained as well. Recognized switching-event points are retained but cannot themselves be linearized.
 - Requests that do not match an accepted timestep are rejected; exported HDF5 output alone cannot reconstruct a missing operating point.
 
-**Memory cost:** retaining every accepted step means checkpoint memory and capture overhead grow with the number of timesteps and network complexity. For long, finely stepped simulations this can be substantial. The current API does not offer selective or on-disk checkpoint retention.
+**Memory cost:** results retain model state, output values, and diagnostics for the accepted steps. Storage grows with run length and network complexity. HDF5 exports contain result tables, not a reloadable Python model.
 
 ### Quasi-steady time sweeps
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from fullflow.Exports.HDF5 import write_transient_solution
+from fullflow.Solvers.results import SolutionRecords
 
 
 def format_records(records: list[dict[str, Any]], return_type: str):
@@ -18,11 +19,11 @@ def format_records(records: list[dict[str, Any]], return_type: str):
 
 
 class TransientHistory:
-    """Collect full transient output at selected accepted timesteps."""
+    """Collect output and operating points at accepted timesteps."""
 
     def __init__(self) -> None:
         """Initialize the object and register any FullFlow state wiring."""
-        self.records: list[dict[str, Any]] = []
+        self.records = SolutionRecords()
         self.track_records: list[dict[str, Any]] = []
         self.output_times: list[float] = []
 
@@ -31,20 +32,16 @@ class TransientHistory:
         """Return the records that should be returned from ``Transient.solve``."""
         return self.records
 
-    def append(self, network, time_value: float) -> None:
-        """Append current full-network output values at ``time_value``."""
+    def append(self, network, time_value: float, cache, issue=None) -> None:
+        """Record the accepted model state and its exported values."""
         time_value = float(time_value)
+        self.records.capture(network, cache, issue)
         self.output_times.append(time_value)
 
-        for record in network.save(filename=None, return_type="dict"):
-            row = {"time": time_value}
-            row.update(record)
-            self.records.append(row)
-
-        for record in network.tracked_records():
-            row = {"time": time_value}
-            row.update(record)
-            self.track_records.append(row)
+        rows = self.records.add_records(
+            network.save(filename=None, return_type="dict"), time_value,
+        )
+        self.track_records.extend(row for row in rows if row["component_type"] == "TrackedState")
 
     def save(
         self,

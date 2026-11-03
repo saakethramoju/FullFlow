@@ -1097,7 +1097,7 @@ class TransientRuntimeCache:
             previous = float(item.state.previous)
             flux = dt * derivative
             scale = max(abs(state), abs(previous), abs(flux), 1.0)
-            append((state - previous - flux) / scale)
+            append(((state - previous - flux) / scale) / dt)
 
         for component in self.algebraic_residual_owners:
             for equation in self._component_balance_equations(component):

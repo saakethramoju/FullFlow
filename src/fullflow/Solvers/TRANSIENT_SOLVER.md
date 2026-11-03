@@ -157,6 +157,8 @@ The solver can shorten a step for four reasons:
    If a nonlinear step fails, the solver rolls back and retries with half the step.
 ```
 
+The timestep, final time, initial network time, and optional minimum timestep must be finite.
+
 The solver does not automatically grow the timestep. This keeps timestep accuracy under user control.
 
 ## One implicit timestep
@@ -198,7 +200,7 @@ The exact labels are collected by the runtime cache and used in failure messages
 
 ## Integration residual scaling
 
-The internally generated integration residuals are normalized by a state/change scale. This helps a temperature state, pressure state, and mass state use the same numerical acceptance check without requiring component authors to write their own scaling code.
+The internally generated integration residuals are normalized by a state/change scale and divided by `dt`: `(state_new - state_previous - dt * derivative_new) / scale / dt`. The acceptance tolerance therefore limits the normalized defect per second; reducing `dt` does not by itself make an unchanged state acceptable. This helps a temperature state, pressure state, and mass state use the same numerical acceptance check without requiring component authors to write their own scaling code.
 
 Algebraic residuals are used exactly as the component or `Balance` returns them. Therefore, when users write dimensional custom balances, it is often best to write the residual in a physically meaningful scale, such as:
 
@@ -262,7 +264,7 @@ If the solver reaches the retry limit or retry floor, it raises an error showing
 
 The transient solver always stores the initial evaluated state. It then stores accepted timesteps.
 
-Every accepted step is saved.
+Results include the initial operating point and every accepted step. Each point retains exported values and the internal State and component history used by multi-time linearization. Returned records support ordinary list indexing and iteration. Restorable model state remains in memory; HDF5 contains exported result tables. History storage grows with the number of accepted steps.
 
 When `filename=...` is provided, transient results are written under:
 

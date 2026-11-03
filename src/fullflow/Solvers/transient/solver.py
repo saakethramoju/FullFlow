@@ -33,7 +33,6 @@ class Transient:
         self._force_steady = None
         self._force_steady_exceptions = None
         self._linearization_source = None
-        self._linearization_points = {}
         self.evaluator = TransientStateEvaluator(self._cache)
         self.step_solver = TransientStepSolve(
             network,
@@ -149,8 +148,8 @@ class Transient:
             )
 
         dt = float(dt)
-        if dt <= 0.0:
-            raise ValueError(f"dt must be positive. Got {dt}")
+        if not math.isfinite(dt) or dt <= 0.0:
+            raise ValueError(f"dt must be finite and positive. Got {dt}")
 
         return dt
 
@@ -209,7 +208,6 @@ class Transient:
         """Advance the network with optional model-option selection."""
 
         self._linearization_source = None
-        self._linearization_points = {}
         self._linearization_issue = None
 
         def run_once(
@@ -284,7 +282,6 @@ class Transient:
     ):
         """Advance the network from its current time to ``t_final``."""
         self._linearization_source = None
-        self._linearization_points = {}
         self._linearization_issue = None
         self._ignore_balances = ignore_balances
         self._force_steady = force_steady
@@ -294,6 +291,8 @@ class Transient:
         dt = self._validate_timestep(dt)
 
         start_time_value = float(self.network.time.value)
+        if not math.isfinite(start_time_value):
+            raise ValueError("network.time must be finite.")
         if start_time_value > t_final:
             raise ValueError(
                 f"network.time ({self.network.time.value}) is already greater than "
@@ -339,9 +338,8 @@ class Transient:
         self.network.reset_sensor_events()
         self.network.reset_sequence_aborts()
         self.network.initialize_sensor_conditions(float(self.network.time.value))
-        self.history.append(self.network, float(self.network.time.value))
-        from fullflow.Solvers.linearization.checkpoints import OperatingCheckpoint, discrete_signature
-        self._linearization_points[float(self.network.time.value)] = (OperatingCheckpoint(self.network, cache), None)
+        self.history.append(self.network, float(self.network.time.value), cache)
+        from fullflow.Solvers.linearization.checkpoints import discrete_signature
         previous_mode = discrete_signature(cache)
         sequence_breakpoints = self._collect_sequence_breakpoints()
 
@@ -447,8 +445,6 @@ class Transient:
                 if verbose:
                     self.printer.print_sequence_abort(abort_record)
 
-            self.history.append(self.network, diagnostics.time)
-
             if statistics:
                 self.printer.print_step(diagnostics)
 
@@ -458,8 +454,7 @@ class Transient:
             switched = current_mode != previous_mode
             previous_mode = current_mode
             issue = "An event or operating mode changed at this timestep." if step_events or abort_record or switched else None
-            checkpoint = OperatingCheckpoint(self.network, self._cache())
-            self._linearization_points[float(diagnostics.time)] = (checkpoint, issue)
+            self.history.append(self.network, diagnostics.time, self._cache(), issue)
             self._linearization_issue = issue
 
             if abort_record is not None:
@@ -508,8 +503,5 @@ class Transient:
             self.printer.print_network_solution()
 
         final_time = float(self.network.time.value)
-        if final_time in self._linearization_points:
-            self._linearization_source = self._linearization_points[final_time][0]
-        else:
-            self._linearization_source = OperatingCheckpoint(self.network, self._cache())
+        self._linearization_source = self.history.records.operating_points[final_time][0]
         return format_records(self.history.public_records, return_type)

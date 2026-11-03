@@ -295,7 +295,7 @@ def _linearize_many(solver, inputs, outputs, filename, times, verbose=False):
     if not requested or len(set(requested)) != len(requested) or not np.isfinite(requested).all():
         raise LinearizationError("times must contain distinct, finite operating-point times.")
 
-    accepted = sorted(solver._linearization_points)
+    accepted = sorted(solver.history.records.operating_points)
     checkpoints = {}
     for time_value in requested:
         index = bisect_left(accepted, time_value)
@@ -321,7 +321,7 @@ def _linearize_many(solver, inputs, outputs, filename, times, verbose=False):
                 "Requested times must match accepted solver timesteps; "
                 "no interpolation is performed."
             )
-        checkpoints[time_value] = solver._linearization_points[closest]
+        checkpoints[time_value] = solver.history.records.operating_points[closest]
 
     for time_value, (_, issue) in checkpoints.items():
         if issue:
@@ -345,4 +345,4 @@ def _linearize_many(solver, inputs, outputs, filename, times, verbose=False):
     finally:
         current.restore()
         solver._linearization_source = current
-        solver._linearization_issue = solver._linearization_points.get(current.time, (None, None))[1]
+        solver._linearization_issue = solver.history.records.operating_points.get(current.time, (None, None))[1]

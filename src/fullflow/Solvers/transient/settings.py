@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 
 @dataclass(slots=True)
@@ -16,16 +17,16 @@ class TransientSettings:
 
     def validate(self) -> None:
         """Raise ``ValueError`` if the transient time settings are invalid."""
-        if self.dt <= 0.0:
-            raise ValueError(f"dt must be positive. Got {self.dt}")
-        if self.t_final < 0.0:
-            raise ValueError(f"t_final must be nonnegative. Got {self.t_final}")
+        if not math.isfinite(self.dt) or self.dt <= 0.0:
+            raise ValueError(f"dt must be finite and positive. Got {self.dt}")
+        if not math.isfinite(self.t_final) or self.t_final < 0.0:
+            raise ValueError(f"t_final must be finite and nonnegative. Got {self.t_final}")
         if self.max_step_retries < 0:
             raise ValueError(
                 f"max_step_retries must be nonnegative. Got {self.max_step_retries}"
             )
-        if self.minimum_dt is not None and self.minimum_dt <= 0.0:
-            raise ValueError(f"minimum_dt must be positive. Got {self.minimum_dt}")
+        if self.minimum_dt is not None and (not math.isfinite(self.minimum_dt) or self.minimum_dt <= 0.0):
+            raise ValueError(f"minimum_dt must be finite and positive. Got {self.minimum_dt}")
 
     @property
     def retry_floor(self) -> float:

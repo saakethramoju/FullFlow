@@ -13,6 +13,7 @@ from .models import ModelManager, ModelOptionRunner
 from .operations import NonlinearSolve, StaticDiagnostics, StaticEvaluation, SolveDiagnostics
 from .runtime import RuntimeCache
 from .settings import LeastSquaresSettings, StateEvaluationSettings
+from fullflow.Solvers.results import SolutionRecords
 from .statistics import SolverStatistics
 from fullflow.Exceptions import SensorDataStop, SolverSetupError
 
@@ -31,7 +32,7 @@ class SteadyState:
         self._runtime_cache: RuntimeCache | None = None
         self._ignore_balances = None
         self._linearization_source = None
-        self._linearization_points = {}
+        self._solution_records = SolutionRecords()
         self._linearization_tolerance = None
         self._active_state_settings = StateEvaluationSettings()
 
@@ -93,12 +94,12 @@ class SteadyState:
         try:
             for time_value in requested:
                 matches = [
-                    saved for saved in self._linearization_points
+                    saved for saved in self._solution_records.operating_points
                     if abs(saved - time_value) <= 1e-9 * max(1.0, abs(time_value))
                 ]
                 if len(matches) != 1:
                     raise ValueError(f"No unique accepted operating point at t={time_value:g}.")
-                checkpoint, issue = self._linearization_points[matches[0]]
+                checkpoint, issue = self._solution_records.operating_points[matches[0]]
                 if issue:
                     raise ValueError(f"Cannot linearize a switching event at t={time_value:g}: {issue}")
                 checkpoint.restore()
@@ -300,9 +301,9 @@ class SteadyState:
             self._last_static_elapsed_time = None
             self._last_solve_diagnostics = diagnostics
 
-        from fullflow.Solvers.linearization.checkpoints import OperatingCheckpoint
-        self._linearization_source = OperatingCheckpoint(self.network, self._cache())
-        return solution
+        self._solution_records = SolutionRecords(solution)
+        self._linearization_source = self._solution_records.capture(self.network, self._cache())
+        return self._solution_records
 
     def _solve_forced_steady_time_sweep_once(
         self,
@@ -363,7 +364,7 @@ class SteadyState:
         self._last_success_kind = "forced_steady_time_sweep"
         self._last_static_elapsed_time = None
         self._last_solve_diagnostics = None
-        self._linearization_points = dict(transient_solver._linearization_points)
+        self._solution_records = result
         self._linearization_tolerance = rtol
         self._runtime_cache = None
         from fullflow.Solvers.linearization.checkpoints import OperatingCheckpoint
@@ -443,7 +444,7 @@ class SteadyState:
     ):
         """Solve the network steady state."""
         self._linearization_source = None
-        self._linearization_points = {}
+        self._solution_records = SolutionRecords()
         self._linearization_tolerance = None
         self._ignore_balances = ignore_balances
         self._runtime_cache = None

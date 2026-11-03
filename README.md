@@ -1079,11 +1079,12 @@ r_dynamic = (
     state_new
     - state_previous
     - dt * derivative_new
-) / scale
+) / scale / dt
 ```
 
-This gives the transient `rtol` a useful relative meaning across quantities with
-different units and magnitudes. Component balance residuals and user `Balance`
+The transient `rtol` limits the normalized integration defect per second.
+Dividing by `dt` prevents a smaller timestep from accepting an unchanged state
+simply because its expected change is small. Component balance residuals and user `Balance`
 residuals remain exactly as the component returns them, so those should still be
 scaled by the model author when necessary.
 
@@ -1604,18 +1605,22 @@ accepted solver timesteps within a small floating-point tolerance. FullFlow
 does **not interpolate** between timesteps or reconstruct earlier operating
 points from an HDF5 output file.
 
-Every accepted transient step is recorded in the output history and checkpointed
-for linearization. `dt` specifies the requested integration timestep; retries and
-scheduled boundaries can produce shorter accepted steps. `times` selects the
-accepted points to analyze.
+Transient results contain the initial operating point and every accepted step,
+including the internal state needed for `linearize(times=[...])`. Returned records
+support list indexing and iteration over output dictionaries. The solver reads
+operating points from those same in-memory results.
 
 For example, `times=[0.1, 0.3]` can work after a `dt=0.1` solve, but
-`times=[0.15]` will fail if `0.15` was not an accepted timestep.
+`times=[0.15]` fails if `0.15` was not an accepted timestep.
 
-**Memory tradeoff:** retaining full checkpoints for every accepted step can
-use substantial memory in a long or complex simulation. The checkpoints live
-on the solver instance, and rerunning the transient replaces them. Choose a
-sensible timestep and be aware of this retention cost.
+**Memory use:** results retain State values and history, supported component
+attributes, output records, and diagnostics. Memory grows with the number of
+accepted steps and the size of the model. A new solve replaces the solver's
+results; previously returned results remain available while referenced.
+
+HDF5 files contain exported values and diagnostics. They do not serialize the
+live Python model or its restorable operating points. Historical linearization
+uses the original solver and its in-memory results.
 
 ### Quasi-steady sweeps and model options
 
@@ -1851,9 +1856,8 @@ The main limitations are:
 7. **Checkpoint times only:** earlier times must correspond to accepted
    timesteps from the same solver instance. FullFlow does not interpolate
    arbitrary times or reload complete checkpoints from output traces.
-8. **Checkpoint memory:** every accepted transient timestep retains a
-   checkpoint, which may be expensive for long
-   runs with many components.
+8. **History memory:** results retain internal state at every accepted step,
+   which may be expensive for long runs with large models.
 9. **User-defined side effects:** snapshots can restore FullFlow states and
    common nested mutable attributes, but cannot guarantee isolation of
    arbitrary external objects, files, globals, closures, or hidden state.
