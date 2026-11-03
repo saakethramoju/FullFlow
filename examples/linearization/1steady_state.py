@@ -1,4 +1,3 @@
-# Approximate runtime: 0.8 seconds.
 
 """Steady-state sensitivity of a manifold and two restrictions."""
 

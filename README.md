@@ -1108,7 +1108,6 @@ A normal transient call is:
 history = Transient(network).solve(
     dt=0.001,
     t_final=0.5,
-    save_dt=0.01,
     solver_method="trf",
     jacobian_method="3-point",
     ftol=1e-12,
@@ -1134,7 +1133,6 @@ than `minimum_dt`. If `minimum_dt` is omitted, the retry floor is
 The nominal timestep may also be shortened to land exactly on:
 
 - `t_final`,
-- saved-output times from `save_dt`,
 - tabular `Sequence` breakpoints,
 - scheduled sequence-abort times.
 
@@ -1147,7 +1145,6 @@ steady state at every time point:
 history = SteadyState(network).solve(
     dt=0.01,
     t_final=2.0,
-    save_dt=0.05,
 )
 ```
 
@@ -1607,21 +1604,13 @@ accepted solver timesteps within a small floating-point tolerance. FullFlow
 does **not interpolate** between timesteps or reconstruct earlier operating
 points from an HDF5 output file.
 
-Every accepted transient step is checkpointed for linearization, independently
-of `save_dt`:
+Every accepted transient step is recorded in the output history and checkpointed
+for linearization. `dt` specifies the requested integration timestep; retries and
+scheduled boundaries can produce shorter accepted steps. `times` selects the
+accepted points to analyze.
 
-- `dt` specifies the requested numerical integration timestep; retries and
-  scheduled boundaries can produce shorter accepted steps.
-- `save_dt` controls sampling of saved outputs and **does not control which
-  accepted operating points may be linearized**.
-- `times` selects the accepted points to analyze, whether or not their values
-  were included in the saved output history.
-
-For example, `times=[0.1, 0.3]` can work after a `dt=0.1` solve with no
-`save_dt` specified. But `times=[0.15]` will fail if `0.15` was not an
-accepted timestep. A `save_dt` boundary can also cause the integration
-solver to land at an additional time; the two settings still have separate
-purposes.
+For example, `times=[0.1, 0.3]` can work after a `dt=0.1` solve, but
+`times=[0.15]` will fail if `0.15` was not an accepted timestep.
 
 **Memory tradeoff:** retaining full checkpoints for every accepted step can
 use substantial memory in a long or complex simulation. The checkpoints live
@@ -1863,7 +1852,7 @@ The main limitations are:
    timesteps from the same solver instance. FullFlow does not interpolate
    arbitrary times or reload complete checkpoints from output traces.
 8. **Checkpoint memory:** every accepted transient timestep retains a
-   checkpoint, independently of `save_dt`, which may be expensive for long
+   checkpoint, which may be expensive for long
    runs with many components.
 9. **User-defined side effects:** snapshots can restore FullFlow states and
    common nested mutable attributes, but cannot guarantee isolation of

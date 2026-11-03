@@ -1,4 +1,3 @@
-# Approximate runtime without map generation: 84.6 seconds.
 
 """
 Transient Cavitating-Venturi Feed-System Example

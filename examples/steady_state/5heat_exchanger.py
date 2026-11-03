@@ -1,4 +1,3 @@
-# Approximate runtime: 1.9 seconds.
 
 """
 Steady-state concentric-tube heat exchanger example.
@@ -981,4 +980,4 @@ HeatExchanger.track("Solid Node 2 Temperature [K]", TubeNode2.temperature)
 # Solve and export
 # -----------------------------------------------------------------------------
 
-SteadyState(HeatExchanger).solve(verbose=True)
+SteadyState(HeatExchanger).solve(verbose=True, statistics=True)

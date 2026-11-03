@@ -58,7 +58,6 @@ components to steady state at each timestep:
 SteadyState(network).solve(
     dt=0.01,
     t_final=2.0,
-    save_dt=0.01,
 )
 ```
 

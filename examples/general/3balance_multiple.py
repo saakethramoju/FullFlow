@@ -1,4 +1,3 @@
-# Approximate runtime: 0.8 seconds.
 
 """
 Multiple Balance example.

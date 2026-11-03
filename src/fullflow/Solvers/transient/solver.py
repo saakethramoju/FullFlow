@@ -120,9 +120,8 @@ class Transient:
         dt: float,
         t_final: float,
         sequence_breakpoints: tuple[float, ...] = (),
-        next_save_time: float | None = None,
     ) -> float:
-        """Return the next timestep, shortened at final, sequence, or save times."""
+        """Return the next timestep, shortened at final time or sequence breakpoints."""
         current_time = float(self.network.time.value)
         target_time = min(current_time + dt, t_final)
 
@@ -137,10 +136,6 @@ class Transient:
 
             target_time = min(target_time, breakpoint_time, t_final)
             break
-
-        if next_save_time is not None:
-            if current_time + tolerance < next_save_time <= target_time + tolerance:
-                target_time = min(target_time, next_save_time, t_final)
 
         return target_time - current_time
 
@@ -158,30 +153,6 @@ class Transient:
             raise ValueError(f"dt must be positive. Got {dt}")
 
         return dt
-
-    @staticmethod
-    def _validate_output_settings(save_dt: float | None) -> None:
-        """Validate transient output-throttling settings."""
-        if save_dt is not None and save_dt <= 0.0:
-            raise ValueError(f"save_dt must be positive or None. Got {save_dt}")
-
-    @staticmethod
-    def _should_save_output(
-        *,
-        time_value: float,
-        t_final: float,
-        next_save_time: float | None,
-    ) -> bool:
-        """Return True when an accepted timestep should be written to history."""
-        tolerance = 1.0e-12 * max(1.0, abs(time_value), abs(t_final))
-
-        if time_value >= t_final - tolerance:
-            return True
-
-        if next_save_time is None:
-            return True
-
-        return time_value >= next_save_time - tolerance
 
     @staticmethod
     def _diagnostic_rows(diagnostics_list: list[StepDiagnostics]) -> list[dict[str, Any]]:
@@ -233,7 +204,6 @@ class Transient:
         state_tolerance: float = 1e-10,
         max_step_retries: int = 8,
         minimum_dt: float | None = None,
-        save_dt: float | None = None,
         ignore_balances=None,
     ):
         """Advance the network with optional model-option selection."""
@@ -267,7 +237,6 @@ class Transient:
                 state_tolerance=state_tolerance,
                 max_step_retries=max_step_retries,
                 minimum_dt=minimum_dt,
-                save_dt=save_dt,
                 ignore_balances=ignore_balances,
                 force_steady=None,
                 force_steady_exceptions=None,
@@ -307,7 +276,6 @@ class Transient:
         state_tolerance: float = 1e-10,
         max_step_retries: int = 8,
         minimum_dt: float | None = None,
-        save_dt: float | None = None,
         ignore_balances=None,
         force_steady=None,
         force_steady_exceptions=None,
@@ -323,7 +291,6 @@ class Transient:
         self._force_steady_exceptions = force_steady_exceptions
         self._runtime_cache = None
 
-        self._validate_output_settings(save_dt)
         dt = self._validate_timestep(dt)
 
         start_time_value = float(self.network.time.value)
@@ -377,7 +344,6 @@ class Transient:
         self._linearization_points[float(self.network.time.value)] = (OperatingCheckpoint(self.network, cache), None)
         previous_mode = discrete_signature(cache)
         sequence_breakpoints = self._collect_sequence_breakpoints()
-        next_save_time = None if save_dt is None else float(self.network.time.value) + float(save_dt)
 
         abort_record = None
 
@@ -402,7 +368,6 @@ class Transient:
                 transient_settings.dt,
                 step_final,
                 sequence_breakpoints,
-                next_save_time,
             )
             if dt_step <= 0.0:
                 break
@@ -470,12 +435,6 @@ class Transient:
                 break
 
             self.step_diagnostics.append(diagnostics)
-            save_output = self._should_save_output(
-                time_value=diagnostics.time,
-                t_final=t_final,
-                next_save_time=next_save_time,
-            )
-
             step_events = self.network.check_sensor_conditions(diagnostics.time)
             if step_events and verbose:
                 self.printer.print_sensor_events(step_events)
@@ -488,16 +447,7 @@ class Transient:
                 if verbose:
                     self.printer.print_sequence_abort(abort_record)
 
-            if (step_events or abort_record is not None) and not save_output:
-                self.history.append(self.network, diagnostics.time)
-                save_output = True
-            elif save_output:
-                self.history.append(self.network, diagnostics.time)
-
-            if save_dt is not None:
-                tolerance = 1.0e-12 * max(1.0, abs(diagnostics.time), abs(t_final))
-                while next_save_time is not None and next_save_time <= diagnostics.time + tolerance:
-                    next_save_time += float(save_dt)
+            self.history.append(self.network, diagnostics.time)
 
             if statistics:
                 self.printer.print_step(diagnostics)

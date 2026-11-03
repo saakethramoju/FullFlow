@@ -1,4 +1,3 @@
-# Approximate runtime: 3.2 seconds.
 
 """
 Transient Solid Heat Transfer With Natural Convection
@@ -216,6 +215,6 @@ Transient(HeatTransferNetwork).solve(
     dt=dt,
     t_final=t_final,
     filename=filename,
-    save_dt=5.0,
     verbose=True,
+    statistics=True
 )

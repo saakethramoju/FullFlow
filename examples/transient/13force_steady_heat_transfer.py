@@ -1,4 +1,3 @@
-# Approximate runtime: 2.2 seconds.
 
 """
 Simple forced-steady time-sweep example.
@@ -192,4 +191,5 @@ SteadyState(ForceSteadyNetwork).solve(
     t_final=t_final,
     filename=force_steady_filename,
     verbose=True,
+    statistics=True
 )

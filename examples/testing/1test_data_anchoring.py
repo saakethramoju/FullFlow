@@ -1,4 +1,3 @@
-# Approximate runtime: 1.9 seconds.
 
 from pathlib import Path
 import math

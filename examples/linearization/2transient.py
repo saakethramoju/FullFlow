@@ -1,4 +1,3 @@
-# Approximate runtime: 1.3 seconds.
 
 """Transient gas feed system with two volumes and an adjustable outlet valve."""
 

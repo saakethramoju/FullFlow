@@ -1,4 +1,3 @@
-# Approximate runtime: 1.1 seconds.
 
 """
 Simple Custom Transient Components: Draining Tank and Opening Valve

@@ -6,7 +6,7 @@ The transient solver advances a FullFlow network through time. It is used with:
 Transient(network).solve(dt=0.01, t_final=1.0)
 ```
 
-The current transient solver is a fixed-step implicit backward-Euler solver. The user chooses the nominal timestep. The solver may shorten a step to land exactly on final time, output times, sequence breakpoints, or retry steps after a failed nonlinear solve.
+The current transient solver is a fixed-step implicit backward-Euler solver. The user chooses the nominal timestep. The solver may shorten a step to land exactly on final time, sequence breakpoints, scheduled aborts, or retry steps after a failed nonlinear solve.
 
 ## What transient solving means in FullFlow
 
@@ -150,8 +150,8 @@ The solver can shorten a step for four reasons:
 2. Sequence breakpoints
    If a tabular Sequence has a scheduled time inside the step, the solver lands on it.
 
-3. output times
-   If save_dt is used, the solver lands exactly on saved output times.
+3. scheduled aborts
+   The solver lands on a pending sequence-abort time.
 
 4. retry after failure
    If a nonlinear step fails, the solver rolls back and retries with half the step.
@@ -262,9 +262,7 @@ If the solver reaches the retry limit or retry floor, it raises an error showing
 
 The transient solver always stores the initial evaluated state. It then stores accepted timesteps.
 
-If `save_dt=None`, every accepted step is saved.
-
-If `save_dt` is provided, the solver still advances with its normal timestep, but output is saved only at multiples of `save_dt` and final time. Steps are shortened when needed so saved output lands exactly on the requested times.
+Every accepted step is saved.
 
 When `filename=...` is provided, transient results are written under:
 

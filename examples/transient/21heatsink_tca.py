@@ -1,4 +1,3 @@
-# Approximate runtime without map generation: 6.3 seconds.
 
 """
 Heatsink thrust chamber assembly transient example.

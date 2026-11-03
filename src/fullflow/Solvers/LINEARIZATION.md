@@ -86,10 +86,9 @@ A_at_10s = results[10.0].A
 
 A `times` call returns a dictionary keyed by the **requested float times**. Requests must be unique and must match accepted solver timesteps (subject to a small floating-point time tolerance). No interpolation is performed.
 
-Checkpoint retention is independent of `save_dt`:
+Checkpoint retention follows accepted timesteps:
 
-- Every accepted transient timestep receives an in-memory checkpoint, whether or not that timestep is written to output history or HDF5.
-- `save_dt` controls output sampling, not which accepted timesteps can be linearized.
+- Every accepted transient timestep receives an in-memory checkpoint and is recorded in output history.
 - The initial and final operating points are retained as well. Recognized switching-event points are retained but cannot themselves be linearized.
 - Requests that do not match an accepted timestep are rejected; exported HDF5 output alone cannot reconstruct a missing operating point.
 
@@ -97,7 +96,7 @@ Checkpoint retention is independent of `save_dt`:
 
 ### Quasi-steady time sweeps
 
-The `SteadyState.solve(dt=..., t_final=..., save_dt=...)` quasi-steady sweep uses the transient solver internally and retains its accepted operating points. `SteadyState.linearize(times=[...])` can analyze its converged equilibria at those accepted times. The usual steady-equilibrium residual requirement still applies; a static evaluation alone is not sufficient.
+The `SteadyState.solve(dt=..., t_final=...)` quasi-steady sweep uses the transient solver internally and retains its accepted operating points. `SteadyState.linearize(times=[...])` can analyze its converged equilibria at those accepted times. The usual steady-equilibrium residual requirement still applies; a static evaluation alone is not sufficient.
 
 ### Arguments
 

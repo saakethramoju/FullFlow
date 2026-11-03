@@ -1,4 +1,3 @@
-# Approximate runtime: 2.0 seconds.
 
 """
 Simple balloon deflation example.
@@ -180,4 +179,5 @@ BalloonSolver.solve(
     t_final=t_final,
     filename=filename,
     verbose=True,
+    statistics=True
 )

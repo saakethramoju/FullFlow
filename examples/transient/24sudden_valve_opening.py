@@ -1,4 +1,3 @@
-# Approximate runtime: 6.1 seconds.
 
 import numpy as np
 from scipy.constants import *

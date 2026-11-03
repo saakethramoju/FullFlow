@@ -1055,7 +1055,6 @@ Transient(Priming).solve(
     verbose=True,
     statistics=True,
     filename=filename,
-    rtol=1e-5,
 )
 
 

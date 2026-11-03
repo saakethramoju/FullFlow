@@ -1,4 +1,3 @@
-# Approximate runtime: 0.8 seconds.
 
 """
 Basic Balance example.

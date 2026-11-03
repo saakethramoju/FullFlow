@@ -1,4 +1,3 @@
-# Approximate runtime: 7.4 seconds.
 
 """
 COPV blowdown into a high-pressure downstream receiver.
@@ -164,4 +163,5 @@ Transient(COPVBlowdown).solve(
     t_final=t_final,
     filename=filename,
     verbose=True,
+    statistics=True
 )

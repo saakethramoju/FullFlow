@@ -1,4 +1,3 @@
-# Approximate runtime: 4.4 seconds.
 
 """
 Simple gas tank filling example with a relief valve.
@@ -215,4 +214,5 @@ Transient(GasTankNetwork).solve(
     t_final=t_final,
     filename=filename,
     verbose=True,
+    statistics=True
 )

@@ -1,4 +1,3 @@
-# Approximate runtime: 8.5 seconds.
 
 """
 Cavitating Venturi Injector Network

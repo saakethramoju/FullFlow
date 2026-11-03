@@ -1,4 +1,3 @@
-# Approximate runtime: 2.1 seconds.
 
 """
 Compressible Diffuser, Volume, and Orifice Network
@@ -228,4 +227,4 @@ InletBalance = Balance(
 # Solve network
 # -----------------------------------------------------------------------------
 
-SteadyState(CompressibleNetwork).solve(verbose=True)
+SteadyState(CompressibleNetwork).solve(verbose=True, statistics=True)

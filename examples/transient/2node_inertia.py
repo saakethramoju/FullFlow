@@ -1,4 +1,3 @@
-# Approximate runtime: 2.9 seconds.
 
 """
 Transient Node Inertia Example

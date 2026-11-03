@@ -323,7 +323,6 @@ class SteadyState:
         state_tolerance: float = 1e-10,
         max_step_retries: int = 8,
         minimum_dt: float | None = None,
-        save_dt: float | None = None,
         ignore_balances=None,
         exceptions=None,
         group_path: str = "transient/runs/base",
@@ -354,7 +353,6 @@ class SteadyState:
             state_tolerance=state_tolerance,
             max_step_retries=max_step_retries,
             minimum_dt=minimum_dt,
-            save_dt=save_dt,
             ignore_balances=ignore_balances,
             force_steady="all",
             force_steady_exceptions=exceptions,
@@ -430,7 +428,6 @@ class SteadyState:
         static: bool = False,
         dt: float | None = None,
         t_final: float | None = None,
-        save_dt: float | None = None,
         exceptions=None,
         max_step_retries: int = 8,
         minimum_dt: float | None = None,
@@ -483,7 +480,6 @@ class SteadyState:
                     state_tolerance=state_tolerance,
                     max_step_retries=max_step_retries,
                     minimum_dt=minimum_dt,
-                    save_dt=save_dt,
                     ignore_balances=ignore_balances,
                     exceptions=exceptions,
                     group_path=group_path,
@@ -528,8 +524,6 @@ class SteadyState:
 
         if exceptions is not None:
             raise ValueError("exceptions can only be used when dt and t_final are provided.")
-        if save_dt is not None:
-            raise ValueError("save_dt can only be used when dt and t_final are provided.")
 
         if static:
             return self.static_evaluate(

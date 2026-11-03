@@ -1,4 +1,3 @@
-# Approximate runtime: 47.7 seconds.
 
 """
 Simple transient pump startup, valve closure, and pump shutdown example

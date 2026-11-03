@@ -1,4 +1,3 @@
-# Approximate runtime: 0.8 seconds.
 
 """
 Dye Mixer with Darcy-Weisbach Inlet and Outlet Lines

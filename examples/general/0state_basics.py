@@ -1,4 +1,3 @@
-# Approximate runtime: 0.9 seconds.
 
 """
 State basics example.

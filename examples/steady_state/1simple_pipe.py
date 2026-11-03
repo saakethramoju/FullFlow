@@ -1,4 +1,3 @@
-# Approximate runtime: 1.9 seconds.
 
 """
 Pipe Flow with Darcy-Weisbach and Colebrook Friction Factor
@@ -150,4 +149,4 @@ PipeFriction = Colebrook(
 # Solve network
 # -----------------------------------------------------------------------------
 
-SteadyState(PipeNetwork).solve(verbose=True)
+SteadyState(PipeNetwork).solve(verbose=True, statistics=True)

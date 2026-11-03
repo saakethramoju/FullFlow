@@ -1,4 +1,3 @@
-# Approximate runtime: 4.2 seconds.
 
 """
 H2O Separator with Flow Tubes and Composition Conservation

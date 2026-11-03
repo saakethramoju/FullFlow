@@ -1,4 +1,3 @@
-# Approximate runtime: 1.7 seconds.
 
 """
 Custom Component Example: Liquid Oxygen Pump Feed System
@@ -534,4 +533,4 @@ LOXPumpSystem.track("Pressure Rise [psid]", dP/6894.76)
 # verbose=True prints the solver summary and final network solution.
 # -----------------------------------------------------------------------------
 
-SteadyState(LOXPumpSystem).solve(verbose=True)
+SteadyState(LOXPumpSystem).solve(verbose=True, statistics=True)
