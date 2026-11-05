@@ -77,6 +77,7 @@ class TransientStepSolve:
     def _reset_prediction_history(self) -> None:
         """Forget prior accepted steps at the beginning of a new solve."""
         self._clear_newton_jacobian()
+        self._scipy_refinement = None
         self._previous_step_x: np.ndarray | None = None
         self._accepted_step_x: np.ndarray | None = None
         self._accepted_step_time: float | None = None
@@ -271,6 +272,17 @@ class TransientStepSolve:
     def _solve_with_early_acceptance(self, cache, x0: np.ndarray, settings):
         """Stop TRF/dogbox after a complete accepted iterate reaches rtol."""
         kwargs = self._least_squares_kwargs(cache, x0, settings)
+        refinement_key = (id(cache), settings.solver_method, settings.jacobian_method)
+
+        def refine_kwargs(diff_step):
+            kwargs.update(
+                jac="2-point", diff_step=diff_step, max_nfev=100,
+                ftol=None, xtol=None, gtol=10.0 * np.finfo(float).eps,
+            )
+
+        if (self._scipy_refinement is not None
+                and self._scipy_refinement[:3] == refinement_key):
+            refine_kwargs(self._scipy_refinement[3])
         early_stop = [False]
         if _HAS_LEAST_SQUARES_CALLBACK and settings.solver_method != "lm":
             def accepted_iteration(intermediate_result):
@@ -287,7 +299,34 @@ class TransientStepSolve:
 
             kwargs["callback"] = accepted_iteration
 
-        return least_squares(**kwargs), early_stop[0]
+        sol = least_squares(**kwargs)
+        nfev, njev = sol.nfev, sol.njev
+        for diff_step in (np.sqrt(np.finfo(float).eps), np.finfo(float).eps ** 0.75):
+            if (settings.solver_method == "lm" or not np.all(np.isfinite(sol.fun))
+                    or np.max(np.abs(sol.fun), initial=0.0) <= settings.rtol):
+                break
+            # Near zero pressure drop, central differences can span both flow
+            # branches. Large absolute pressures can also trigger xtol while
+            # the conservation equations are still far from converged.
+            # Refine the current iterate with a smaller, one-sided Jacobian;
+            # acceptance still requires the original residual tolerance.
+            kwargs["x0"] = sol.x
+            refine_kwargs(diff_step)
+            refined = least_squares(**kwargs)
+            nfev += refined.nfev
+            if njev is not None and refined.njev is not None:
+                njev += refined.njev
+            if (np.all(np.isfinite(refined.fun))
+                    and np.max(np.abs(refined.fun), initial=0.0)
+                    < np.max(np.abs(sol.fun), initial=0.0)):
+                sol = refined
+                if np.max(np.abs(sol.fun), initial=0.0) <= settings.rtol:
+                    # Keep a successful refinement for subsequent steps in
+                    # this runtime rather than repeatedly exhausting a coarse
+                    # Jacobian near the same zero-flow operating mode.
+                    self._scipy_refinement = (*refinement_key, diff_step)
+        sol.nfev, sol.njev = nfev, njev
+        return sol, early_stop[0]
 
     @staticmethod
     def _may_try_modified_newton(cache, settings, x0, r0) -> bool:

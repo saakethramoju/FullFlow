@@ -1,5 +1,10 @@
 # Changelog
 
+## 4.0.1
+
+* Fixed transient residual scaling, startup convergence, and time validation, and improved checkpoint, result-history, and export reliability.
+* Removed `save_dt`; transient and quasi-steady results now retain every accepted step for historical linearization. Updated examples and documentation accordingly.
+
 ## 4.0.0
 
 FullFlow 4.0.0 adds local linearization of coupled nonlinear network models for sensitivity analysis and control-system development.
