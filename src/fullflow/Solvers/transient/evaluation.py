@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import nullcontext
+
+from fullflow.Solvers.iteration_restore import IterationRestorer
 
 from .runtime import TransientRuntimeCache
 from fullflow.Exceptions import FullFlowConfigurationError, UnassignedStateError
@@ -55,40 +58,45 @@ class TransientStateEvaluator:
         old_values = cache._collect_state_values_compact() if max_passes > 0 else []
         new_values: list[float | None] = [None] * len(old_values)
 
-        for _ in range(max_passes):
-            pending: list[Callable[[], None]] = []
-            evaluated_count = 0
+        journal = IterationRestorer(iteration_snapshot) if len(iteration_snapshot) >= 12 and callables else nullcontext()
+        with journal as restorer:
+            for _ in range(max_passes):
+                pending: list[Callable[[], None]] = []
+                evaluated_count = 0
 
+                for evaluate_states in all_callables:
+                    try:
+                        if restorer is not None:
+                            restorer.active = True
+                        evaluate_states()
+                    except Exception as error:
+                        if _is_unassigned_state_error(error):
+                            pending.append(evaluate_states)
+                            last_deferred_errors[evaluate_states] = error
+                            continue
+                        raise
+                    finally:
+                        if restorer is None:
+                            cache.restore_iteration_variables(iteration_snapshot)
+                        else:
+                            restorer.restore()
 
-            for evaluate_states in all_callables:
-                try:
-                    evaluate_states()
-                except Exception as error:
-                    if _is_unassigned_state_error(error):
-                        pending.append(evaluate_states)
-                        last_deferred_errors[evaluate_states] = error
-                        continue
-                    raise
-                finally:
-                    cache.restore_iteration_variables(iteration_snapshot)
+                    evaluated_count += 1
+                    last_deferred_errors.pop(evaluate_states, None)
 
-                evaluated_count += 1
-                last_deferred_errors.pop(evaluate_states, None)
+                max_change = cache._collect_state_values_compact_change(old_values, new_values)
+                if not pending and max_change < tolerance:
+                    return
 
-            max_change = cache._collect_state_values_compact_change(old_values, new_values)
-            if not pending and max_change < tolerance:
-                return
+                old_values, new_values = new_values, old_values
 
-
-            old_values, new_values = new_values, old_values
-
-            if pending:
-                if evaluated_count == 0:
-                    break
-                pending_set = set(pending)
-                all_callables = tuple(pending) + tuple(c for c in callables if c not in pending_set)
-            else:
-                all_callables = callables
+                if pending:
+                    if evaluated_count == 0:
+                        break
+                    pending_set = set(pending)
+                    all_callables = tuple(pending) + tuple(c for c in callables if c not in pending_set)
+                else:
+                    all_callables = callables
 
         if last_deferred_errors:
             lines = [

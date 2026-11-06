@@ -7,6 +7,7 @@ from copy import deepcopy
 from typing import Any
 
 from fullflow.System.State import is_state_like
+from fullflow.Solvers.state_copy import snapshot_triplet
 
 from fullflow.Exports.HDF5 import run_group_path, safe_group_name, write_failures
 from fullflow.Exceptions import SolverConvergenceError
@@ -22,6 +23,8 @@ class NetworkStateSnapshot:
     def _snapshot_value(value: Any) -> Any:
         """Return a restorable copy of a network value."""
         if is_state_like(value):
+            return value
+        if type(value) in (float, int, bool, str, bytes, type(None), complex):
             return value
 
         if isinstance(value, dict):
@@ -54,10 +57,9 @@ class NetworkStateSnapshot:
         """Initialize the object and register any FullFlow state wiring."""
         self.states = states
         self.values = {
-            state: (
-                self._snapshot_value(state._value),
-                self._snapshot_value(state._previous),
-                self._snapshot_value(state._second_previous),
+            state: snapshot_triplet(
+                state._value, state._previous, state._second_previous,
+                self._snapshot_value,
             )
             for state in states
         }
@@ -102,9 +104,9 @@ class NetworkStateSnapshot:
     def restore(self) -> None:
         """Restore the captured network and solver state."""
         for state, (value, previous, second_previous) in self.values.items():
-            state._value = self._snapshot_value(value)
-            state._previous = self._snapshot_value(previous)
-            state._second_previous = self._snapshot_value(second_previous)
+            state._value, state._previous, state._second_previous = snapshot_triplet(
+                value, previous, second_previous, self._snapshot_value,
+            )
 
 
 class TransientModelOptionRunner:

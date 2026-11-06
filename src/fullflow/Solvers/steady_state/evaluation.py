@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import nullcontext
+
+from fullflow.Solvers.iteration_restore import IterationRestorer
 
 from .runtime import RuntimeCache
 from fullflow.Exceptions import FullFlowConfigurationError, UnassignedStateError
@@ -48,35 +51,42 @@ class StateEvaluator:
         new_values: list[float | None] = [None] * len(old_values)
         max_change = float("inf")
 
-        for _ in range(max_passes):
-            pending = []
-            completed = 0
-            for evaluate_states in all_callables:
-                try:
-                    evaluate_states()
-                except Exception as error:
-                    if _is_unassigned_state_error(error):
-                        pending.append(evaluate_states)
-                        deferred_errors[evaluate_states] = error
-                        continue
-                    raise
-                finally:
-                    cache.restore_iteration_variables(iteration_snapshot)
-                completed += 1
-                deferred_errors.pop(evaluate_states, None)
+        journal = IterationRestorer(iteration_snapshot) if len(iteration_snapshot) >= 12 and callables else nullcontext()
+        with journal as restorer:
+            for _ in range(max_passes):
+                pending = []
+                completed = 0
+                for evaluate_states in all_callables:
+                    try:
+                        if restorer is not None:
+                            restorer.active = True
+                        evaluate_states()
+                    except Exception as error:
+                        if _is_unassigned_state_error(error):
+                            pending.append(evaluate_states)
+                            deferred_errors[evaluate_states] = error
+                            continue
+                        raise
+                    finally:
+                        if restorer is None:
+                            cache.restore_iteration_variables(iteration_snapshot)
+                        else:
+                            restorer.restore()
+                    completed += 1
+                    deferred_errors.pop(evaluate_states, None)
 
-            cache.collect_state_values_compact(new_values)
-            max_change = cache.max_state_change_compact(old_values, new_values)
-            if not pending and max_change < tolerance:
-                return
-            old_values, new_values = new_values, old_values
-            if pending:
-                if completed == 0:
-                    break
-                pending_set = set(pending)
-                all_callables = tuple(pending) + tuple(c for c in callables if c not in pending_set)
-            else:
-                all_callables = callables
+                cache.collect_state_values_compact(new_values)
+                max_change = cache.max_state_change_compact(old_values, new_values)
+                if not pending and max_change < tolerance:
+                    return
+                old_values, new_values = new_values, old_values
+                if pending:
+                    if completed == 0:
+                        break
+                    pending_set = set(pending)
+                    all_callables = tuple(pending) + tuple(c for c in callables if c not in pending_set)
+                else:
+                    all_callables = callables
 
         if deferred_errors:
             lines = ["Component evaluation could not resolve unassigned States:"]

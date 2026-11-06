@@ -54,10 +54,23 @@ class OperatingCheckpoint:
         self.version = network.version
         self.models = tuple((m.name, m.active_option_name) for m in network.model_list)
         self.time = float(network.time.value)
-        self.states = NetworkStateSnapshot.capture(network)
+        # The runtime cache is tied to Network.version. Discover the State
+        # graph once per network structure; snapshot its values at every step.
+        state_refs = None
+        if cache is not None and cache.version == network.version:
+            if getattr(cache, "_checkpoint_state_version", None) == network.version:
+                state_refs = getattr(cache, "_checkpoint_state_refs", None)
+        if state_refs is None:
+            self.states = NetworkStateSnapshot.capture(network)
+            if cache is not None and cache.version == network.version:
+                cache._checkpoint_state_refs = tuple(self.states.states)
+                cache._checkpoint_state_version = network.version
+        else:
+            self.states = NetworkStateSnapshot(list(state_refs))
         self.proxies = []
         if cache is not None:
-            for item in cache.snapshot_mutable_states():
+            known = {id(state) for state in self.states.states}
+            for item in cache.snapshot_mutable_states(exclude_state_ids=known):
                 if item[0] == "state":
                     _, state, value, previous, second_previous = item
                     if state not in self.states.values:

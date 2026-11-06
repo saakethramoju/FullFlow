@@ -473,7 +473,11 @@ class RuntimeCache:
             out = [None] * len(refs)
         for index, state in enumerate(refs):
             try:
-                value = float(state.value) if state.is_assigned else None
+                if type(state) is State and state._expr is None:
+                    raw = state._value
+                    value = float(raw) if raw is not None else None
+                else:
+                    value = float(state.value) if state.is_assigned else None
                 out[index] = value if value is not None and math.isfinite(value) else None
             except (TypeError, ValueError, OverflowError, AttributeError):
                 out[index] = None
@@ -494,14 +498,16 @@ class RuntimeCache:
                 change = max(change, abs(after - before) / max(abs(after), 1.0))
         return change
 
-    def snapshot_mutable_states(self):
-        """Capture mutable state values for rollback."""
+    def snapshot_mutable_states(self, exclude_state_ids=None):
+        """Capture mutable states, optionally skipping previously copied States."""
         snapshot = []
         seen = set()
         for state in (*self.iteration_variables, *self.state_refs):
             if id(state) in seen:
                 continue
             seen.add(id(state))
+            if exclude_state_ids is not None and id(state) in exclude_state_ids:
+                continue
             if isinstance(state, State):
                 snapshot.append(("state", state, self._copy_value(state._value),
                                  self._copy_value(state._previous),
@@ -517,6 +523,8 @@ class RuntimeCache:
     def _copy_value(value):
         """Return a safe copy of a mutable state value."""
         if is_state_like(value):
+            return value
+        if type(value) in (float, int, bool, str, bytes, type(None), complex):
             return value
         if isinstance(value, dict):
             return {

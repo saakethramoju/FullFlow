@@ -109,6 +109,7 @@ class State:
         "_keep_feasible",
         "_code",
         "_labels",
+        "_iteration_observer",
     )
 
     def __init__(
@@ -127,6 +128,7 @@ class State:
         self._keep_feasible = bool(keep_feasible)
         self._code = hex(id(self))
         self._labels: list[str] = []
+        self._iteration_observer = None
 
         if value is not None:
             self.value = value
@@ -316,10 +318,9 @@ class State:
         if isinstance(value, bool):
             pass
         elif isinstance(value, (int, float)):
-
-
             value = float(value)
-            self._validate_bounds(value)
+            if self._lower_bound != -math.inf or self._upper_bound != math.inf or self._keep_feasible:
+                self._validate_bounds(value)
         elif isinstance(value, Real):
             value = float(value)
             self._validate_bounds(value)
@@ -328,6 +329,9 @@ class State:
             self._validate_bounds(value)
 
         self._value = value
+        observer = self._iteration_observer
+        if observer is not None and observer.active:
+            observer.record(self)
 
     def set(self, value: Any) -> "State":
         """Assign a value and return this State for fluent setup."""
@@ -388,9 +392,13 @@ class State:
 
     @property
     def numeric_value(self) -> float:
-        value = self._as_numeric(self.value)
-        self._validate_bounds(value)
-        return value
+        value = self.value
+        if (type(value) is float and self._lower_bound == -math.inf
+                and self._upper_bound == math.inf and not self._keep_feasible):
+            return value
+        numeric = self._as_numeric(value)
+        self._validate_bounds(numeric)
+        return numeric
 
     @property
     def code(self) -> str:

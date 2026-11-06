@@ -12,6 +12,7 @@ from typing import Any
 import numpy as np
 
 from fullflow.System.Component import Component
+from fullflow.Solvers.state_copy import snapshot_triplet
 from fullflow.System.State import (
     State,
     is_assignable_state_like,
@@ -860,6 +861,8 @@ class TransientRuntimeCache:
         """Copy a stored State value while preserving State object references."""
         if is_state_like(value):
             return value
+        if type(value) in (float, int, bool, str, bytes, type(None), complex):
+            return value
 
         if isinstance(value, dict):
             return {
@@ -887,19 +890,22 @@ class TransientRuntimeCache:
         except Exception:
             return value
 
-    def snapshot_mutable_states(self) -> tuple[tuple[Any, ...], ...]:
-        """Capture all reachable mutable State values before a timestep attempt."""
+    def snapshot_mutable_states(self, exclude_state_ids=None) -> tuple[tuple[Any, ...], ...]:
+        """Capture mutable State values, optionally skipping previously copied States."""
         snapshot: list[tuple[Any, ...]] = []
 
         for state in self.all_state_refs:
+            if exclude_state_ids is not None and id(state) in exclude_state_ids:
+                continue
             if isinstance(state, State):
                 snapshot.append(
                     (
                         "state",
                         state,
-                        self._snapshot_value(state._value),
-                        self._snapshot_value(state._previous),
-                        self._snapshot_value(state._second_previous),
+                        *snapshot_triplet(
+                            state._value, state._previous, state._second_previous,
+                            self._snapshot_value,
+                        ),
                     )
                 )
                 continue
@@ -926,9 +932,10 @@ class TransientRuntimeCache:
 
             if kind == "state":
                 _, state, value, previous, second_previous = item
-                state._value = TransientRuntimeCache._snapshot_value(value)
-                state._previous = TransientRuntimeCache._snapshot_value(previous)
-                state._second_previous = TransientRuntimeCache._snapshot_value(second_previous)
+                state._value, state._previous, state._second_previous = snapshot_triplet(
+                    value, previous, second_previous,
+                    TransientRuntimeCache._snapshot_value,
+                )
                 continue
 
             _, state, value = item
