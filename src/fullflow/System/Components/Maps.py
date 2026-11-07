@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from bisect import bisect_right
 from pathlib import Path
 from typing import TYPE_CHECKING
 import json
@@ -110,6 +111,8 @@ class Map(Component):
         "_last_interpolation_point",
         "_last_interpolation_values",
         "_point_metadata",
+        "_fast_interpolation_axes",
+        "_fast_interpolation_values",
     }
 
     def __init__(
@@ -247,6 +250,14 @@ class Map(Component):
             np.stack([self.output_maps[name] for name in self._combined_output_names], axis=-1),
             bounds_error=False,
             fill_value=None,
+        )
+        self._fast_interpolation_axes = (
+            tuple(self.axis_interpolation_values[name] for name in self.input_names)
+            if len(self.input_names) <= 2 else None
+        )
+        self._fast_interpolation_values = (
+            self._combined_interpolator.values
+            if self._fast_interpolation_axes is not None else None
         )
         self._last_interpolation_point = None
         self._last_interpolation_values = None
@@ -561,16 +572,34 @@ class Map(Component):
 
         return np.asarray(point, dtype=float)
 
+    @staticmethod
+    def _cell(axis, value):
+        index = min(max(bisect_right(axis, value) - 1, 0), len(axis) - 2)
+        fraction = (value - axis[index]) / (axis[index + 1] - axis[index])
+        return index, fraction
+
+    def _interpolate(self, point):
+        axes = self._fast_interpolation_axes
+        if axes is None:
+            return np.asarray(self._combined_interpolator(point), dtype=float).reshape(-1)
+
+        values = self._fast_interpolation_values
+        i, u = self._cell(axes[0], point[0])
+        if len(axes) == 1:
+            return values[i] * (1.0 - u) + values[i + 1] * u
+
+        j, v = self._cell(axes[1], point[1])
+        low = values[i, j] * (1.0 - v) + values[i, j + 1] * v
+        high = values[i + 1, j] * (1.0 - v) + values[i + 1, j + 1] * v
+        return low * (1.0 - u) + high * u
+
     def evaluate_states(self):
         """Evaluate the component for the current network state."""
         point = self._point()
         point_key = tuple(point)
         if point_key != self._last_interpolation_point:
-            self._last_interpolation_values = np.asarray(
-                self._combined_interpolator(point), dtype=float
-            ).reshape(-1)
+            self._last_interpolation_values = self._interpolate(point)
             self._last_interpolation_point = point_key
-
 
         for output_name, value in zip(self._combined_output_names, self._last_interpolation_values):
             getattr(self, output_name).value = float(value)
