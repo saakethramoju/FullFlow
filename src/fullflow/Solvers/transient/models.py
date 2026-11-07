@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from copy import deepcopy
+from dataclasses import fields, is_dataclass
+from types import ModuleType, FunctionType, MethodType
 from typing import Any
 
 from fullflow.System.State import is_state_like
@@ -84,6 +86,9 @@ class NetworkStateSnapshot:
                     states.append(value)
                 return
 
+            if isinstance(value, (type, ModuleType, FunctionType, MethodType)):
+                return
+
             if isinstance(value, dict):
                 for item in tuple(value.values()):
                     visit(item)
@@ -96,6 +101,13 @@ class NetworkStateSnapshot:
 
             if hasattr(value, "__dict__"):
                 for item in tuple(vars(value).values()):
+                    visit(item)
+            if is_dataclass(value):
+                for entry in fields(value):
+                    try:
+                        item = getattr(value, entry.name)
+                    except (AttributeError, TypeError):
+                        continue
                     visit(item)
 
         visit(network)

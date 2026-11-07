@@ -1,5 +1,10 @@
 # Changelog
 
+## 4.0.2
+
+* Reduced steady-state and transient overhead through faster State handling, selective trial restoration, and more efficient checkpoint snapshots.
+* Improved checkpoint restoration and retrospective linearization for mutable and dataclass-backed component state.
+
 ## 4.0.1
 
 * Fixed transient residual scaling, startup convergence, and time validation, and improved checkpoint, result-history, and export reliability.

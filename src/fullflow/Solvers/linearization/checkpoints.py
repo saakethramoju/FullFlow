@@ -188,11 +188,15 @@ class OperatingCheckpoint:
         if self.network.version != self.version:
             raise ValueError('Cannot restore a checkpoint after the network structure changes.')
         self.states.restore()
-        if self.proxies is not None:
+        if self.cache is not None and self.proxies:
             self.cache.restore_mutable_states(self.proxies)
         for obj, attrs in reversed(self.attributes):
+            frozen = bool(getattr(getattr(type(obj), "__dataclass_params__", None), "frozen", False))
             for name, value in attrs.items():
-                setattr(obj, name, _copy(value))
+                if frozen:
+                    object.__setattr__(obj, name, _copy(value))
+                else:
+                    setattr(obj, name, _copy(value))
 
 
 def discrete_signature(cache):
