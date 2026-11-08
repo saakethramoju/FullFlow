@@ -8,17 +8,17 @@ This feature is useful for sensitivity analysis, local stability analysis, contr
 
 For physical dynamic states `x`, independent inputs `u`, and selected outputs `y`, FullFlow returns
 
-```math
+$$
 \delta\dot{x}=A\,\delta x+B\,\delta u,\qquad
 \delta y=C\,\delta x+D\,\delta u.
-```
+$$
 
 The deltas are **differences from the solved operating point**, not absolute values. The model also records `x0`, `xdot0`, `u0`, and `y0`. To predict absolute quantities near the operating point, use
 
-```math
+$$
 \dot{x}\approx\dot{x}_0+A(x-x_0)+B(u-u_0),\qquad
 y\approx y_0+C(x-x_0)+D(u-u_0).
-```
+$$
 
 For a steady-state equilibrium, `xdot0` should be approximately zero. During a transient it can be nonzero. A transient linearization is a local, **frozen-time** approximation; it does not include the explicit time derivative of a scheduled command or changes in the active mode.
 
@@ -140,31 +140,31 @@ The singular or badly conditioned state transformation produces a `Linearization
 
 FullFlow networks can be expressed locally as a differential-algebraic system:
 
-```math
+$$
 \dot{x}=f(w,u),\qquad x=h(w,u),\qquad 0=g(w,u),\qquad y=q(w,u),
-```
+$$
 
 where `w` contains the solver's iteration variables. These variables need not be the same as the integrated physical states `x`; for instance, a volume can solve for pressure while integrating mass and internal energy.
 
 FullFlow numerically differentiates the equations at the solved operating point and forms
 
-```math
+$$
 M=\begin{bmatrix} h_w \\ g_w \end{bmatrix}.
-```
+$$
 
 If `M` is square and nonsingular, the implicit function theorem gives
 
-```math
+$$
 \begin{bmatrix}w_x&w_u\end{bmatrix}
 =M^{-1}\begin{bmatrix}I&-h_u\\0&-g_u\end{bmatrix}.
-```
+$$
 
 The final matrices are
 
-```math
+$$
 A=f_w w_x,\quad B=f_u+f_w w_u,\quad
 C=q_w w_x,\quad D=q_u+q_w w_u.
-```
+$$
 
 The implementation uses central finite differences of the network's existing equations, with a second estimate at half the step size as a consistency check. It uses scaled dense linear algebra for the implicit transformation. It does not require analytical derivatives, symbolically differentiate user code, or re-solve the entire nonlinear network for every Jacobian column.
 

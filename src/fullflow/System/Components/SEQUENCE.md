@@ -35,12 +35,12 @@ Sequence(
 ```
 
 The function is evaluated using the nonlinear trial values at time
-\(t_{n+1}\). In a backward-Euler step, the coupled problem is
+$t_{n+1}$. In a backward-Euler step, the coupled problem is
 
-\[
- x_{n+1}=x_n+\Delta t\,f(x_{n+1},u_{n+1}),\qquad
- u_{n+1}=g(x_{n+1}).
-\]
+$$
+x_{n+1}=x_n+\Delta t\,f(x_{n+1},u_{n+1}),\qquad
+u_{n+1}=g(x_{n+1}).
+$$
 
 There is no imposed one-timestep measurement delay. The feedback function must
 be deterministic and side-effect-free because the nonlinear solver may call it
@@ -80,8 +80,8 @@ not a substitute for modeling physical actuator dynamics.
 
 ## Sampled PID and other digital controllers
 
-A digital controller updates every \(T_s=1/f_s\) seconds. Its first callback is
-at the initial simulation time plus \(T_s\); the target must have an initial
+A digital controller updates every $T_s=1/f_s$ seconds. Its first callback is
+at the initial simulation time plus $T_s$; the target must have an initial
 value. Sample times use an integer index to avoid accumulated clock drift.
 
 ```python
@@ -104,11 +104,11 @@ Sequence(
 This example uses the backward rectangular integral and backward difference
 for the derivative:
 
-\[
- I_k=I_{k-1}+e_k T_s,\quad
- D_k=\frac{e_k-e_{k-1}}{T_s},\quad
- u_k=K_p e_k+K_i I_k+K_d D_k.
-\]
+$$
+I_k=I_{k-1}+e_k T_s,\quad
+D_k=\frac{e_k-e_{k-1}}{T_s},\quad
+u_k=K_p e_k+K_i I_k+K_d D_k.
+$$
 
 The sample callback receives a copy of memory and returns `(command, new_memory)`.
 FullFlow commits memory **once per accepted sample**, not during rejected steps,
@@ -117,13 +117,13 @@ limits, and feedforward belong in the user function. They are illustrated by
 `examples/transient/26pid_throttle.py`.
 
 A stateless sampled LQR simply returns its command (no memory is required). A
-discrete-time LQR for \(x_{k+1}=A_d x_k+B_d u_k\) can obtain its gain from the
+discrete-time LQR for $x_{k+1}=A_d x_k+B_d u_k$ can obtain its gain from the
 discrete algebraic Riccati equation:
 
-\[
- K=(R+B_d^\mathsf{T}PB_d)^{-1}B_d^\mathsf{T}P A_d,
- \qquad u_k=-Kx_k.
-\]
+$$
+K=(R+B_d^\mathsf{T}PB_d)^{-1}B_d^\mathsf{T}P A_d,
+\qquad u_k=-Kx_k.
+$$
 
 The reference example `examples/transient/29thrust_vectoring_lqr.py` uses an actual
 zero-order-held rocket pitch model, an LQR gain from SciPy, and a nonlinear

@@ -31,15 +31,15 @@ trial inputs during nonlinear solves.
 
 ## Interpolation method
 
-For a one-dimensional cell between \(x_0\) and \(x_1\), linear interpolation is
+For a one-dimensional cell between $x_0$ and $x_1$, linear interpolation is
 
-\[
-  y(x)=(1-w)y_0+wy_1,\qquad w=\frac{x-x_0}{x_1-x_0}.
-\]
+$$
+y(x)=(1-w)y_0+wy_1,\qquad w=\frac{x-x_0}{x_1-x_0}.
+$$
 
 For two axes, `Map` uses bilinear interpolation; higher-dimensional maps use
 multilinear interpolation. Axis dictionaries may specify `"spacing": "log"`;
-in that case interpolation uses \(\log x\) on that axis, while the supplied
+in that case interpolation uses $\log x$ on that axis, while the supplied
 `State` and table-axis values remain in their original units. The default is
 linear spacing.
 

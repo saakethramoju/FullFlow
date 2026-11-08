@@ -36,9 +36,9 @@ pressure_sensor = Sensor(
 
 When anchoring is active, `Sensor` contributes a nonlinear balance
 
-\[
-    r(t)=p_\mathrm{model}(t)-p_\mathrm{data}(t)=0.
-\]
+$$
+r(t)=p_\mathrm{model}(t)-p_\mathrm{data}(t)=0.
+$$
 
 The chosen independent `variable` must be able to satisfy that balance as part
 of the overall network. With `extend=True` (default), unavailable data deactivates
