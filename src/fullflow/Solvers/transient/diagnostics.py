@@ -164,8 +164,7 @@ class TransientPrinter:
         table.add_row(_plain("Solver type"), _plain("Fixed-step implicit backward Euler"))
         table.add_row(
             _plain("Nonlinear solver"),
-            _plain("Safeguarded Newton/Broyden with SciPy least_squares fallback"
-                   if method == "trf" else "SciPy least_squares"),
+            _plain("Newton/Broyden" if method == "trf" else "SciPy least_squares"),
         )
         table.add_row(_plain("Solver method"), _plain(method))
         table.add_row(_plain("Requested Jacobian method"), _plain(jac))
