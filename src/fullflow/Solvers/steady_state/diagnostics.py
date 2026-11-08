@@ -269,6 +269,8 @@ class SteadyStatePrinter:
         cache = self._cache_getter()
         max_residual = np.max(np.abs(sol.fun)) if len(sol.fun) else 0.0
         rms_residual = np.sqrt(np.mean(sol.fun**2)) if len(sol.fun) else 0.0
+        scaled = getattr(sol, "scaled_fun", sol.fun)
+        scaled_max = np.max(np.abs(scaled)) if len(scaled) else 0.0
         dx = np.array(sol.x, dtype=float) - np.array(x0, dtype=float)
         normalized_dx = np.abs(dx) / np.maximum(np.abs(sol.x), 1.0)
         max_normalized_dx = np.max(normalized_dx) if len(normalized_dx) else 0.0
@@ -295,11 +297,12 @@ class SteadyStatePrinter:
         if hasattr(sol, "cost"):
             summary.add_row(_plain("Cost"), _plain(f"{sol.cost:.6e}"))
         if hasattr(sol, "optimality"):
-            summary.add_row(_plain("Optimality"), _plain(f"{sol.optimality:.3e}"))
-        summary.add_row(_plain("Max |residual|"), _plain(f"{max_residual:.3e}"))
+            summary.add_row(_plain("Scaled optimality"), _plain(f"{sol.optimality:.3e}"))
+        summary.add_row(_plain("Max |raw residual|"), _plain(f"{max_residual:.3e}"))
+        summary.add_row(_plain("Max |scaled residual|"), _plain(f"{scaled_max:.3e}"))
         summary.add_row(_plain("RMS residual"), _plain(f"{rms_residual:.3e}"))
         summary.add_row(_plain("Max normalized variable adjustment"), _plain(f"{max_normalized_dx:.3e}"))
-        summary.add_row(_plain("Residual tolerance"), _plain(f"{rtol:.3e}"))
+        summary.add_row(_plain("Scaled residual tolerance"), _plain(f"{rtol:.3e}"))
         summary.add_row(_plain("ftol"), _plain(f"{ftol:.3e}"))
         summary.add_row(_plain("xtol"), _plain(f"{xtol:.3e}"))
         summary.add_row(_plain("gtol"), _plain(f"{gtol:.3e}"))

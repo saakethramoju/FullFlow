@@ -9,6 +9,8 @@ import numpy as np
 from scipy import linalg
 from scipy.optimize import OptimizeResult
 
+from fullflow.Solvers.equation_scaling import EquationScaling
+
 
 @dataclass(frozen=True, slots=True)
 class ModifiedNewtonOptions:
@@ -35,6 +37,7 @@ def solve_modified_newton(
     options: ModifiedNewtonOptions | None = None,
     initial_jacobian: np.ndarray | None = None,
     initial_scale: np.ndarray | None = None,
+    equation_scaling: EquationScaling | None = None,
 ) -> OptimizeResult:
     """Solve an unbounded system using modified Newton and Broyden updates."""
     opt = options or ModifiedNewtonOptions()
@@ -51,7 +54,8 @@ def solve_modified_newton(
 
     scale = np.maximum(np.abs(x0), 1.0)
     y = x0 / scale
-    f = f0.copy()
+    f = (equation_scaling.residual(f0) if equation_scaling is not None
+         else f0.copy())
     count = 0
     builds = 0
     updates = 0
@@ -90,11 +94,11 @@ def solve_modified_newton(
         count += 1
         if values.shape != f0.shape or not np.all(np.isfinite(values)):
             raise ModifiedNewtonFailure("Non-finite or inconsistent trial residuals.")
-        return values
+        return equation_scaling.residual(values) if equation_scaling is not None else values
 
     def build_jacobian(current_y: np.ndarray, current_f: np.ndarray) -> np.ndarray:
         """Build a finite-difference Newton Jacobian."""
-        nonlocal builds
+        nonlocal builds, f
         if builds >= opt.max_jacobian_builds:
             raise ModifiedNewtonFailure("Jacobian refresh limit reached.")
         builds += 1
@@ -113,6 +117,9 @@ def solve_modified_newton(
                 jac[:, j] = (positive_f - current_f) / step
         if not np.all(np.isfinite(jac)):
             raise ModifiedNewtonFailure("Non-finite numerical Jacobian.")
+        if equation_scaling is not None and equation_scaling.scales is None:
+            jac = equation_scaling.fit(jac)
+            f = equation_scaling.residual(f)
         return jac
 
     for iteration in range(opt.max_iterations):
@@ -208,9 +215,11 @@ def solve_modified_newton(
     if not np.all(np.isfinite(f)) or float(np.max(np.abs(f))) > rtol:
         raise ModifiedNewtonFailure("Modified Newton did not reach the residual tolerance.")
 
+    raw_f = equation_scaling.raw(f) if equation_scaling is not None else f
     return OptimizeResult(
         x=y * scale,
-        fun=f.copy(),
+        fun=raw_f.copy(),
+        scaled_fun=f.copy(),
         success=True,
         status=1,
         message=f"Newton/Broyden accepted after {total_iterations} iteration{'s' if total_iterations != 1 else ''}.",

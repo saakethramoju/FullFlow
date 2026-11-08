@@ -1,361 +1,146 @@
-# FullFlow transient solver
+# Transient solver
 
-The transient solver advances a FullFlow network through time. It is used with:
-
-```python
-Transient(network).solve(dt=0.01, t_final=1.0)
-```
-
-The current transient solver is a fixed-step implicit backward-Euler solver. The user chooses the nominal timestep. The solver may shorten a step to land exactly on final time, sequence breakpoints, scheduled aborts, or retry steps after a failed nonlinear solve.
-
-## What transient solving means in FullFlow
-
-FullFlow components can expose:
-
-```text
-dynamics
-    Real storage, inertia, capacitance, or rotor-speed equations.
-
-balances
-    Algebraic equations that must be satisfied at each timestep.
-```
-
-In transient mode, dynamic equations are integrated. Algebraic equations are still solved at each new time.
-
-For a dynamic equation:
+`Transient` advances a FullFlow network in time using fixed-nominal-step, implicit backward-Euler integration with simultaneous algebraic closure.
 
 ```python
-(state, derivative)
+from fullflow import Transient
+
+transient = Transient(network)
+result = transient.solve(dt=0.01, t_final=1.0)
 ```
 
-one backward-Euler timestep solves:
+The user chooses the nominal timestep. FullFlow can shorten steps at known schedule times or after a failed step; it does not automatically increase the nominal step.
 
-```text
-state_new - state_previous - dt * derivative_new = 0
-```
+## Equations
 
-The derivative is evaluated at the new time using the current nonlinear solver guess. This is what makes the method implicit.
+`Component.dynamics` describes physical storage or inertia, while `Component.balances` and user `Balance` objects describe algebraic constraints. All active equations are closed together at the new time.
 
-For the expanded dynamic form:
+For a dynamic equation `(state, derivative)`, backward Euler requires
+
+$$
+x_{n+1}-x_n-\Delta t\,f_{n+1}=0.
+$$
+
+For `(variable, integrated_state, derivative)`, the solver adjusts `variable` while integrating `integrated_state`:
+
+$$
+s_{n+1}-s_n-\Delta t\,f_{n+1}=0.
+$$
+
+This supports models in which pressure or temperature is the nonlinear unknown while mass or internal energy is the stored physical state.
+
+At a timestep, the residual vector contains, in order:
+
+1. Backward-Euler integration residuals (or zero-derivative residuals for components forced steady in a time sweep).
+2. Component algebraic balances.
+3. User-defined `Balance` residuals.
+
+The runtime cache preserves row order, variable ownership, and labels for diagnostics. There must be at least as many residuals as iteration variables. `ignore_balances` can exclude **user** `Balance` objects, but does not disable component balances.
+
+## Timesteps and events
+
+The initial state is the state currently assigned in the network. The solver evaluates and records it before advancing. At each step it:
+
+1. Selects the next time, limited by `t_final`, tabular `Sequence`/command breakpoints, and pending abort times.
+2. Saves the last accepted network state and evaluates time-dependent commands.
+3. Solves the implicit equations at the new time.
+4. Verifies the final scaled residuals, then commits the accepted state.
+5. Checks `Sensor` events and operating-mode changes, records the state, and advances.
+
+If a step fails, the solver restores the previous accepted state and halves the attempted timestep. By default it permits `max_step_retries=8` and uses a minimum retry timestep of `dt * 1e-9` unless `minimum_dt` is supplied. Exhausting the retry limit raises `TransientStepError` with diagnostic residuals. This is a **timestep integration safeguard**, not an alternative set of physical equations.
+
+Tabular breakpoints prevent stepping over known discontinuities. Sensor and mode events invalidate cached Jacobians and equation scales. A sequence may also request an abort, which ends the run and records the stop reason.
+
+## Nonlinear solution
+
+For eligible unbounded systems, the primary timestep solver is safeguarded **Newton/Broyden** (`transient/newton.py`). It uses numerical Jacobians, line-search backtracking, Broyden updates, and reuse of valid information from preceding accepted steps. Eligibility depends on the current system and bounds, not on whether its components are built-in or custom Python classes.
+
+The existing `scipy.optimize.least_squares` path is retained for bounded or otherwise ineligible systems and for recovery if the primary solver cannot close a step. It applies the same equation scaling. A successful transient run therefore does **not** imply that SciPy was used at every timestep.
+
+The default nonlinear settings are:
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `solver_method` | `"trf"` | Method for the SciPy path |
+| `jacobian_method` | `"3-point"` | Default numerical Jacobian method |
+| `ftol` | `1e-12` | SciPy cost-change tolerance |
+| `xtol` | `1e-12` | SciPy step-size tolerance |
+| `gtol` | `None` | SciPy gradient stopping disabled by default |
+| `rtol` | `1e-8` | Maximum scaled-residual acceptance threshold per timestep |
+| `state_max_passes` | `5` | Maximum passes to settle derived component values |
+| `state_tolerance` | `1e-10` | Convergence threshold for those evaluation passes |
+
+After the first time-commanded operating-mode change, the timestep solver can use one-sided (`"2-point"`) finite differences in place of symmetric (`"3-point"`) differences. This improves derivatives near nonsmooth flow transitions, such as zero pressure drop. The choice is internal and does not require component-specific annotations or changes to the user's equations.
+
+Successful nonlinear termination alone is insufficient: the computed state is accepted only when its verified scaled residuals meet `rtol`. A failed trial can trigger numerical refinement and, if needed, step rejection. FullFlow reports actual solver statistics and raw residuals; it does not treat an unsuccessful iterate as a converged state.
+
+## Residual scaling
+
+FullFlow handles dynamic integration residuals and user algebraic equations differently.
+
+For an integrated state `s`, its previous value `s_old`, derivative `f`, and attempted timestep `dt`, the integration residual is
+
+$$
+R_{\mathrm{BE}}=\frac{s-s_{\mathrm{old}}-dt\,f}
+{dt\,\max(|s|,|s_{\mathrm{old}}|,|dt\,f|,1)}.
+$$
+
+This normalization is built into the transient runtime. These integration rows are **not** scaled a second time.
+
+Algebraic component balances, user `Balance` equations, and forced-steady derivative rows use the shared automatic **Jacobian-based equation scaling**. For unknown scales `s_x,j = max(abs(x_j), 1)`, the raw Jacobian defines row sensitivities
+
+$$
+q_i=\max_j(|J_{ij}|s_{x,j}).
+$$
+
+Usable row scales are bounded between `1e-10` and the lesser of `1e12` and 1,000 times the median usable sensitivity. Invalid or negligible sensitivities retain a row scale of one. The solver works with `r_i / s_r,i`, keeping scales fixed within each nonlinear solve.
+
+When the network, operating mode, controls, timestep, or residual layout changes, prior row scales and Jacobians are invalidated as appropriate. Smooth, compatible steps can reuse them. The nonlinear solve and final acceptance test use scaled residuals, while reports and HDF5 retain the original physical equations and **raw** values.
+
+A dimensional expression such as
 
 ```python
-(variable, integrated_state, derivative)
+chamber_pressure - ambient_pressure
 ```
 
-FullFlow varies `variable` but integrates `integrated_state`:
+is valid as written. FullFlow does not require manual normalization. However, numerical scaling cannot determine a physical error budget automatically, and different weights can change the least-squares optimum when an inconsistent system has no exact root.
 
-```text
-integrated_state_new - integrated_state_previous - dt * derivative_new = 0
-```
+## State evaluation and invalid trial points
 
-This is useful when the physical state is mass or energy, but pressure or temperature is a better nonlinear iteration variable.
+At each trial unknown vector, FullFlow writes iteration values into `State` objects, applies current commands, and evaluates components until derived values settle. The same rules apply to custom and built-in components.
 
-## Public files in the transient package
+A property calculation may fail at a temporary trial state. After a valid residual has been established, FullFlow can supply a penalized residual to discourage invalid trial points. It cannot recover from an invalid initial model by inventing physical properties.
 
-The transient implementation is split into small files:
+## History, output, and linearization
 
-```text
-solver.py
-    Public Transient class and user-facing solve() method.
-
-runtime.py
-    Builds the transient runtime view of the Network.
-
-operations.py
-    Performs initialization and one implicit timestep solve.
-
-evaluation.py
-    Repeatedly evaluates components until derived States settle.
-
-settings.py
-    Stores timestep and retry settings.
-
-models.py
-    Handles Model / ModelOption selection and snapshots initial State values.
-
-diagnostics.py
-    Prints final transient summaries and failure information.
-
-results.py
-    Formats time-history records.
-```
-
-`solver.py` is the public entry point. The other files keep the solver internals organized.
-
-## Runtime cache
-
-Before a transient run, the solver builds a `TransientRuntimeCache`. The cache identifies:
-
-```text
-which dynamics are integrated
-which dynamics are forced steady
-which component balances are active
-which user Balance objects are active
-which States are nonlinear variables
-which States need previous values stored
-which labels should appear in diagnostics
-which bounds should be passed to SciPy
-```
-
-The cache is solver-side. The `Network` remains a simple container.
-
-## Dynamic mode
-
-Transient solving now exposes only normal dynamic integration through the public
-`Transient.solve()` API:
-
-```text
-state_new - state_previous - dt * derivative_new = 0
-```
-
-Forced-steady time sweeps live under `SteadyState.solve(dt=..., t_final=...)`.
-That API uses the transient runtime internally and stores its HDF5 output under
-`transient/runs/...` with `run_mode = "forced_steady_time_sweep"` metadata.
-
-## User balances during transient
-
-User `Balance` objects remain algebraic constraints during transient solves. If a balance is active, its residual is closed at every timestep.
-
-`ignore_balances` can remove user balances from a solve:
-
-```python
-Transient(network).solve(..., ignore_balances="all")
-Transient(network).solve(..., ignore_balances=["Jet Boundary"])
-```
-
-This affects user `Balance` objects only. Component balances are not removed by `ignore_balances`.
-
-## Initialization
-
-At the start of a transient solve, FullFlow evaluates the network and stores the initial state in the history.
-
-The initial condition is important. Transient integration assumes the values already in the States are the starting physical condition. For dynamic States, this is the starting value to integrate from. For algebraic variables, this is the initial guess for the first nonlinear solve.
-
-The solver then advances from the current `network.time` value to `t_final`.
-
-## Timestep selection
-
-The user supplies a nominal timestep:
-
-```python
-dt=0.01
-```
-
-The solver can shorten a step for four reasons:
-
-```text
-1. final time
-   The last step lands exactly on t_final.
-
-2. Sequence breakpoints
-   If a tabular Sequence has a scheduled time inside the step, the solver lands on it.
-
-3. scheduled aborts
-   The solver lands on a pending sequence-abort time.
-
-4. retry after failure
-   If a nonlinear step fails, the solver rolls back and retries with half the step.
-```
-
-The timestep, final time, initial network time, and optional minimum timestep must be finite.
-
-The solver does not automatically grow the timestep. This keeps timestep accuracy under user control.
-
-## One implicit timestep
-
-For one accepted step, the process is:
-
-```text
-1. Current time is t_old.
-2. The solver chooses t_new and dt_step.
-3. Previous values are saved from the accepted old state.
-4. network.time is set to t_new.
-5. SciPy receives an initial guess vector x0.
-6. SciPy proposes a new vector x.
-7. FullFlow writes x into the nonlinear variable States.
-8. Components are evaluated repeatedly until derived States settle.
-9. Dynamic integration residuals are formed.
-10. Component balance residuals are formed.
-11. User Balance residuals are formed.
-12. SciPy iterates until the residual is small enough or it terminates.
-13. FullFlow checks the final residual against rtol.
-14. If accepted, new values become the current state.
-15. If rejected, the old state is restored and a smaller timestep is tried.
-```
-
-The key idea is that dynamic integration and algebraic closure happen together at the new time. This avoids the explicit method problem where algebraic variables lag behind the dynamic state.
-
-## Residual order
-
-A transient residual vector generally contains:
-
-```text
-1. integration residuals for active dynamics
-2. derivative residuals for force-steady dynamics
-3. component algebraic balance residuals
-4. user Balance residuals
-```
-
-The exact labels are collected by the runtime cache and used in failure messages.
-
-## Integration residual scaling
-
-The internally generated integration residuals are normalized by a state/change scale and divided by `dt`: `(state_new - state_previous - dt * derivative_new) / scale / dt`. The acceptance tolerance therefore limits the normalized defect per second; reducing `dt` does not by itself make an unchanged state acceptable. This helps a temperature state, pressure state, and mass state use the same numerical acceptance check without requiring component authors to write their own scaling code.
-
-Algebraic residuals are used exactly as the component or `Balance` returns them. Therefore, when users write dimensional custom balances, it is often best to write the residual in a physically meaningful scale, such as:
-
-```python
-(chamber_pressure - target_pressure) / target_pressure
-```
-
-For dimensionless closures like:
-
-```python
-throat_mach - 1.0
-```
-
-no extra scaling is needed.
-
-## Nonlinear solver settings
-
-Each timestep uses `scipy.optimize.least_squares` through the same basic settings object as steady state.
-
-The transient defaults are stricter than the steady-state defaults:
-
-```text
-solver_method   = "trf"
-jacobian_method = "3-point"
-ftol            = 1e-12
-xtol            = 1e-12
-gtol            = None
-rtol            = 1e-8
-state_max_passes = 5
-state_tolerance = 1e-10
-```
-
-`gtol=None` disables gradient-based termination by default. This avoids false convergence when the residual is small but not yet accepted by FullFlow's per-step residual check.
-
-`rtol` is the final per-timestep residual acceptance tolerance. After SciPy terminates, FullFlow recomputes the residual and requires:
-
-```text
-max(abs(residual)) <= rtol
-```
-
-## Step retry
-
-If a timestep fails, the solver restores the old accepted state and tries again with half the step.
-
-The retry settings are:
-
-```python
-max_step_retries=8
-minimum_dt=None
-```
-
-If `minimum_dt` is not supplied, the retry floor is:
-
-```text
-dt * 1e-9
-```
-
-If the solver reaches the retry limit or retry floor, it raises an error showing the largest residuals from the failed step.
-
-## Output history
-
-The transient solver always stores the initial evaluated state. It then stores accepted timesteps.
-
-Results include the initial operating point and every accepted step. Each point retains exported values and the internal State and component history used by multi-time linearization. Returned records support ordinary list indexing and iteration. Restorable model state remains in memory; HDF5 contains exported result tables. History storage grows with the number of accepted steps.
-
-When `filename=...` is provided, transient results are written under:
+The solver retains the initial state and every accepted timestep in its history. When `filename=...` is specified, HDF5 results are written under:
 
 ```text
 /<network_name>/transient/runs/base
 ```
 
-The HDF5 output contains:
+The export includes time, component histories, tracked states, sensors, diagnostics, final values, and metadata. Existing FullPlot data access continues to use these physical values.
 
-```text
-time
-component histories
-tracked histories
-table histories
-diagnostics
-final component values
-final tracked values
-final table values
-metadata
+Accepted operating-point checkpoints also preserve internal model state for `transient.linearize(...)`. To limit memory growth, unchanged large NumPy arrays in these checkpoints can share stored snapshots; changed arrays are copied. Restoring a checkpoint still creates independent mutable values. An event or mode transition may prevent linearization at the affected point. See [LINEARIZATION.md](LINEARIZATION.md).
+
+`verbose=True` prints the final summary and network state. `statistics=True` prints accepted-step progress and solver diagnostics. Model-option runs start from restored initial conditions, so alternative options are evaluated independently.
+
+## Forced-steady sweeps
+
+`Transient.solve()` performs normal dynamic integration. To advance a time-dependent model while forcing selected dynamics to zero, use:
+
+```python
+SteadyState(network).solve(dt=0.01, t_final=2.0)
 ```
 
-## Sequence breakpoints
+Use `exceptions=[...]` to retain genuine transient integration for selected components. This shares the timestep solver but differs physically from a fully transient model; its HDF5 metadata identifies the forced-steady mode.
 
-The transient solver scans components for tabular `Sequence` breakpoints. If a known schedule time lies inside the next step, the solver shortens the step to land exactly on that schedule point.
+## Implementation files
 
-This prevents a step from jumping over an important discontinuity in a scheduled valve area, heat load, command signal, or other table-driven input.
-
-## Model options
-
-Transient model-option runs are independent runs. Before evaluating model options, FullFlow captures the initial State values. Before each option is run, the snapshot is restored. This prevents one option's transient history from contaminating the next option's initial condition.
-
-The solver can use the first option that succeeds or evaluate every option.
-
-## Verbose and statistics output
-
-`verbose=True` prints the final transient summary and final network state.
-
-`statistics=True` prints accepted timestep progress while the solve is running. This is useful when a long transient is being debugged.
-
-## Difference from steady state
-
-Steady state solves:
-
-```text
-derivative = 0
-algebraic residual = 0
-```
-
-Transient solves:
-
-```text
-state_new - state_previous - dt * derivative_new = 0
-algebraic residual_new = 0
-```
-
-So a component with `dynamics` behaves differently in the two solvers. In steady state, its derivative is trimmed to zero. In transient, its state changes over time according to that derivative.
-
-## Common modeling implications
-
-A thermal wall with heat capacity should usually be run transient. A full steady-state trim would force the wall heat rate to zero, which may not be the desired initial condition.
-
-A gas path with only algebraic components can be solved by `SteadyState` or by the algebraic part of a transient step. If the model has dynamic wall nodes coupled to an algebraic gas path, the physical initial condition is often:
-
-```text
-gas path algebraically consistent
-wall temperatures user specified
-wall heat rates nonzero
-```
-
-That is not the same as a full steady thermal state.
-
-## Basic transient solve sequence
-
-A normal transient solve follows this sequence:
-
-```text
-1. User calls Transient(network).solve(dt=..., t_final=...).
-2. Solver applies model-option selection if requested.
-3. TransientRuntimeCache is built.
-4. Dynamic mode summary is added to run metadata.
-5. Initial network states are evaluated.
-6. Initial state is saved to transient history.
-7. Solver chooses the next timestep.
-8. One implicit backward-Euler step is solved.
-9. If the step fails, the network rolls back and retries with a smaller dt.
-10. If the step succeeds, the new state is accepted.
-11. Accepted state is saved if output is due.
-12. Steps repeat until t_final.
-13. Final records and diagnostics are written to HDF5 if filename was provided.
-14. Verbose output is printed if requested.
-15. The time-history records are returned.
-```
-
-This is the core transient solver model.
+- `transient/solver.py`: time loop, retries, sensor events, and history
+- `transient/runtime.py`, `evaluation.py`: equation discovery, residual assembly, and component evaluation
+- `transient/operations.py`: timestep solve, numerical scaling, prediction, and acceptance
+- `transient/newton.py`: safeguarded Newton/Broyden algorithm
+- `transient/models.py`, `results.py`: model-option state and history
+- `transient/settings.py`, `diagnostics.py`: step controls and reporting
+- `equation_scaling.py`: shared numerical row-scaling implementation

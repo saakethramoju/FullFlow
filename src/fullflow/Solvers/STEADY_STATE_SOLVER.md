@@ -1,360 +1,136 @@
-# FullFlow steady-state solver
+# Steady-state solver
 
-The steady-state solver is the solver used when a FullFlow network should be brought to an algebraically consistent operating point. It is used with:
-
-```python
-SteadyState(network).solve()
-```
-
-The steady-state solver does not advance time. It changes selected `State` values until all active residual equations are close to zero.
-
-## What steady state means in FullFlow
-
-FullFlow components can expose two kinds of equations:
-
-```text
-dynamics
-    Real storage, inertia, capacitance, or rotor-speed equations.
-    Example: mass_dot, temperature_dot, rotor_speed_dot.
-
-balances
-    Algebraic equations with no physical storage.
-    Example: pressure_error, mass_flow_error, throat_mach - 1.
-```
-
-In a steady-state solve:
-
-```text
-component dynamics -> derivative residuals are driven to zero
-component balances -> algebraic residuals are driven to zero
-Balance objects    -> user residuals are driven to zero
-```
-
-For example, a transient `Solid` may expose:
+`SteadyState` finds an operating point at which the active component derivatives and algebraic balances are zero.
 
 ```python
-@property
-def dynamics(self):
-    return [(self.temperature, self.temperature_dot)]
+from fullflow import SteadyState
+
+steady = SteadyState(network)
+solution = steady.solve(verbose=True)
 ```
 
-During steady state, the solver varies `temperature` until:
+It does not integrate physical states through time. For time-dependent quasi-steady calculations, see [Time sweeps](#time-sweeps).
 
-```text
-temperature_dot = 0
+## Equations and iteration variables
+
+FullFlow collects equations from the active `Component.dynamics`, `Component.balances`, and user-created `Balance` objects. The solver does not distinguish built-in components from custom Python components.
+
+| Source | Equation supplied by component | Steady-state condition |
+| --- | --- | --- |
+| `dynamics` | `(variable, derivative)` | `derivative = 0` |
+| `dynamics` | `(variable, integrated_state, derivative)` | `derivative = 0` |
+| `balances` | `(variable, residual)` | `residual = 0` |
+| `Balance` | `variable`, `function` | `function = 0` |
+
+The first entry in each tuple supplies an iteration variable. In the three-element dynamic form, `integrated_state` matters during transient integration; steady state still adjusts `variable` to drive its derivative to zero.
+
+Each iteration variable is collected once. Overlapping ownership, such as a `Balance` trying to solve a variable already owned by a component, is rejected. A system must supply at least as many residual equations as unknowns; inconsistent overdetermined systems are not guaranteed an exact root.
+
+For example, a rotor's steady-state speed is the speed at which its angular acceleration is zero. A volume's mass and energy accumulation rates must likewise vanish.
+
+## Runtime evaluation
+
+The solver builds a runtime cache from the active network. The cache identifies component evaluation order, iteration variables, bounds, residual sources, and diagnostic labels. It is refreshed when the network structure changes.
+
+Some components produce their equation attributes during evaluation rather than during construction. The solver therefore runs preparation hooks and settles dependent component values before collecting their equations.
+
+At each nonlinear iteration:
+
+1. Write the candidate unknown vector into its `State` objects.
+2. Evaluate components until derived values settle or `state_max_passes` is reached.
+3. Collect dynamic derivative residuals, component balance residuals, and user `Balance` residuals in a consistent order.
+4. Evaluate the scaled residual vector for the nonlinear solver.
+
+`state_max_passes` (default `5`) and `state_tolerance` (default `1e-10`) govern this inner state-evaluation process, **not** the nonlinear iteration count.
+
+If there are no unknowns and no residuals, FullFlow evaluates the network directly without invoking a nonlinear solver.
+
+## Nonlinear solver
+
+Steady state uses `scipy.optimize.least_squares`, normally with the trust-region reflective method. The defaults are:
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `solver_method` | `"trf"` | Nonlinear least-squares method |
+| `jacobian_method` | `"3-point"` | Numerical Jacobian approximation |
+| `ftol` | `1e-8` | SciPy cost-change tolerance |
+| `xtol` | `1e-8` | SciPy step-size tolerance |
+| `gtol` | `1e-8` | SciPy optimality tolerance |
+| `rtol` | `1e-2` | FullFlow maximum scaled-residual acceptance threshold |
+
+SciPy also uses `x_scale="jac"` to scale the unknowns. This is distinct from **equation scaling**, described below. Bounds declared on `State` objects are passed to compatible SciPy methods; `"lm"` cannot be used with bounded unknowns.
+
+The solver accepts a solution only if SciPy reports success **and** the maximum absolute scaled residual does not exceed `rtol`. A successful SciPy termination by itself is not sufficient. Invalid intermediate property evaluations can be represented by a penalty based on an earlier valid trial; invalid initial states cannot be recovered that way.
+
+## Automatic equation scaling
+
+The nonlinear solver automatically scales equations, including arbitrary dimensional component and user `Balance` residuals. Users can write a pressure difference such as `chamber_pressure - ambient_pressure` directly; they do not need to divide it by a pressure reference.
+
+Let `r(x)` be the raw residual vector and `J` its raw Jacobian with respect to the unknowns. With characteristic unknown scales
+
+$$
+s_{x,j}=\max(|x_j|,1),
+$$
+
+FullFlow estimates each row's sensitivity:
+
+$$
+q_i=\max_j\left(|J_{ij}|s_{x,j}\right).
+$$
+
+The row scales are derived from finite, non-negligible sensitivities, bounded below by `1e-10` and above by the lesser of `1e12` and **1,000 times the median usable row sensitivity** (with the implemented safeguards). Rows with unusable sensitivities retain a scale of one. This limit prevents an extreme initial Jacobian row from effectively removing an equation from the least-squares objective.
+
+The nonlinear solver uses
+
+$$
+\hat r_i=r_i/s_{r,i},\qquad \hat J_{ij}=J_{ij}/s_{r,i}.
+$$
+
+The scales stay fixed during an individual solve; they are not recomputed at every trial point. FullFlow reuses its initial numerical Jacobian when constructing the SciPy solve rather than building a separate, redundant Jacobian just for scaling.
+
+Scaling does not change the exact zero of an individual equation. It **can** change the weighted least-squares optimum if no simultaneous zero exists. Automatic numerical scales also cannot encode the physical accuracy requirement for every possible custom equation. Check important physical results, not only the solver's success flag.
+
+## Time sweeps
+
+A quasi-steady time sweep evaluates the active model at successive times while forcing its dynamics to steady state:
+
+```python
+SteadyState(network).solve(dt=0.01, t_final=2.0)
 ```
 
-A `Volume` may vary pressure or temperature until mass and energy accumulation rates are zero. A `Rotor` may vary rotor speed until net torque causes zero angular acceleration.
+Time-dependent `Sequence` inputs are evaluated as the simulation time advances. The implementation shares the transient stepping machinery, so it also uses automatic equation scaling and the transient nonlinear solve path. This is **not** the same as integrating every component dynamically.
 
-This is similar to the way many network solvers trim a dynamic model: the same component equations are used, but the dynamic derivatives are forced to zero instead of being integrated through time.
-
-
-## Quasi-steady time sweeps
-
-`SteadyState.solve()` can also march through time while forcing dynamic
-components to steady state at each timestep:
+Selected components can remain transient through `exceptions`:
 
 ```python
 SteadyState(network).solve(
     dt=0.01,
     t_final=2.0,
+    exceptions=[rotor, wall],
 )
 ```
 
-This is a quasi-steady solve, not a normal transient integration. Internally,
-FullFlow uses the transient timestep runtime so time-dependent inputs such as
-`Sequence` components are sampled at each solver time. The dynamic residual for
-each forced component becomes:
+The named components retain backward-Euler integration equations; all other dynamic components use zero-derivative equations. Time-sweep output is stored in the transient HDF5 run layout, with metadata indicating forced-steady operation.
 
-```text
-derivative = 0
-```
+## Models, results, and linearization
 
-Components listed in `exceptions` keep their normal transient integration
-residuals while all other dynamic components are forced steady:
+`solve(model=...)` selects a model option. With `evaluate_all_model_options=True`, FullFlow evaluates available alternatives independently and records their results and failures. This is model-option selection, not a different numerical algorithm.
 
-```python
-SteadyState(network).solve(
-    dt=0.01,
-    t_final=2.0,
-    exceptions=[Rotor, WallNode],
-)
-```
-
-HDF5 output is written under `transient/runs/...`, and the run group contains
-time-history datasets such as `time`, `components`, `tracks`, `sensors`,
-`diagnostics`, and `final`, matching normal transient history exports.
-
-## Public files in the steady_state package
-
-The steady-state implementation is split into small files:
-
-```text
-solver.py
-    Public SteadyState class and user-facing solve() method.
-
-runtime.py
-    Builds the solver's runtime view of the Network.
-
-operations.py
-    Performs static evaluation and nonlinear least-squares solves.
-
-evaluation.py
-    Repeatedly evaluates components until derived States settle.
-
-settings.py
-    Small dataclasses for nonlinear solver and state-evaluation settings.
-
-models.py
-    Handles optional Model / ModelOption selection and fallback.
-
-diagnostics.py
-    Prints Rich tables for verbose output.
-
-results.py
-    Formatting helpers for returned records.
-
-statistics.py
-    Optional residual/iteration statistics collection.
-```
-
-`solver.py` is the only file most users need to know exists. The other files keep the internal behavior organized.
-
-## Runtime cache
-
-The network is intentionally simple. It stores components, balances, model options, tracked states, and time. It does not constantly maintain solver metadata.
-
-Before a solve, the steady-state solver creates a `RuntimeCache`. The cache answers questions like:
-
-```text
-Which component dynamics are active?
-Which component balances are active?
-Which user Balance objects are active?
-Which States are iteration variables?
-What are their initial values?
-What bounds do they have?
-What residual labels should appear in diagnostics?
-Which component methods should be called during evaluation?
-```
-
-The cache is rebuilt when the network version changes. This keeps residual calls fast during SciPy iteration while still allowing the network structure to change between solves.
-
-## Equation discovery
-
-Some components create derivative or balance-error attributes inside `evaluate_states()`. For example, a component may not create `self.mass_dot` until it computes mass conservation.
-
-Because of that, the solver performs equation discovery like this:
-
-```text
-1. Run component pre_evaluation() hooks.
-2. Try to run component evaluate_states().
-3. If a component is waiting on an unassigned upstream State, defer it.
-4. Repeat until all components can be evaluated or no progress is possible.
-5. Read component.dynamics and component.balances.
-```
-
-This lets component constructors stay clean. They can usually just call `self.setup()`.
-
-If equation discovery cannot complete because a needed input is still unassigned, the solver raises an error explaining which component is waiting for which kind of value.
-
-## Iteration variables
-
-The steady-state solver collects iteration variables from three places.
-
-### 1. Component dynamics
-
-For a dynamic equation:
-
-```python
-(variable, derivative)
-```
-
-steady state uses `variable` as an iteration variable and drives `derivative` to zero.
-
-For the expanded form:
-
-```python
-(variable, state, derivative)
-```
-
-steady state still uses `variable` as the iteration variable and drives `derivative` to zero. The `state` field matters more in transient solves, where it is the actual integrated storage state.
-
-### 2. Component balances
-
-For a component balance:
-
-```python
-(variable, residual)
-```
-
-steady state uses `variable` as an iteration variable and drives `residual` to zero.
-
-### 3. User Balance objects
-
-A user balance:
-
-```python
-Balance("Name", network, variable=x, function=residual)
-```
-
-is normalized internally to the same form as a component balance.
-
-## Variable overlap check
-
-FullFlow rejects a user `Balance` variable that is already owned by a component dynamic or component balance. This avoids ambiguous models where two independent equations both claim the same variable.
-
-For example, if a `Volume` already uses `pressure` as a component solve variable, a user should not also write:
-
-```python
-Balance("Extra Pressure Balance", network, variable=pressure, function=...)
-```
-
-The usual fix is to choose a different independent variable or remove one of the equations.
-
-## State evaluation
-
-During each residual call, the solver must compute all derived outputs for the current guess.
-
-The process is:
-
-```text
-1. SciPy proposes a vector x.
-2. RuntimeCache writes x into the iteration States.
-3. StateEvaluator runs component evaluate_states() repeatedly.
-4. The evaluator stops when non-iteration States stop changing or max passes is reached.
-5. RuntimeCache collects residuals.
-```
-
-Repeated evaluation is needed because components can depend on other component outputs. A map may use a pressure from a volume. A flow component may use density from a lookup. A heat-transfer component may use the result of another heat-transfer component.
-
-`state_max_passes` and `state_tolerance` control this fixed-point settling process.
-
-## Residual collection
-
-After the network states are evaluated, residuals are collected in a fixed order:
-
-```text
-1. component dynamic residuals
-2. component balance residuals
-3. user Balance residuals
-```
-
-The labels printed in diagnostics follow the same order. This is important because the residual vector passed to SciPy must match the diagnostic labels and iteration variables.
-
-## Nonlinear solve
-
-The steady-state solver uses `scipy.optimize.least_squares`.
-
-The default settings are stored in `LeastSquaresSettings`:
-
-```text
-solver_method   = "trf"
-jacobian_method = "3-point"
-ftol            = 1e-8
-xtol            = 1e-8
-gtol            = 1e-8
-rtol            = 1e-2
-```
-
-`ftol`, `xtol`, and `gtol` are SciPy convergence tolerances. `rtol` is FullFlow's final residual acceptance tolerance. Even if SciPy says it converged, FullFlow checks the final residual before accepting the solution.
-
-The solver uses:
-
-```text
-x_scale="jac"
-```
-
-so the trust-region method can scale iteration steps based on the local Jacobian.
-
-## Bounds
-
-Bounds live on `State` objects. The runtime cache collects lower bounds, upper bounds, and `keep_feasible` flags and passes them to SciPy.
-
-The default solver method is `trf` because it supports bounds. The Levenberg-Marquardt method `lm` is only allowed for unbounded problems.
-
-## Invalid nonlinear trial points
-
-Property packages can fail at temporary solver guesses. For example, a thermodynamic flash may fail at a negative pressure during a finite-difference Jacobian evaluation.
-
-When there has already been a valid residual, FullFlow can return a large penalty residual for invalid trial points. This lets the trust-region solver back away instead of immediately crashing the solve.
-
-If the initial point is invalid, FullFlow does not hide the error. It raises the original setup problem because there is no known-good residual to fall back on.
-
-## Static evaluation path
-
-If a network has no iteration variables and no residuals, there is nothing to solve. FullFlow can simply evaluate the components and save/return the results. This is called static evaluation.
-
-Static evaluation is useful for networks that are pure calculators:
-
-```text
-inputs -> components -> tracked outputs
-```
-
-with no algebraic unknowns.
-
-## Model options
-
-A `Model` contains alternative components or groups of components. The steady-state solver can:
-
-```text
-use a specific model option
-try options in order and use the first one that works
-evaluate all options and save all successful results
-```
-
-Before running an option, the solver builds the selected components. Failed options are captured and reported so the user can see why an option was skipped.
-
-## Saving results
-
-When `filename=...` is provided, steady-state results are written to HDF5 under:
+`filename=...` saves a static steady-state result under:
 
 ```text
 /<network_name>/steady_state/runs/base
 ```
 
-or, for model options:
+Model-option runs have their own run groups. Returned records and HDF5 contain physical component values and **raw** residuals; summary diagnostics also distinguish raw from scaled residual magnitudes. `verbose=True` prints the solve summary, variables, residuals, and network solution. `statistics=True` enables additional iteration diagnostics.
 
-```text
-/<network_name>/steady_state/runs/<model_name>/<option_name>
-```
+A successfully solved operating point can be linearized with `steady.linearize(...)`. Linearization independently checks the operating point's equations using scaled consistency criteria; it does not change the nonlinear solver's accepted state. See [LINEARIZATION.md](LINEARIZATION.md).
 
-The file stores component attributes, tracked outputs, result tables, metadata, and diagnostics.
+## Implementation files
 
-## Verbose output
-
-With `verbose=True`, the steady-state solver prints:
-
-```text
-solver summary
-solution variables
-residuals
-network solution table
-model-option failures if applicable
-```
-
-The verbose output is diagnostic. It does not change the solve.
-
-## Basic solve sequence
-
-A normal steady-state solve follows this sequence:
-
-```text
-1. User calls SteadyState(network).solve().
-2. Solver applies model option selection if requested.
-3. RuntimeCache is built from the current Network.
-4. Components run pre_evaluation().
-5. RuntimeCache is refreshed in case pre_evaluation changed anything.
-6. Initial iteration vector x0 is collected.
-7. Components are evaluated to settle derived States.
-8. Initial residual r0 is collected.
-9. If there is nothing to solve, static evaluation runs.
-10. If residual count is less than variable count, the solver raises a setup error.
-11. SciPy least_squares iterates on x.
-12. Each residual call writes x into States and reevaluates the network.
-13. Final residual is checked against FullFlow rtol.
-14. Accepted solution values are written back into the Network.
-15. Final states are evaluated one more time.
-16. Results are printed, saved, and returned.
-```
-
-This is the core steady-state solver model.
+- `steady_state/solver.py`: public API and time-sweep dispatch
+- `steady_state/runtime.py`, `evaluation.py`: equation discovery, caching, and component evaluation
+- `steady_state/operations.py`: nonlinear solve, equation scaling, and final acceptance
+- `steady_state/models.py`: model-option management
+- `steady_state/settings.py`, `statistics.py`, `diagnostics.py`, `results.py`: settings and reporting
+- `equation_scaling.py`: shared numerical row-scaling implementation

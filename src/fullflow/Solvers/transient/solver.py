@@ -438,6 +438,7 @@ class Transient:
                 self.printer.print_sensor_events(step_events)
             if step_events:
                 self.network.activate_sequence_conditions(step_events)
+                self.step_solver.invalidate_equation_scales()
 
             abort_record = self.network.check_sequence_abort(diagnostics.time)
             if abort_record is not None:
@@ -452,6 +453,8 @@ class Transient:
             self._cache()
             current_mode = discrete_signature(self._cache())
             switched = current_mode != previous_mode
+            if switched:
+                self.step_solver.invalidate_equation_scales()
             previous_mode = current_mode
             issue = "An event or operating mode changed at this timestep." if step_events or abort_record or switched else None
             self.history.append(self.network, diagnostics.time, self._cache(), issue)

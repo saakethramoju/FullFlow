@@ -14,6 +14,8 @@ from .settings import LeastSquaresSettings, StateEvaluationSettings
 from .statistics import SolverStatistics, statistics_path
 from fullflow.Exports.HDF5 import HDF5Target, run_group_path, safe_group_name, write_tables
 from fullflow.Exceptions import SolverConvergenceError, SolverSetupError
+from fullflow.Solvers.equation_scaling import EquationScaling
+from scipy.optimize._numdiff import approx_derivative
 
 
 @dataclass(slots=True)
@@ -171,15 +173,44 @@ class NonlinearSolve:
                     f"Got {len(x0)} iteration variables and {len(r0)} residuals."
                 )
 
-            solver_kwargs = self._least_squares_kwargs(cache, x0, ls_settings)
-
             start_time = time.perf_counter()
+            scaling = EquationScaling(np.ones(len(r0), dtype=bool))
+            if len(x0):
+                bounds = (cache.lower_bounds, cache.upper_bounds)
+                first_jac = scaling.initialize(
+                    self.residual_function, x0, ls_settings.jacobian_method,
+                    bounds=bounds,
+                )
+            else:
+                first_jac = None
+            solver_kwargs = self._least_squares_kwargs(cache, x0, ls_settings)
+            solver_kwargs["fun"] = lambda x: scaling.residual(self.residual_function(x))
+            if first_jac is not None:
+                initial_x = x0.copy()
+                first = [True]
+
+                def scaled_jacobian(x):
+                    if first[0] and np.array_equal(x, initial_x):
+                        first[0] = False
+                        raw = first_jac
+                    else:
+                        first[0] = False
+                        raw = approx_derivative(
+                            self.residual_function, x, method=ls_settings.jacobian_method,
+                            bounds=(cache.lower_bounds, cache.upper_bounds),
+                        )
+                    return np.atleast_2d(raw) / scaling.scales[:, None]
+
+                solver_kwargs["jac"] = scaled_jacobian
             try:
                 sol = least_squares(**solver_kwargs)
             except Exception:
                 statistics.export(statistics_filename)
                 raise
             elapsed_time = time.perf_counter() - start_time
+            sol.scaled_fun = np.asarray(sol.fun, dtype=float).copy()
+            sol.fun = scaling.raw(sol.scaled_fun)
+            sol.cost = 0.5 * float(np.dot(sol.fun, sol.fun))
 
             statistics.finalize(
                 sol=sol,
@@ -283,7 +314,9 @@ class NonlinearSolve:
         final_residual = np.array(sol.fun, dtype=float)
         max_residual = np.max(np.abs(final_residual)) if len(final_residual) else 0.0
 
-        if sol.success and max_residual <= settings.rtol:
+        scaled_residual = getattr(sol, "scaled_fun", final_residual)
+        scaled_max = float(np.max(np.abs(scaled_residual))) if len(scaled_residual) else 0.0
+        if sol.success and scaled_max <= settings.rtol:
             return
 
         try:
@@ -308,6 +341,7 @@ class NonlinearSolve:
             f"success = {sol.success}",
             f"message = {sol.message}",
             f"max |residual| = {max_residual:.3e}",
+            f"max |scaled residual| = {scaled_max:.3e}",
             f"residual tolerance = {settings.rtol:.3e}",
         ]
 

@@ -96,7 +96,7 @@ class TransientPrinter:
             f"Transient step accepted: "
             f"t={diagnostics.time:.9g}, "
             f"dt={diagnostics.dt:.9g}, "
-            f"max|residual|={diagnostics.max_residual:.3e}"
+            f"max|scaled residual|={diagnostics.max_scaled_residual:.3e}"
             f"{retry_text}"
         )
 
@@ -121,6 +121,7 @@ class TransientPrinter:
         final = diagnostics_list[-1] if diagnostics_list else None
         final_residual = final.residual if final is not None else np.array([], dtype=float)
         max_residual = np.max(np.abs(final_residual)) if len(final_residual) else 0.0
+        scaled_max = final.max_scaled_residual if final is not None else 0.0
         rms_residual = np.sqrt(np.mean(final_residual**2)) if len(final_residual) else 0.0
         total_nfev = 0
         total_njev = 0
@@ -176,10 +177,11 @@ class TransientPrinter:
         table.add_row(_plain("Total Jacobian evaluations"), _plain(total_njev))
         table.add_row(_plain("Total cost"), _plain(f"{total_cost:.6e}"))
         if last_optimality is not None:
-            table.add_row(_plain("Last optimality"), _plain(f"{float(last_optimality):.3e}"))
-        table.add_row(_plain("Final max |residual|"), _plain(f"{max_residual:.3e}"))
+            table.add_row(_plain("Last scaled optimality"), _plain(f"{float(last_optimality):.3e}"))
+        table.add_row(_plain("Final max |raw residual|"), _plain(f"{max_residual:.3e}"))
+        table.add_row(_plain("Final max |scaled residual|"), _plain(f"{scaled_max:.3e}"))
         table.add_row(_plain("Final RMS residual"), _plain(f"{rms_residual:.3e}"))
-        table.add_row(_plain("Residual tolerance"), _plain(f"{rtol:.3e}"))
+        table.add_row(_plain("Scaled residual tolerance"), _plain(f"{rtol:.3e}"))
         table.add_row(_plain("ftol"), _plain(f"{ftol:.3e}"))
         table.add_row(_plain("xtol"), _plain(f"{xtol:.3e}"))
         table.add_row(_plain("gtol"), _plain("disabled" if gtol is None else f"{gtol:.3e}"))

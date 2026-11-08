@@ -205,10 +205,6 @@ def linearize(
 
     try:
         base = sample()
-        if np.max(np.abs(base[2 * n:2 * n + k]), initial=0.0) > _balance_tolerance(solver):
-            raise LinearizationError("The operating point does not satisfy its algebraic balances.")
-        if not point.transient and np.max(np.abs(base[n:2 * n]), initial=0.0) > _balance_tolerance(solver):
-            raise LinearizationError("The steady-state dynamic derivatives are not zero. Solve again before linearizing.")
         if not np.allclose(base[:n], point.x0, rtol=1e-8, atol=1e-9):
             raise LinearizationError("Physical states do not match the solved operating point.")
 
@@ -218,6 +214,27 @@ def linearize(
                 lambda value, i=i: sample(np.array([value if j == i else w for j, w in enumerate(w0)])),
                 w0[i], variable,
             )
+
+        # Verify consistency using the same relative equation criterion that
+        # accepts the steady/transient nonlinear solve, not raw dimensional
+        # pressure errors (which can be O(1) Pa at a very accurate solution).
+        def row_error(first, last):
+            rows = derivatives_w[first:last]
+            if not len(rows):
+                return 0.0
+            sizes = np.max(
+                np.abs(rows) * np.maximum(np.abs(w0), 1.0)[None, :],
+                axis=1, initial=0.0,
+            )
+            scales = np.ones(len(rows))
+            valid = np.isfinite(sizes) & (sizes >= 1e-10)
+            scales[valid] = np.clip(sizes[valid], 1e-10, 1e12)
+            return float(np.max(np.abs(base[first:last]) / scales, initial=0.0))
+
+        if row_error(2 * n, 2 * n + k) > _balance_tolerance(solver):
+            raise LinearizationError("The operating point does not satisfy its algebraic balances.")
+        if not point.transient and row_error(n, 2 * n) > _balance_tolerance(solver):
+            raise LinearizationError("The steady-state dynamic derivatives are not zero. Solve again before linearizing.")
 
         derivatives_u = np.empty((count, m))
         for i, state in enumerate(inputs):

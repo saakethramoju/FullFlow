@@ -467,9 +467,25 @@ class TransientRuntimeCache:
         return self._transient_state_lists[id(component)]
 
     def _component_transient_derivatives(self, component: Any) -> list[Any]:
-
-
-        """Return a component's transient derivatives."""
+        """Read current derivatives without rebuilding equation metadata."""
+        component_id = id(component)
+        variables = self._transient_variable_lists[component_id]
+        states = self._transient_state_lists[component_id]
+        equations = component.dynamics
+        if isinstance(equations, (list, tuple)) and len(equations) == len(variables):
+            derivatives = []
+            for index, equation in enumerate(equations):
+                if not isinstance(equation, tuple) or not equation or equation[0] is not variables[index]:
+                    break
+                if len(equation) == 2 and states[index] is variables[index]:
+                    derivatives.append(equation[1])
+                elif len(equation) == 3 and equation[1] is states[index]:
+                    derivatives.append(equation[2])
+                else:
+                    break
+            else:
+                return derivatives
+        # Preserve the general validator for dynamically altered/malformed equations.
         return [equation.derivative for equation in component_dynamics(component)]
 
     def _component_is_dynamic(self, component: Any) -> bool:

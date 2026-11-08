@@ -21,20 +21,36 @@ _DIAGNOSTIC_ATTRIBUTES = {
 }
 
 
-def _copy(value):
-    """Return a checkpoint-safe copy of a value."""
+def _copy(value, array_cache=None):
+    """Return a checkpoint-safe copy, reusing unchanged array snapshots."""
     if is_state_like(value):
         return value
     if isinstance(value, (str, int, float, bool, type(None), bytes)):
         return value
     if isinstance(value, np.ndarray):
+        if array_cache is not None and value.nbytes >= 4096:
+            key = id(value)
+            prior = array_cache.get(key)
+            if prior is not None and prior[0] is value:
+                try:
+                    equal = np.array_equal(prior[1], value, equal_nan=True)
+                except (TypeError, ValueError):
+                    try:
+                        equal = np.array_equal(prior[1], value)
+                    except (TypeError, ValueError):
+                        equal = False
+                if equal:
+                    return prior[1]
+            copied = value.copy()
+            array_cache[key] = (value, copied)
+            return copied
         return value.copy()
     if isinstance(value, OrderedDict):
-        return OrderedDict((_copy(k), _copy(v)) for k, v in tuple(value.items()))
+        return OrderedDict((_copy(k, array_cache), _copy(v, array_cache)) for k, v in tuple(value.items()))
     if isinstance(value, dict):
-        return {_copy(k): _copy(v) for k, v in tuple(value.items())}
+        return {_copy(k, array_cache): _copy(v, array_cache) for k, v in tuple(value.items())}
     if isinstance(value, (list, tuple, set, frozenset)):
-        return type(value)(_copy(v) for v in tuple(value))
+        return type(value)(_copy(v, array_cache) for v in tuple(value))
     return value
 
 
@@ -80,6 +96,12 @@ class OperatingCheckpoint:
                     self.proxies.append(item)
         self.cache = cache
         self.attributes = []
+        self._array_cache = None
+        if cache is not None:
+            if getattr(cache, "_checkpoint_array_cache_version", None) != network.version:
+                cache._checkpoint_array_cache = {}
+                cache._checkpoint_array_cache_version = network.version
+            self._array_cache = cache._checkpoint_array_cache
         self._capture_attributes()
         self.signature = self._signature()
         self.modes = self.mode_signature()
@@ -90,6 +112,10 @@ class OperatingCheckpoint:
 
         def visit(obj, depth):
             """Visit nested values while collecting checkpoint data."""
+            # Exact built-in scalars cannot contain restorable attributes.
+            # Avoid inspecting them on every accepted timestep.
+            if type(obj) in (str, int, float, bool, bytes, type(None), complex):
+                return
             if depth > 4 or id(obj) in seen or is_state_like(obj) or obj is self.network:
                 return
             seen.add(id(obj))
@@ -115,7 +141,7 @@ class OperatingCheckpoint:
                 if value is self.network or is_state_like(value):
                     continue
                 if isinstance(value, (str, int, float, bool, type(None), bytes, np.ndarray, list, tuple, dict, set, frozenset)):
-                    attrs[name] = _copy(value)
+                    attrs[name] = _copy(value, self._array_cache)
                 visit(value, depth + 1)
             self.attributes.append((obj, attrs))
 

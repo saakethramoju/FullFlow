@@ -13,9 +13,9 @@ propulsion, control, and transient network models.
 The package is designed around the way engineering system models are usually
 assembled: a network contains components, components share states, and solvers
 adjust selected states until component equations, balances, and dynamic residuals
-are satisfied.  FullFlow is not a Navier-Stokes CFD solver.  It is a 
-lumped/network modeling framework for systems such as feed systems, tanks, valves, 
-pipes, pumps,turbines, thrust chambers, heat exchangers, regenerative cooling circuits,
+are satisfied. FullFlow is not a Navier-Stokes CFD solver. It is a
+lumped/network modeling framework for systems such as feed systems, tanks, valves,
+pipes, pumps, turbines, thrust chambers, heat exchangers, regenerative cooling circuits,
 pressurization systems, virtual test stands, and controller-driven startup sequences.
 
 ## Installation
@@ -41,7 +41,8 @@ pip3 install "fullflow[examples]"
 Core FullFlow depends on:
 
 - `numpy` for numerical arrays and math utilities.
-- `scipy` for nonlinear least-squares solving and interpolation.
+- `scipy` for steady-state nonlinear solving, bounded transient solves, numerical
+  differentiation, and interpolation.
 - `rich` for optional terminal diagnostics.
 - `h5py` for HDF5 result export.
 - `fullplot` for trace objects, command traces, sensor traces, and map-generation workflows.
@@ -659,7 +660,7 @@ The three members have distinct roles:
 
 | Tuple member | Purpose |
 | --- | --- |
-| `iteration_state` | Independent unknown changed by SciPy. Must have an initial guess and may have bounds. |
+| `iteration_state` | Independent unknown adjusted by the nonlinear solver. Must have an initial guess and may have bounds. |
 | `integrated_stored_state` | Quantity whose accepted history is stored in `previous` and integrated by backward Euler. |
 | `derivative` | Current new-time rate of change of the stored quantity. |
 
@@ -748,12 +749,12 @@ Important rules:
   component balance,
 - derived states cannot be iteration variables,
 - the solve must have at least as many residuals as variables,
-- overdetermined systems are allowed because least squares can minimize more
-  residuals than variables,
+- overdetermined systems are allowed; SciPy's least-squares path can minimize
+  more residuals than variables,
 - an underdetermined system usually means a missing closure equation,
 - every iteration variable needs a physically reasonable initial value,
-- residuals should be scaled so one equation does not dominate only because its
-  units produce a much larger number.
+- FullFlow automatically scales algebraic equations so units alone do not
+  determine their numerical weight; equations must still be physically meaningful.
 
 ### Custom-component checklist
 
@@ -767,7 +768,7 @@ Before solving a new component, verify:
 6. actual storage or inertia equations are in `dynamics`.
 7. three-entry dynamics conserve the correct stored quantity.
 8. iteration variables have initial guesses and useful physical bounds.
-9. residual magnitudes are sensibly scaled.
+9. residual equations express the intended physical constraints.
 10. `static_evaluate()` works before attempting a nonlinear solve.
 
 ## Solver mathematics and numerical behavior
@@ -808,8 +809,10 @@ components and constructs:
 r(x) = [r1(x), r2(x), ..., rm(x)]
 ```
 
-A perfect solution has `r(x) = 0`. In practice, a solve is accepted when SciPy
-reports success and FullFlow's final residual test is satisfied.
+A perfect solution has `r(x) = 0`. FullFlow verifies the scaled residuals
+before accepting a solution. Steady-state solves also require successful SciPy
+termination; transient steps can accept an already-converged trial without
+further nonlinear iterations.
 
 The number of residuals must be at least the number of unknowns:
 
@@ -818,33 +821,46 @@ m >= n
 ```
 
 - `m = n` is a square nonlinear system.
-- `m > n` is overdetermined and is handled naturally by least squares.
+- `m > n` is overdetermined and may be handled by least squares.
 - `m < n` is underdetermined and FullFlow raises a setup error.
 
-### Why FullFlow uses nonlinear least squares
+### Nonlinear solvers and automatic equation scaling
 
-FullFlow calls `scipy.optimize.least_squares` and minimizes the cost:
+`SteadyState` uses `scipy.optimize.least_squares`, normally with the trust-region
+reflective (`"trf"`) method. With the default `"trf"` setting, eligible
+unbounded transient systems instead use safeguarded Newton/Broyden with Jacobian reuse and
+backtracking. The SciPy path remains available for bounded or ineligible
+transient systems and for recovery when the primary solve cannot converge.
+
+The SciPy solver minimizes a least-squares objective:
 
 ```text
-F(x) = 1/2 * sum(ri(x)^2)
-     = 1/2 * ||r(x)||²
+F(x) = 1/2 * sum(r_scaled_i(x)^2)
+     = 1/2 * ||r_scaled(x)||²
 ```
 
-Least squares works for both square and overdetermined systems, supports bounds
-with trust-region methods, and provides robust diagnostics for coupled nonlinear
-networks.
+This supports square and overdetermined systems, including systems with state
+bounds. For a system with an exact root, both solver paths seek the same zero
+of the equations.
 
-Residual scale matters because the objective squares every residual. A pressure
-error of `1.0e6 Pa` numerically dominates a dimensionless error of `0.1` unless
-the modeler normalizes one or both equations. A common pattern is:
+FullFlow automatically determines scales for algebraic equations using
+Jacobian sensitivities to the iteration variables. It uses scaled residuals for
+numerical convergence, with safeguards that prevent extremely large sensitivity
+estimates from overwhelming other equations. The scales remain fixed during a
+nonlinear solve and are refreshed when required by changes in the model or its
+operating mode.
+
+For example, users can write a pressure balance directly:
 
 ```python
-pressure_residual = (predicted_pressure - target_pressure) / pressure_scale
-mass_residual = (mass_flow_in - mass_flow_out) / mass_flow_scale
+pressure_residual = predicted_pressure - target_pressure
 ```
 
-Choose scales that make an error of order one represent a physically meaningful
-miss. Algebraic residuals are not automatically normalized by FullFlow.
+No manual division by a pressure reference is required. The physical equation
+and its raw residual remain available in diagnostics and exported results.
+Numerical scaling does not prescribe the physical accuracy of an equation;
+inconsistent overdetermined systems may also have different least-squares
+solutions under different weightings.
 
 ### Jacobian
 
@@ -864,9 +880,9 @@ r2    dr2/dx1  dr2/dx2   ...   dr2/dxn
 rm    drm/dx1  drm/dx2   ...   drm/dxn
 ```
 
-The solver uses this local sensitivity information to choose a step in the
-unknown vector. FullFlow does not require custom components to provide analytic
-Jacobian equations. It asks SciPy to estimate the Jacobian by finite differences.
+The solvers use this local sensitivity information to choose steps and estimate
+equation scales. FullFlow does not require analytic Jacobians or special metadata
+from custom components. Numerical derivatives are estimated by finite differences.
 
 With `jacobian_method="2-point"`, a Jacobian column is approximately:
 
@@ -880,20 +896,16 @@ With `jacobian_method="3-point"`, it is approximately:
 J[:, j] ~= [r(x + h ej) - r(x - h ej)] / (2h)
 ```
 
-where `ej` selects one unknown and SciPy chooses an appropriate perturbation
-`h`, adjusted as needed near bounds.
+where `ej` selects one unknown and `h` is a suitable perturbation, adjusted
+as needed near bounds.
 
-`"3-point"` normally requires more residual evaluations but is more accurate.
-`"2-point"` is faster and can be useful for large or expensive models.
+`"3-point"` uses symmetric differences and normally requires more evaluations.
+FullFlow can use one-sided (`"2-point"`) differences after time-commanded mode
+changes to better handle nonsmooth transitions.
 
-FullFlow passes:
-
-```python
-x_scale="jac"
-```
-
-so SciPy scales trust-region steps using local Jacobian information rather than
-assuming every variable has the same numerical scale.
+For SciPy solves, FullFlow uses `x_scale="jac"` to scale the unknowns. This
+variable scaling is separate from automatic equation (residual) scaling. The
+transient Newton/Broyden solver also uses scaled iteration variables.
 
 ### Derived-state settling inside each residual call
 
@@ -915,7 +927,7 @@ the active equations. For every trial `x`, it then:
 5. collects the residual vector.
 
 `state_tolerance` controls the fixed-point settling test. This inner settling
-process is different from the outer nonlinear least-squares iteration.
+process is different from the outer nonlinear solver iteration.
 
 ### Static evaluation
 
@@ -1005,9 +1017,9 @@ The steady solver sequence is:
 2. run pre-evaluation and discover equations,
 3. collect unknowns, initial values, and bounds,
 4. evaluate the initial residual,
-5. call SciPy least squares,
-6. require SciPy success and `max(abs(sol.fun)) <= rtol`,
-7. write the accepted `sol.x` values back to the network,
+5. determine automatic equation scales and solve with SciPy least squares,
+6. require SciPy success and `max(abs(scaled_residual)) <= rtol`,
+7. write the accepted solution values back to the network,
 8. settle derived states again,
 9. export and return the final network state.
 
@@ -1041,8 +1053,8 @@ For the three-entry form:
 (iteration_state, integrated_state, derivative)
 ```
 
-SciPy varies the new `iteration_state`, the component computes the corresponding
-new `integrated_state`, and FullFlow solves:
+The timestep solver varies the new `iteration_state`, the component computes
+the corresponding new `integrated_state`, and FullFlow solves:
 
 ```text
 integrated_state(n+1)
@@ -1058,10 +1070,10 @@ For additional discussion of the transient solver, timestep retries,
 accepted-state history, events, numerical controls, and the full API,
 see **[TRANSIENT_SOLVER.md](src/fullflow/Solvers/TRANSIENT_SOLVER.md)**.
 
-### Transient residual normalization
+### Transient residual scaling
 
-FullFlow normalizes only the internally generated backward-Euler integration
-residual. For each dynamic equation it uses:
+FullFlow normalizes internally generated backward-Euler integration residuals
+separately from algebraic equations. For each integrated dynamic equation it uses:
 
 ```text
 scale = max(
@@ -1082,26 +1094,29 @@ r_dynamic = (
 ) / scale / dt
 ```
 
-The transient `rtol` limits the normalized integration defect per second.
 Dividing by `dt` prevents a smaller timestep from accepting an unchanged state
-simply because its expected change is small. Component balance residuals and user `Balance`
-residuals remain exactly as the component returns them, so those should still be
-scaled by the model author when necessary.
+simply because its expected change is small. These integration rows are not
+scaled a second time.
+
+Component algebraic balances, user `Balance` equations, and forced-steady
+derivative equations receive automatic Jacobian-based scaling. The timestep
+acceptance check applies `rtol` to the combined scaled residual vector, while
+physical residuals are retained for reporting and export.
 
 ### One transient timestep
 
 For each requested timestep, FullFlow:
 
-1. copies the last accepted state forward as the initial new-time guess,
-2. sets `network.time` to the trial new time,
-3. applies sequence commands and timestep context,
-4. evaluates the predictor residual,
-5. accepts immediately if that residual already satisfies `rtol`,
-6. otherwise solves all dynamic and algebraic residuals with least squares,
-7. recomputes the final residual independently of SciPy's cached result,
-8. accepts only if `max(abs(residual)) <= rtol`,
-9. stores `previous` history only after acceptance,
-10. rolls back all mutable states if the step fails.
+1. selects the next time, respecting known command and abort breakpoints,
+2. restores the last accepted state as the initial new-time guess,
+3. sets `network.time` and applies sequence commands and timestep context,
+4. evaluates the predictor and the active residual equations,
+5. accepts an already-converged predictor or solves the coupled dynamic and
+   algebraic equations using the eligible nonlinear path,
+6. independently verifies `max(abs(scaled_residual)) <= rtol`,
+7. commits the new state and advances stored history only after acceptance,
+8. restores the last accepted state and retries with a smaller timestep if
+   convergence fails.
 
 A normal transient call is:
 
@@ -1122,9 +1137,11 @@ history = Transient(network).solve(
 )
 ```
 
-The transient solver uses `gtol=None` by default. This disables gradient-only
-termination, which can otherwise report convergence on small normalized
-residuals before the explicit timestep residual test has been met.
+The transient solver uses `gtol=None` by default for SciPy solves, disabling
+gradient-only termination before FullFlow's explicit scaled-residual acceptance
+test has been met. With the default `"trf"` method, safeguarded Newton/Broyden
+is the primary solver for eligible unbounded timesteps. Other methods select
+the SciPy path.
 
 If a timestep fails, FullFlow restores the last accepted state and retries with
 half the timestep. Retrying continues up to `max_step_retries` and no smaller
@@ -1198,9 +1215,14 @@ and **[TRANSIENT_SOLVER.md](src/fullflow/Solvers/TRANSIENT_SOLVER.md)**.
 
 ### Solver methods
 
+`solver_method` selects the SciPy nonlinear least-squares method. It is used for
+steady-state solves and for transient timesteps routed to SciPy. With the
+default `"trf"` setting, eligible unbounded transient timesteps use FullFlow's
+primary Newton/Broyden path.
+
 | Method | Characteristics |
 | --- | --- |
-| `"trf"` | Trust Region Reflective. Recommended default; supports bounds and large sparse-style problems well. |
+| `"trf"` | Trust Region Reflective. Default; supports bounds. |
 | `"dogbox"` | Rectangular trust-region method; supports bounds but may be less effective for rank-deficient problems. |
 | `"lm"` | Levenberg-Marquardt. Unbounded only and generally requires at least as many residuals as variables. |
 
@@ -1211,15 +1233,16 @@ and **[TRANSIENT_SOLVER.md](src/fullflow/Solvers/TRANSIENT_SOLVER.md)**.
 | `ftol` | SciPy termination based on relative cost-function improvement. | `1e-8` | `1e-12` |
 | `xtol` | SciPy termination based on the size of the unknown-vector step. | `1e-8` | `1e-12` |
 | `gtol` | SciPy termination based on gradient/optimality. | `1e-8` | `None` |
-| `rtol` | FullFlow acceptance test on `max(abs(final_residual))`. | `1e-2` | `1e-8` |
+| `rtol` | FullFlow acceptance test on `max(abs(scaled_residual))`. | `1e-2` | `1e-8` |
 | `state_max_passes` | Maximum component passes used to settle derived states inside each residual call. | `5` | `5` |
 | `state_tolerance` | Fixed-point tolerance for derived-state settling. | `1e-10` | `1e-10` |
 | `max_step_retries` | Half-step retries after a failed timestep. | time sweeps only: `8` | `8` |
 | `minimum_dt` | Smallest retry timestep. | time sweeps only | `dt * 1e-9` when omitted |
 
-`ftol`, `xtol`, and `gtol` tell SciPy when to stop iterating. They do not replace
-FullFlow's final `rtol` check. A solve can satisfy a SciPy termination condition
-and still be rejected because the physical residuals are too large.
+`ftol`, `xtol`, and `gtol` control SciPy termination when that solver is used.
+They do not replace FullFlow's final `rtol` check. A solve may terminate
+numerically but still be rejected if its scaled residuals exceed the acceptance
+threshold. The scaled threshold is not a universal physical error tolerance.
 
 ### Bounds in both solvers
 
@@ -1231,8 +1254,9 @@ state.upper_bound
 state.keep_feasible
 ```
 
-and passes them to SciPy. The same state-bound mechanism is used in steady state,
-normal transients, and quasi-steady time sweeps.
+and enforces them through the compatible SciPy path. In transient solves,
+bounded systems use SciPy rather than the unbounded Newton/Broyden path. The
+same `State` bounds are respected in steady state and quasi-steady time sweeps.
 
 ### Invalid trial points
 
@@ -1240,9 +1264,9 @@ Finite-difference Jacobian estimation can temporarily test an invalid property
 state. For example, a pressure-enthalpy flash may fail at a trial point even
 though the current solution is valid.
 
-After at least one valid residual has been evaluated, FullFlow converts later
-invalid trial points into a large directional penalty residual so the
-trust-region algorithm can move away from them. The initial model state is not
+After at least one valid residual has been evaluated, FullFlow can convert later
+invalid trial points into a directional penalty residual so the nonlinear solver
+can move away from them. The initial model state is not
 hidden this way: if the first evaluation is invalid, FullFlow raises the original
 configuration/property error so the user can fix the initial condition.
 
@@ -1253,16 +1277,14 @@ When a solve fails:
 1. run `static_evaluate()` and fix unassigned or invalid inputs,
 2. improve initial guesses,
 3. add realistic bounds,
-4. inspect the largest residual labels with `verbose=True` or
-   `statistics=True`,
-5. normalize algebraic residuals with sensible physical scales,
-6. check that every unknown has an independent equation,
-7. reduce transient `dt` when the physical dynamics are too stiff or commands
-   change too abruptly,
+4. inspect raw residuals, scaled residuals, and their labels with
+   `verbose=True` or `statistics=True`,
+5. check that every unknown has an independent, physically consistent equation,
+6. investigate nonsmooth component behavior and operating-mode transitions,
+7. reduce transient `dt` when the dynamics require finer time resolution,
 8. increase `state_max_passes` only when connected explicit outputs genuinely
    need more settling passes,
-9. change Jacobian or solver methods only after the model equations and scaling
-   are sound.
+9. change numerical settings only after checking equations and initial conditions.
 
 ## Linearization and local state-space models
 
@@ -2118,8 +2140,8 @@ NodeFluid = Lookup(
 )
 ```
 
-When SciPy changes `node_pressure`, the next residual evaluation calls or updates
-`Fluid` with that new pressure. Lookup outputs then update before downstream
+When the nonlinear solver changes `node_pressure`, the next residual evaluation
+calls or updates `Fluid` with that new pressure. Lookup outputs update before downstream
 component residuals are collected.
 
 Lookup objects participate in `pre_evaluation()` and normal repeated state
@@ -2495,11 +2517,16 @@ A good FullFlow debugging workflow is:
 
 Important solver details:
 
-- The solvers normalize and collect residuals from components and user balances.
-- State bounds are passed to SciPy when a state is used as an iteration variable.
-- Derived states are settled with repeated evaluation passes before residuals are collected.
-- Invalid property-package trial points can be rejected with directional penalty residuals after at least one valid residual exists.
-- Transient solves roll back failed steps before retrying smaller steps.
+- Algebraic residuals are scaled automatically for numerical solving; diagnostics
+  and HDF5 retain their raw physical values.
+- Steady state uses SciPy least squares; with the default `"trf"` setting,
+  eligible unbounded transient steps use Newton/Broyden, with SciPy retained
+  for bounded systems and recovery.
+- State bounds are enforced by compatible SciPy solves.
+- Derived states settle through repeated component-evaluation passes.
+- Invalid property-package trial points can receive a penalty after an earlier
+  valid residual evaluation.
+- Failed transient steps restore the last accepted state before a smaller retry.
 
 ## Examples
 
