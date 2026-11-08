@@ -8,13 +8,15 @@ from typing import Any
 import time
 
 import numpy as np
-from scipy.optimize import Bounds, least_squares
+from scipy.optimize import Bounds, OptimizeResult, least_squares
+from scipy import sparse
 
 from .settings import LeastSquaresSettings, StateEvaluationSettings
 from .statistics import SolverStatistics, statistics_path
 from fullflow.Exports.HDF5 import HDF5Target, run_group_path, safe_group_name, write_tables
 from fullflow.Exceptions import SolverConvergenceError, SolverSetupError
 from fullflow.Solvers.equation_scaling import EquationScaling
+from fullflow.Solvers.jacobian import JacobianStructure
 from scipy.optimize._numdiff import approx_derivative
 
 
@@ -175,39 +177,84 @@ class NonlinearSolve:
 
             start_time = time.perf_counter()
             scaling = EquationScaling(np.ones(len(r0), dtype=bool))
-            if len(x0):
-                bounds = (cache.lower_bounds, cache.upper_bounds)
-                first_jac = scaling.initialize(
-                    self.residual_function, x0, ls_settings.jacobian_method,
-                    bounds=bounds,
+            initial_zero = (
+                not np.any(r0)
+                and np.all(np.isfinite(x0))
+                and np.all(x0 >= cache.lower_bounds)
+                and np.all(x0 <= cache.upper_bounds)
+                and not (ls_settings.solver_method == "lm" and
+                         any(state.has_bounds for state in cache.iteration_variables))
+            )
+            if initial_zero:
+                sol = OptimizeResult(
+                    x=x0.copy(), fun=r0.copy(), success=True, status=1,
+                    message="Initial residual is zero.", nfev=1, njev=0,
+                    cost=0.0, optimality=0.0,
+                    active_mask=np.zeros(len(x0), dtype=int),
                 )
+                elapsed_time = time.perf_counter() - start_time
             else:
-                first_jac = None
-            solver_kwargs = self._least_squares_kwargs(cache, x0, ls_settings)
-            solver_kwargs["fun"] = lambda x: scaling.residual(self.residual_function(x))
-            if first_jac is not None:
-                initial_x = x0.copy()
-                first = [True]
+                if len(x0):
+                    bounds = (cache.lower_bounds, cache.upper_bounds)
+                    first_jac = scaling.initialize(
+                        self.residual_function, x0, ls_settings.jacobian_method,
+                        bounds=bounds,
+                    )
+                else:
+                    first_jac = None
+                solver_kwargs = self._least_squares_kwargs(cache, x0, ls_settings)
+                solver_kwargs["fun"] = lambda x: scaling.residual(self.residual_function(x))
+                if first_jac is not None:
+                    structure = JacobianStructure()
+                    unbounded = not (np.any(np.isfinite(cache.lower_bounds)) or
+                                     np.any(np.isfinite(cache.upper_bounds)))
+                    if unbounded:
+                        structure.observe(np.atleast_2d(first_jac))
+                    initial_x = x0.copy()
+                    first = [True]
 
-                def scaled_jacobian(x):
-                    if first[0] and np.array_equal(x, initial_x):
-                        first[0] = False
-                        raw = first_jac
+                    def scaled_jacobian(x):
+                        if first[0] and np.array_equal(x, initial_x):
+                            first[0] = False
+                            raw = first_jac
+                        else:
+                            first[0] = False
+                            raw = None
+                            if structure.groups:
+                                current = self.residual_function(x)
+                                eps = (np.cbrt(np.finfo(float).eps)
+                                       if ls_settings.jacobian_method == "3-point"
+                                       else np.sqrt(np.finfo(float).eps))
+                                raw = structure.build(
+                                    x, current, self.residual_function, eps,
+                                    ls_settings.jacobian_method,
+                                )
+                            if raw is None:
+                                raw = approx_derivative(
+                                    self.residual_function, x, method=ls_settings.jacobian_method,
+                                    bounds=(cache.lower_bounds, cache.upper_bounds),
+                                )
+                                if unbounded:
+                                    structure.observe(np.atleast_2d(raw))
+                        return np.atleast_2d(raw) / scaling.scales[:, None]
+
+                    scipy_sparse = (unbounded and ls_settings.solver_method == "trf"
+                                    and structure.groups and len(x0) >= 128
+                                    and len(r0) == len(x0)
+                                    and np.count_nonzero(first_jac) < 0.12 * first_jac.size)
+                    if scipy_sparse:
+                        original_jacobian = scaled_jacobian
+                        def sparse_jacobian(x):
+                            return sparse.csr_matrix(original_jacobian(x))
+                        solver_kwargs["jac"] = sparse_jacobian
                     else:
-                        first[0] = False
-                        raw = approx_derivative(
-                            self.residual_function, x, method=ls_settings.jacobian_method,
-                            bounds=(cache.lower_bounds, cache.upper_bounds),
-                        )
-                    return np.atleast_2d(raw) / scaling.scales[:, None]
-
-                solver_kwargs["jac"] = scaled_jacobian
-            try:
-                sol = least_squares(**solver_kwargs)
-            except Exception:
-                statistics.export(statistics_filename)
-                raise
-            elapsed_time = time.perf_counter() - start_time
+                        solver_kwargs["jac"] = scaled_jacobian
+                try:
+                    sol = least_squares(**solver_kwargs)
+                except Exception:
+                    statistics.export(statistics_filename)
+                    raise
+                elapsed_time = time.perf_counter() - start_time
             sol.scaled_fun = np.asarray(sol.fun, dtype=float).copy()
             sol.fun = scaling.raw(sol.scaled_fun)
             sol.cost = 0.5 * float(np.dot(sol.fun, sol.fun))

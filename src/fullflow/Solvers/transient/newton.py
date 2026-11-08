@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Callable
+import warnings
 
 import numpy as np
-from scipy import linalg
+from scipy import linalg, sparse
+from scipy.sparse.linalg import MatrixRankWarning, splu
 from scipy.optimize import OptimizeResult
 
 from fullflow.Solvers.equation_scaling import EquationScaling
+from fullflow.Solvers.jacobian import JacobianStructure
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,6 +30,62 @@ class ModifiedNewtonFailure(RuntimeError):
     """Signal an unsuccessful nonlinear solve."""
 
 
+
+class _InvalidNewtonTrial(ModifiedNewtonFailure):
+    pass
+
+
+class _FactoredNewtonMatrix:
+    """Reuse a matrix factorization through safeguarded Broyden rank-one updates."""
+
+    def __init__(self, matrix: np.ndarray):
+        column_norm = np.max(np.abs(matrix), axis=0)
+        positive = column_norm[column_norm > 0.0]
+        if not len(positive):
+            raise linalg.LinAlgError("Zero Jacobian")
+        reference = float(np.median(positive))
+        self.column_scale = np.clip(
+            reference / np.maximum(column_norm, np.finfo(float).tiny),
+            1.0e-8, 1.0e8,
+        )
+        scaled = matrix * self.column_scale[np.newaxis, :]
+        if not np.all(np.isfinite(scaled)):
+            raise linalg.LinAlgError("Non-finite scaled Jacobian")
+        self.sparse = (matrix.shape[0] == matrix.shape[1]
+                       and len(self.column_scale) >= 48
+                       and np.count_nonzero(scaled) < 0.12 * scaled.size)
+        if self.sparse:
+            self.factor = splu(sparse.csc_matrix(scaled))
+        else:
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", linalg.LinAlgWarning)
+                self.factor = linalg.lu_factor(scaled, check_finite=False)
+        self.corrections = []
+
+    def solve(self, rhs: np.ndarray) -> np.ndarray:
+        if self.sparse:
+            direction = self.factor.solve(rhs)
+        else:
+            direction = linalg.lu_solve(self.factor, rhs, check_finite=False)
+        direction = self.column_scale * direction
+        for action, row, denominator in self.corrections:
+            direction -= action * (float(np.dot(row, direction)) / denominator)
+        if not np.all(np.isfinite(direction)):
+            raise linalg.LinAlgError("Non-finite Newton direction")
+        return direction
+
+    def update(self, column: np.ndarray, row: np.ndarray) -> bool:
+        action = self.solve(column)
+        product = float(np.dot(row, action))
+        denominator = 1.0 + product
+        if (not np.isfinite(denominator)
+                or abs(denominator) <= 1.0e-8 * (1.0 + abs(product))):
+            return False
+        self.corrections.append((action, row.copy(), denominator))
+        return True
+
+
+
 def solve_modified_newton(
     fun: Callable[[np.ndarray], np.ndarray],
     x0: np.ndarray,
@@ -39,6 +98,7 @@ def solve_modified_newton(
     initial_scale: np.ndarray | None = None,
     equation_scaling: EquationScaling | None = None,
     on_jacobian_build: Callable[[], None] | None = None,
+    jacobian_structure: JacobianStructure | None = None,
 ) -> OptimizeResult:
     """Solve an unbounded system using modified Newton and Broyden updates."""
     opt = options or ModifiedNewtonOptions()
@@ -62,10 +122,11 @@ def solve_modified_newton(
     updates = 0
     total_iterations = 0
     matrix = None
+    factorization = None
     reused_jacobian = False
     last_secant_error = None
     eps = np.cbrt(np.finfo(float).eps) if jacobian_method == "3-point" else np.sqrt(np.finfo(float).eps)
-    max_evals = max(20, opt.max_relative_evaluations * (len(x0) + 1))
+    max_evals = max(20, opt.max_relative_evaluations * (len(x0) + 1)) + 2 * opt.max_backtracks
 
     if initial_jacobian is not None and initial_scale is not None:
         prior_matrix = np.asarray(initial_jacobian, dtype=float)
@@ -90,11 +151,13 @@ def solve_modified_newton(
             raise ModifiedNewtonFailure("Modified Newton evaluation budget exhausted.")
         candidate_x = candidate_y * scale
         if not np.all(np.isfinite(candidate_x)):
-            raise ModifiedNewtonFailure("Non-finite trial unknowns.")
+            raise _InvalidNewtonTrial("Non-finite trial unknowns.")
         values = np.asarray(fun(candidate_x), dtype=float)
         count += 1
-        if values.shape != f0.shape or not np.all(np.isfinite(values)):
-            raise ModifiedNewtonFailure("Non-finite or inconsistent trial residuals.")
+        if values.shape != f0.shape:
+            raise ModifiedNewtonFailure("Inconsistent trial residual shape.")
+        if not np.all(np.isfinite(values)):
+            raise _InvalidNewtonTrial("Non-finite trial residuals.")
         return equation_scaling.residual(values) if equation_scaling is not None else values
 
     def build_jacobian(current_y: np.ndarray, current_f: np.ndarray) -> np.ndarray:
@@ -105,19 +168,25 @@ def solve_modified_newton(
         builds += 1
         if on_jacobian_build is not None:
             on_jacobian_build()
-        jac = np.empty((len(current_f), len(current_y)), dtype=float)
-        for j in range(len(current_y)):
-            step = eps * max(abs(float(current_y[j])), 1.0)
-            positive = current_y.copy()
-            positive[j] += step
-            positive_f = evaluate(positive)
-            if jacobian_method == "3-point":
-                negative = current_y.copy()
-                negative[j] -= step
-                negative_f = evaluate(negative)
-                jac[:, j] = (positive_f - negative_f) / (2.0 * step)
-            else:
-                jac[:, j] = (positive_f - current_f) / step
+        jac = (jacobian_structure.build(current_y, current_f, evaluate, eps, jacobian_method)
+               if jacobian_structure is not None else None)
+        if jac is None:
+            jac = np.empty((len(current_f), len(current_y)), dtype=float)
+            for j in range(len(current_y)):
+                step = eps * max(abs(float(current_y[j])), 1.0)
+                positive = current_y.copy()
+                positive[j] += step
+                positive_f = evaluate(positive)
+                if jacobian_method == "3-point":
+                    negative = current_y.copy()
+                    negative[j] -= step
+                    negative_f = evaluate(negative)
+                    jac[:, j] = (positive_f - negative_f) / (2.0 * step)
+                else:
+                    jac[:, j] = (positive_f - current_f) / step
+            if jacobian_structure is not None:
+                jacobian_structure.dense_builds += 1
+                jacobian_structure.observe(jac)
         if not np.all(np.isfinite(jac)):
             raise ModifiedNewtonFailure("Non-finite numerical Jacobian.")
         if equation_scaling is not None and equation_scaling.scales is None:
@@ -133,33 +202,36 @@ def solve_modified_newton(
             matrix = build_jacobian(y, f)
 
         try:
-            column_norm = np.max(np.abs(matrix), axis=0)
-            positive_norm = column_norm[column_norm > 0.0]
-            if not len(positive_norm):
-                raise linalg.LinAlgError("Zero Jacobian")
-            reference = float(np.median(positive_norm))
-            column_scale = np.clip(
-                reference / np.maximum(column_norm, np.finfo(float).tiny),
-                1.0e-8, 1.0e8,
-            )
-            scaled_matrix = matrix * column_scale[np.newaxis, :]
-            if not np.all(np.isfinite(scaled_matrix)):
-                raise linalg.LinAlgError("Non-finite scaled Jacobian")
-            if len(f) == len(y):
-                with np.errstate(over="raise", invalid="raise"):
+            if len(f) == len(y) and len(y) >= 48:
+                if factorization is None:
+                    factorization = _FactoredNewtonMatrix(matrix)
+                direction = factorization.solve(-f)
+            else:
+                column_norm = np.max(np.abs(matrix), axis=0)
+                positive_norm = column_norm[column_norm > 0.0]
+                if not len(positive_norm):
+                    raise linalg.LinAlgError("Zero Jacobian")
+                reference = float(np.median(positive_norm))
+                column_scale = np.clip(
+                    reference / np.maximum(column_norm, np.finfo(float).tiny),
+                    1.0e-8, 1.0e8,
+                )
+                scaled_matrix = matrix * column_scale[np.newaxis, :]
+                if len(f) == len(y):
                     scaled_direction = linalg.solve(
                         scaled_matrix, -f, check_finite=False, assume_a="gen",
                     )
-            else:
-                scaled_direction, _, rank, _ = linalg.lstsq(
-                    scaled_matrix, -f, cond=1.0e-12, check_finite=False,
-                    lapack_driver="gelsy",
-                )
-                if rank < len(y):
-                    raise linalg.LinAlgError("Rank-deficient Jacobian")
-            direction = column_scale * scaled_direction
-        except (linalg.LinAlgError, ValueError, FloatingPointError, OverflowError):
+                else:
+                    scaled_direction, _, rank, _ = linalg.lstsq(
+                        scaled_matrix, -f, cond=1.0e-12, check_finite=False,
+                        lapack_driver="gelsy",
+                    )
+                    if rank < len(y):
+                        raise linalg.LinAlgError("Rank-deficient Jacobian")
+                direction = column_scale * scaled_direction
+        except (linalg.LinAlgError, MatrixRankWarning, ValueError, FloatingPointError, OverflowError, RuntimeError):
             matrix = None
+            factorization = None
             if builds >= opt.max_jacobian_builds:
                 raise ModifiedNewtonFailure("Cannot solve Newton direction.")
             continue
@@ -168,6 +240,7 @@ def solve_modified_newton(
             raise ModifiedNewtonFailure("Non-finite Newton direction.")
         if not np.any(direction):
             matrix = None
+            factorization = None
             continue
 
         old_norm = float(np.linalg.norm(f))
@@ -175,7 +248,11 @@ def solve_modified_newton(
         accepted = False
         for _ in range(opt.max_backtracks):
             trial_y = y + factor * direction
-            trial_f = evaluate(trial_y)
+            try:
+                trial_f = evaluate(trial_y)
+            except (_InvalidNewtonTrial, ValueError, OverflowError, FloatingPointError):
+                factor *= 0.5
+                continue
             trial_norm = float(np.linalg.norm(trial_f))
             if (float(np.max(np.abs(trial_f))) <= rtol or
                     trial_norm < old_norm * (1.0 - opt.sufficient_decrease * factor)):
@@ -185,6 +262,7 @@ def solve_modified_newton(
 
         if not accepted:
             matrix = None
+            factorization = None
             if builds >= opt.max_jacobian_builds:
                 raise ModifiedNewtonFailure("Backtracking did not reduce the residual.")
             continue
@@ -205,11 +283,24 @@ def solve_modified_newton(
                 or not np.isfinite(last_secant_error)
                 or last_secant_error > opt.secant_error_limit):
             matrix = None
+            factorization = None
         else:
-            matrix += np.outer(df - predicted_df, dy) / denom
+            update_column = df - predicted_df
+            update_row = dy / denom
+            matrix += np.outer(update_column, update_row)
+            if factorization is not None:
+                try:
+                    stable = factorization.update(update_column, update_row)
+                except (linalg.LinAlgError, ValueError, FloatingPointError, OverflowError):
+                    stable = False
+                if not stable:
+                    matrix = None
+                    factorization = None
             updates += 1
-            if not np.all(np.isfinite(matrix)) or float(np.linalg.norm(f)) > opt.refresh_ratio * old_norm:
+            if matrix is not None and (not np.all(np.isfinite(matrix)) or
+                                       float(np.linalg.norm(f)) > opt.refresh_ratio * old_norm):
                 matrix = None
+                factorization = None
         if converged:
             break
     else:

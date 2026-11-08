@@ -339,12 +339,9 @@ class FirstOrderProgress(Component):
     much gas is in the chamber and how much propellant is flowing through it.
     This is a reduced-order physical model, not a numerical command ramp.
 
-    TRANSIENT_ONLY is important. The unlit steady-state solve should initialize
-    the feed system. It should not drive this ignition-progress derivative to
-    zero before the transient has even started.
+    This component is added after the unlit steady-state solve, so its dynamic
+    equation participates only in the subsequent transient solve.
     """
-
-    TRANSIENT_ONLY = True
 
     def __init__(
         self,
@@ -381,9 +378,7 @@ class FirstOrderProgress(Component):
 
     @property
     def dynamics(self):
-        # A dynamics entry is (state, derivative). Steady-state would normally
-        # drive this derivative to zero, but TRANSIENT_ONLY skips the component
-        # during the pre-start steady solve.
+        # Integrate combustion progress during the transient solve.
         return [(self.progress, self.progress_dot)]
 
 
@@ -828,8 +823,7 @@ Startup.command(
 #
 #     - the steady solve finds the closed-valve, unlit feed-system state;
 #     - the transient solve then adds ignition/chamber physics and runs forward;
-#     - the combustion-progress component is TRANSIENT_ONLY, so it represents a
-#       true startup dynamic rather than a steady trim target.
+#     - the combustion-progress component is added only after the steady trim.
 SteadyState(Priming).solve(
     verbose=True,
     ignore_balances=[

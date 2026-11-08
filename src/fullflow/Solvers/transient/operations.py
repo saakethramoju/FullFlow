@@ -10,10 +10,11 @@ import time
 
 import numpy as np
 from scipy.optimize import Bounds, least_squares
+from scipy.optimize._numdiff import approx_derivative
 
 from fullflow.Solvers.steady_state.settings import LeastSquaresSettings, StateEvaluationSettings
 from fullflow.Exceptions import SensorDataStop, SolverSetupError, TransientStepError
-from .newton import ModifiedNewtonFailure, solve_modified_newton
+from .newton import JacobianStructure, ModifiedNewtonFailure, solve_modified_newton
 from fullflow.Solvers.equation_scaling import EquationScaling
 
 
@@ -73,6 +74,8 @@ class TransientStepSolve:
         self._invalid_residual_directional_gain = 10.0
         self._active_equation_scaling: EquationScaling | None = None
         self._reset_prediction_history()
+        self._jacobian_structure = JacobianStructure()
+        self._jacobian_structure_version = None
         self._pending_trial = None
         self.work_statistics = {}
         self._reset_work_statistics()
@@ -83,7 +86,8 @@ class TransientStepSolve:
             "newton_jacobian_builds", "newton_rejections", "scipy_solves",
             "scipy_reported_jacobian_builds", "scale_jacobian_builds",
             "one_sided_jacobian_steps", "event_jacobian_seed_uses",
-            "event_jacobian_seed_rejections",
+            "event_jacobian_seed_rejections", "dense_jacobian_builds",
+            "colored_jacobian_builds", "colored_jacobian_rejections",
         ), 0)
 
     def _count_newton_jacobian(self):
@@ -411,12 +415,52 @@ class TransientStepSolve:
     def _solve_with_early_acceptance(self, cache, x0: np.ndarray, settings):
         """Stop TRF/dogbox after a complete accepted iterate reaches rtol."""
         scaling = self._active_equation_scaling
+        bounds = (cache.lower_bound_array(), cache.upper_bound_array())
+        first_jac = None
         if scaling is not None and scaling.scales is None:
             self.work_statistics["scale_jacobian_builds"] += 1
-            bounds = (cache.lower_bound_array(), cache.upper_bound_array())
-            scaling.initialize(self.residual, x0, settings.jacobian_method, bounds=bounds)
+            first_jac = scaling.initialize(
+                self.residual, x0, settings.jacobian_method, bounds=bounds,
+            )
         kwargs = self._least_squares_kwargs(cache, x0, settings)
         refinement_key = (id(cache), settings.solver_method, settings.jacobian_method)
+        if first_jac is not None or (
+            self._jacobian_structure.groups
+            and not (np.any(np.isfinite(bounds[0])) or np.any(np.isfinite(bounds[1])))
+        ):
+            structure = self._jacobian_structure
+            unbounded = not (np.any(np.isfinite(bounds[0])) or np.any(np.isfinite(bounds[1])))
+            if first_jac is not None and unbounded:
+                structure.observe(np.atleast_2d(first_jac))
+            first_x = np.asarray(x0, dtype=float).copy()
+            initial_jac = first_jac
+
+            def scaled_jacobian(x):
+                nonlocal initial_jac
+                if initial_jac is not None and np.array_equal(x, first_x):
+                    result = initial_jac
+                    initial_jac = None
+                else:
+                    initial_jac = None
+                    result = None
+                    if unbounded and structure.groups:
+                        current = self.residual(x)
+                        eps = (np.cbrt(np.finfo(float).eps)
+                               if settings.jacobian_method == "3-point"
+                               else np.sqrt(np.finfo(float).eps))
+                        result = structure.build(
+                            x, current, self.residual, eps, settings.jacobian_method,
+                        )
+                    if result is None:
+                        result = approx_derivative(
+                            self.residual, x, method=settings.jacobian_method,
+                            bounds=bounds,
+                        )
+                        if unbounded:
+                            structure.observe(np.atleast_2d(result))
+                return np.atleast_2d(result) / scaling.scales[:, None]
+
+            kwargs["jac"] = scaled_jacobian
 
         def refine_kwargs(diff_step):
             kwargs.update(
@@ -495,15 +539,31 @@ class TransientStepSolve:
     def _try_modified_newton(self, cache, x0, r0, settings, jacobian=None, jacobian_scale=None):
         """Solve and verify a timestep using Newton/Broyden."""
         self.work_statistics["newton_attempts"] += 1
-        candidate = solve_modified_newton(
-            self.residual, x0, r0,
-            rtol=settings.rtol,
-            jacobian_method=settings.jacobian_method,
-            initial_jacobian=jacobian,
-            initial_scale=jacobian_scale,
-            equation_scaling=self._active_equation_scaling,
-            on_jacobian_build=self._count_newton_jacobian,
-        )
+        structure_key = (id(cache), getattr(cache, "version", None),
+                         tuple(id(state) for state in cache.iteration_variables), len(r0))
+        if self._jacobian_structure_version != structure_key:
+            self._jacobian_structure = JacobianStructure()
+            self._jacobian_structure_version = structure_key
+        structure = self._jacobian_structure
+        before = (structure.dense_builds, structure.colored_builds, structure.rejections)
+        try:
+            candidate = solve_modified_newton(
+                self.residual, x0, r0,
+                rtol=settings.rtol,
+                jacobian_method=settings.jacobian_method,
+                initial_jacobian=jacobian,
+                initial_scale=jacobian_scale,
+                equation_scaling=self._active_equation_scaling,
+                on_jacobian_build=self._count_newton_jacobian,
+                jacobian_structure=structure,
+            )
+        finally:
+            for key, previous, current in zip(
+                ("dense_jacobian_builds", "colored_jacobian_builds",
+                 "colored_jacobian_rejections"), before,
+                (structure.dense_builds, structure.colored_builds, structure.rejections),
+            ):
+                self.work_statistics[key] += current - previous
 
 
         cache.assign_iteration_values(candidate.x)
@@ -636,6 +696,8 @@ class TransientStepSolve:
         state_settings.validate()
         self._reset_prediction_history()
         self._reset_work_statistics()
+        self._jacobian_structure = JacobianStructure()
+        self._jacobian_structure_version = None
         cache = self._cache_getter()
         cache.run_pre_evaluation()
         cache = self._cache_getter()

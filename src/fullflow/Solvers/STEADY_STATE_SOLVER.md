@@ -28,6 +28,14 @@ Each iteration variable is collected once. Overlapping ownership, such as a `Bal
 
 For example, a rotor's steady-state speed is the speed at which its angular acceleration is zero. A volume's mass and energy accumulation rates must likewise vanish.
 
+## Automatic numerical sparsity
+
+On large unbounded systems, FullFlow can identify a numerical sparsity pattern from its initial full Jacobian and group independent columns in subsequent Jacobian evaluations. Each grouped result is checked with fresh residual evaluations; if the pattern becomes invalid, the solver returns to dense numerical differentiation. This works with built-in and custom Python components without requiring derivative callbacks or dependency declarations. Bounded and small systems retain their existing differentiation path.
+
+For large unbounded square systems, a sufficiently sparse initial Jacobian can also select SciPy's sparse trust-region linear solver automatically. Small, dense, bounded, and overdetermined problems retain the dense path. When the initial residual is exactly zero and the unknowns are within their bounds, no Jacobian or nonlinear iterations are needed.
+
+These optimizations do not change the equations, solver tolerances, or final scaled-residual acceptance requirement.
+
 ## Runtime evaluation
 
 The solver builds a runtime cache from the active network. The cache identifies component evaluation order, iteration variables, bounds, residual sources, and diagnostic labels. It is refreshed when the network structure changes.

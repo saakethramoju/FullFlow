@@ -55,7 +55,15 @@ Tabular breakpoints prevent stepping over known discontinuities. Sampled `Sequen
 
 For eligible unbounded systems, the primary timestep solver is safeguarded **Newton/Broyden** (`transient/newton.py`). It uses numerical Jacobians, line-search backtracking, Broyden updates, and reuse of valid information from preceding accepted steps. Eligibility depends on the current system and bounds, not on whether its components are built-in or custom Python classes.
 
-The existing `scipy.optimize.least_squares` path is retained for bounded or otherwise ineligible systems and for recovery if the primary solver cannot close a step. It applies the same equation scaling. A successful transient run therefore does **not** imply that SciPy was used at every timestep.
+### Automatic numerical sparsity
+
+For sufficiently large unbounded systems, FullFlow examines a full numerical Jacobian to identify residual dependencies and groups nonoverlapping columns for subsequent finite differences. For three-point differentiation, one color requires two perturbed residual evaluations regardless of how many independent columns it contains. The grouping is learned from actual residual behavior; custom Python components use the same mechanism as built-ins.
+
+Every grouped Jacobian is checked against independent signed full-network perturbations. If the predicted residual changes disagree, FullFlow discards the grouping and computes a dense Jacobian. Dense or small systems continue to use dense differences. Square systems with a sufficiently sparse matrix may use sparse linear algebra automatically; the residual acceptance threshold is unchanged. Discontinuous or poorly scaled problems may require more dense rebuilds, so sparsity is not assumed to be permanent.
+
+For square systems with at least 48 unknowns, a factored Newton matrix can be reused across Broyden rank-one corrections using the Sherman–Morrison formula. Ill-conditioned corrections are rejected and a fresh factorization or Jacobian is used. Small square and overdetermined systems retain their existing dense linear-solve paths.
+
+The existing `scipy.optimize.least_squares` path is retained for bounded or otherwise ineligible systems and for recovery if the primary solver cannot close a step. Its equation-scaling Jacobian is reused at the initial point instead of recomputed, and compatible unbounded sparse systems use independently checked colored differences in subsequent SciPy iterations. The solver may backtrack from nonfinite Newton trial states without accepting an invalid residual. A successful transient run therefore does **not** imply that SciPy was used at every timestep.
 
 The default nonlinear settings are:
 
@@ -82,7 +90,7 @@ The solver checks the transferred Jacobian against the actual residual change be
 
 ### Work diagnostics
 
-Accepted-step solver counts do not include every rejected, speculative, or event-localization evaluation. `transient.work_statistics` reports whole-solve counts for implicit residual calls, Newton attempts and Jacobian builds, SciPy calls, event probes, and post-switch algebraic reconciliation. The accepted-step diagnostic table retains its own counters separately.
+Accepted-step solver counts do not include every rejected, speculative, or event-localization evaluation. `transient.work_statistics` reports whole-solve counts for implicit residual calls, Newton attempts and Jacobian builds, SciPy calls, event probes, and post-switch algebraic reconciliation. The counts also distinguish dense and colored Jacobian builds and rejected colorings. The accepted-step diagnostic table retains its own counters separately.
 
 The verbose summary distinguishes these scopes. HDF5 stores the whole-solve counters as `solver_work_*` entries in the run metadata table. SciPy Jacobian counts use the counts reported by completed SciPy solves; the full residual-call count includes numerical differentiation and failed attempts. The `one_sided_jacobian_steps` statistic counts implicit solves performed with the temporary one-sided recovery policy, including retries and event probes.
 
