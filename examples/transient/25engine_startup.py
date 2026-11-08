@@ -100,7 +100,7 @@ one-state residence-time approximation suitable for a lumped transient example.
 
 Files
 -----
-The combustion map and solver output share `25engine_startup.h5`, using the
+The combustion map and solver results share `25engine_startup.h5`, using the
 configured `filename`.
 Regenerate the map only if its thermochemistry or range needs changing.
 """
@@ -187,8 +187,7 @@ initial_liquid_volume = initial_wet_length * line_area
 # kinks in algebraic expressions such as wet line length and clipped fractions.
 wet_length_smoothing = 1.0e-5
 
-# Main-valve schedule. Each main valve starts opening at 0.05 s and reaches the
-# commanded open CdA after another 0.05 s.
+# Each main valve opens over 0.05 s, using smooth acceleration and deceleration.
 main_valve_start_time = 0.05
 main_valve_open_time = 0.05
 
@@ -275,24 +274,13 @@ if generate_combustion_map:
 # -----------------------------------------------------------------------------
 
 def command_trace(name, open_value):
-    """Build a simple valve-opening command trace.
-
-    The command starts at zero CdA, holds closed until main_valve_start_time,
-    then linearly opens to the requested open CdA.
-    """
+    """Accelerate and decelerate the valve over the commanded opening interval."""
+    fraction = np.linspace(0.0, 1.0, 11)
+    time = main_valve_start_time + main_valve_open_time * fraction
+    area = open_value * fraction**2 * (3.0 - 2.0 * fraction)
     return fplt.Trace(
-        x=[
-            0.0,
-            main_valve_start_time,
-            main_valve_start_time + main_valve_open_time,
-            t_final,
-        ],
-        y=[
-            0.0,
-            0.0,
-            open_value,
-            open_value,
-        ],
+        x=[0.0, *time, t_final],
+        y=[0.0, *area, open_value],
         name=f"{name} Main Valve CdA Command",
         role="command",
     )
