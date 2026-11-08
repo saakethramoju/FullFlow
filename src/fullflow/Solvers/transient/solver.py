@@ -19,6 +19,7 @@ from .results import TransientHistory, format_records
 from .runtime import TransientRuntimeCache
 from .models import TransientModelOptionRunner
 from .settings import TransientSettings
+from .events import SequenceSwitches
 
 
 class Transient:
@@ -42,6 +43,8 @@ class Transient:
         self.printer = TransientPrinter(network, self._cache, self.console)
         self.history = TransientHistory()
         self.step_diagnostics: list[StepDiagnostics] = []
+        self.event_records: list[dict[str, Any]] = []
+        self.event_probes = 0
 
     def linearize(
         self, inputs=None, outputs=None, filename=None, *, times=None,
@@ -333,6 +336,12 @@ class Transient:
 
         solve_start_time = time.perf_counter()
 
+        # Only event=True Sequences activate switching localization.
+        switches = SequenceSwitches(self)
+        switches.initialize()
+        self.event_records = switches.records
+        self.event_probes = 0
+
         # Initialize accepted state history before marching.
         self.step_solver.initialize(state_settings)
         self.network.reset_sensor_events()
@@ -342,11 +351,22 @@ class Transient:
         from fullflow.Solvers.linearization.checkpoints import discrete_signature
         previous_mode = discrete_signature(cache)
         sequence_breakpoints = self._collect_sequence_breakpoints()
+        sampled = tuple(
+            component for component in cache.component_list
+            if getattr(component, "_sample_enabled", False)
+        )
+        for component in sampled:
+            component.initialize_sampling(float(self.network.time.value))
 
         abort_record = None
+        unfinished_endpoint = None
+        events_in_interval = 0
 
         while float(self.network.time.value) < t_final:
             current_time = float(self.network.time.value)
+            if unfinished_endpoint is not None and current_time >= unfinished_endpoint - 1e-12 * max(1.0, abs(current_time)):
+                unfinished_endpoint = None
+                events_in_interval = 0
             pending_abort_time = self.network.next_sequence_abort_time(current_time)
             tolerance = 1.0e-12 * max(1.0, abs(current_time), abs(t_final))
 
@@ -362,6 +382,15 @@ class Transient:
             if pending_abort_time is not None:
                 step_final = min(step_final, float(pending_abort_time))
 
+            if unfinished_endpoint is not None:
+                step_final = min(step_final, unfinished_endpoint)
+            # A sampled controller adds only known time boundaries, never a
+            # nonlinear root search. The unsampled path remains unchanged.
+            if sampled:
+                for component in sampled:
+                    next_time = component.next_sample_time()
+                    if next_time is not None and next_time > current_time:
+                        step_final = min(step_final, next_time)
             dt_step = self._pick_timestep(
                 transient_settings.dt,
                 step_final,
@@ -381,12 +410,19 @@ class Transient:
                 step_dt = t_new - current_time
 
                 try:
-                    diagnostics = self.step_solver.run_once(
-                        t_new=t_new,
-                        dt=step_dt,
-                        least_squares_settings=least_squares_settings,
-                        state_settings=state_settings,
-                    )
+                    if switches.sequences:
+                        diagnostics, localized_event = switches.run_step(
+                            t_new=t_new, dt=step_dt,
+                            settings=least_squares_settings,
+                            state_settings=state_settings,
+                        )
+                    else:
+                        diagnostics = self.step_solver.run_once(
+                            t_new=t_new, dt=step_dt,
+                            least_squares_settings=least_squares_settings,
+                            state_settings=state_settings,
+                        )
+                        localized_event = False
                     diagnostics.retries = retries
                     break
 
@@ -433,12 +469,36 @@ class Transient:
                 break
 
             self.step_diagnostics.append(diagnostics)
+            self.event_probes = switches.probes
+            if localized_event:
+                events_in_interval += 1
+                if events_in_interval > 32:
+                    raise TransientStepError(
+                        "More than 32 Sequence switches inside one requested timestep. "
+                        "Use discrete controller functions with a real hysteresis band."
+                    )
+                if diagnostics.time < t_new - tolerance:
+                    unfinished_endpoint = t_new
+            elif unfinished_endpoint is not None and diagnostics.time >= unfinished_endpoint - tolerance:
+                unfinished_endpoint = None
+                events_in_interval = 0
             step_events = self.network.check_sensor_conditions(diagnostics.time)
             if step_events and verbose:
                 self.printer.print_sensor_events(step_events)
             if step_events:
                 self.network.activate_sequence_conditions(step_events)
                 self.step_solver.invalidate_equation_scales()
+
+            # All sampled controllers read the same accepted plant state,
+            # then publish held commands and memory once per sample boundary.
+            if sampled:
+                pending_samples = [
+                    (component, prepared)
+                    for component in sampled
+                    if (prepared := component.prepare_sample(diagnostics.time)) is not None
+                ]
+                for component, (command, memory) in pending_samples:
+                    component.accept_sample(command, memory)
 
             abort_record = self.network.check_sequence_abort(diagnostics.time)
             if abort_record is not None:
@@ -456,7 +516,7 @@ class Transient:
             if switched:
                 self.step_solver.invalidate_equation_scales()
             previous_mode = current_mode
-            issue = "An event or operating mode changed at this timestep." if step_events or abort_record or switched else None
+            issue = "An event or operating mode changed at this timestep." if localized_event or step_events or abort_record or switched else None
             self.history.append(self.network, diagnostics.time, self._cache(), issue)
             self._linearization_issue = issue
 
@@ -464,6 +524,9 @@ class Transient:
                 break
 
         elapsed_time = time.perf_counter() - solve_start_time
+        if self.event_records:
+            run_metadata["sequence_localized_event_count"] = len(self.event_records)
+            run_metadata["sequence_localized_events"] = list(self.event_records)
         sensor_event_records = self.network.sensor_event_records()
         if sensor_event_records:
             run_metadata["sensor_event_count"] = len(sensor_event_records)

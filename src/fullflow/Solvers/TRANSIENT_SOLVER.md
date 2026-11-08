@@ -41,7 +41,7 @@ The runtime cache preserves row order, variable ownership, and labels for diagno
 
 The initial state is the state currently assigned in the network. The solver evaluates and records it before advancing. At each step it:
 
-1. Selects the next time, limited by `t_final`, tabular `Sequence`/command breakpoints, and pending abort times.
+1. Selects the next time, limited by `t_final`, tabular `Sequence`/command breakpoints, sampled-controller updates, and pending abort times.
 2. Saves the last accepted network state and evaluates time-dependent commands.
 3. Solves the implicit equations at the new time.
 4. Verifies the final scaled residuals, then commits the accepted state.
@@ -49,7 +49,7 @@ The initial state is the state currently assigned in the network. The solver eva
 
 If a step fails, the solver restores the previous accepted state and halves the attempted timestep. By default it permits `max_step_retries=8` and uses a minimum retry timestep of `dt * 1e-9` unless `minimum_dt` is supplied. Exhausting the retry limit raises `TransientStepError` with diagnostic residuals. This is a **timestep integration safeguard**, not an alternative set of physical equations.
 
-Tabular breakpoints prevent stepping over known discontinuities. Sensor and mode events invalidate cached Jacobians and equation scales. A sequence may also request an abort, which ends the run and records the stop reason.
+Tabular breakpoints prevent stepping over known discontinuities. Sampled `Sequence` controllers use exact integer-indexed sample times and hold commands between accepted updates without event searches. An event-enabled Sequence can locate discontinuous switching using additional implicit trial solves. Sensor and mode events invalidate cached Jacobians and equation scales as needed. A Sequence may also request an abort, which ends the run and records the stop reason. For controller timing and memory semantics, see [SEQUENCE.md](../../../docs/SEQUENCE.md).
 
 ## Nonlinear solution
 

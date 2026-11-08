@@ -201,7 +201,6 @@ The important idea is that model options are built only when selected. This keep
 Actuators.py              valve and actuator behavior
 Composition.py            scalar/species conservation across streams
 CompressibleFlow.py       nozzles, orifices, shock/flow utilities
-Controllers.py            control logic components
 ConvectionCoefficients.py heat-transfer coefficient correlations
 FrictionFactors.py        friction-factor correlations
 GeneralFlow.py            general branch/flow components
@@ -210,7 +209,7 @@ Lookup.py                 wraps functions/classes/property objects
 Maps.py                   interpolated tabular maps
 Nodes.py                  volumes, tanks, solids, storage nodes
 RocketPerformance.py      thrust / rocket-performance utilities
-Sequence.py               time or schedule driven inputs
+Sequence.py               schedules, feedback, and sampled controllers
 Turbomachinery.py         pumps, turbines, rotors
 ```
 

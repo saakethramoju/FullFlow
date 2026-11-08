@@ -221,8 +221,7 @@ def bang_bang_condition(t, pressure, previous_cda):
     return previous_cda
 
 
-# Sequence inputs come from the previous accepted timestep, so hysteresis can
-# repeat without storing hidden Python state during nonlinear solver retries.
+
 BangBangSequence = Sequence(
     "Bang Bang Cd",
     BangBangSim,

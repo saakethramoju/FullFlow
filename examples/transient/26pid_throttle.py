@@ -1,13 +1,5 @@
-
-from fullflow import *
-import fullplot as fplt
-from thermoprop import *
-import math
-from scipy.constants import *
-
-
 """
-Closed-loop RP-1 / LOX throttle-control example using a Pc PID controller.
+Closed-loop RP-1 / LOX throttle control with sampled Sequence PID.
 
 Physical layout
 ---------------
@@ -82,7 +74,7 @@ The transient controller is:
     feed-forward alpha trim
         |
         v
-    PID correction on alpha
+    sampled PID correction on alpha
         |
         v
     alpha command
@@ -108,8 +100,7 @@ The transient controller is:
 Important modeling notes
 ------------------------
 
-1. The PID does not directly command a valve.
-   It commands the throttle coordinate alpha.
+1. The digital PID commands the throttle coordinate alpha, not a valve.
 
 2. The throttle map converts alpha into coordinated fuel and oxidizer valve
    discharge coefficients.
@@ -118,23 +109,26 @@ Important modeling notes
 
 4. The steady-state solve initializes the plant at the initial setpoint.
 
-5. The transient solve applies a Pc setpoint step and lets the PID, map,
+5. The transient solve applies a Pc setpoint step and lets the Sequence, map,
    actuators, line inertia, manifolds, chamber, and nozzle evolve together.
 """
 
+import math
 
-# -----------------------------------------------------------------------------
-# Run options
-# -----------------------------------------------------------------------------
+import fullplot as fplt
+from scipy.constants import *
+from thermoprop import *
+from fullflow import *
+
+
+# ---- Run options ---- #
 
 dt = 0.01
 t_final = 5.0
-filename = '23pid_throttle'
+filename = "23pid_throttle"
 
 
-# ---------------------------------------------------------------------------
-# File / map generation switches
-# ---------------------------------------------------------------------------
+# ---- File / map generation switches ---- #
 
 # FullPlot writes maps and FullFlow solver results into this HDF5 file.
 
@@ -147,9 +141,7 @@ generate_combustion_map = False
 generate_throttle_map = False
 
 
-# ---------------------------------------------------------------------------
-# Optional combustion-products map generation
-# ---------------------------------------------------------------------------
+# ---- Optional combustion-products map generation ---- #
 
 if generate_combustion_map:
     map_fuel = Propellant("rp-1", temperature=300)
@@ -203,9 +195,7 @@ if generate_combustion_map:
     )
 
 
-# ---------------------------------------------------------------------------
-# Optional throttle calibration map generation
-# ---------------------------------------------------------------------------
+# ---- Optional throttle calibration map generation ---- #
 
 if generate_throttle_map:
 
@@ -428,7 +418,7 @@ if generate_throttle_map:
 
         SteadyState(EngineMap).solve(
             verbose=True,
-            statistics=False,
+            statistics=True,
         )
 
         throttle_guess["fuel_main_cd"] = float(fuel_main_cd_map.value)
@@ -458,29 +448,12 @@ if generate_throttle_map:
     )
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-# ---------------------------------------------------------------------------
-# Transient engine model
-# ---------------------------------------------------------------------------
+# ---- Transient engine model ---- #
 
 Engine = Network("Engine")
 
 
-# ---------------------------------------------------------------------------
-# Shared geometry and nominal valve data
-# ---------------------------------------------------------------------------
+# ---- Shared geometry and nominal valve data ---- #
 
 runline_length = 5.0
 runline_area = 0.5e-4
@@ -492,17 +465,13 @@ fuel_main_cd = fuel_throttle_cda / runline_area
 ox_main_cd = ox_throttle_cda / runline_area
 
 
-# ---------------------------------------------------------------------------
-# Propellant boundary conditions
-# ---------------------------------------------------------------------------
+# ---- Propellant boundary conditions ---- #
 
 fuel = Fluid("RP1", pressure=450 * psi, temperature=300)
 ox = Fluid("LOX", pressure=400 * psi, quality=0.0)
 
 
-# ---------------------------------------------------------------------------
-# Injector manifold thermodynamic states
-# ---------------------------------------------------------------------------
+# ---- Injector manifold thermodynamic states ---- #
 
 InjFuel = Lookup(
     "Injector Manifold Fuel",
@@ -523,9 +492,7 @@ InjOx = Lookup(
 )
 
 
-# ---------------------------------------------------------------------------
-# Chamber gas lookup
-# ---------------------------------------------------------------------------
+# ---- Chamber gas lookup ---- #
 
 chamber_pressure = State(300 * psi)
 mixture_ratio = State(2.0)
@@ -542,9 +509,7 @@ ChamberGas = Map.from_hdf5(
 )
 
 
-# ---------------------------------------------------------------------------
-# Pc throttle controller
-# ---------------------------------------------------------------------------
+# ---- Pc throttle controller ---- #
 
 Pc_min_psia = 250.0
 Pc_max_psia = 310.0
@@ -555,7 +520,7 @@ def pc_setpoint_step(t):
     """Pc command sequence.
 
     The engine starts at 290 psia, then steps to 300 psia at t = 0.5 s.
-    The PID and feed-forward throttle map then drive the engine toward the new
+    The sampled controller and feed-forward throttle map drive the engine toward the new
     operating point.
     """
     if t < 0.5:
@@ -579,31 +544,39 @@ alpha_initial = (float(pc_setpoint.value) - Pc_min_psia) / (Pc_max_psia - Pc_min
 alpha_trim = (pc_setpoint - Pc_min_psia) / (Pc_max_psia - Pc_min_psia)
 alpha_cmd = State(alpha_initial)
 
-# The PID uses actual Pc as feedback and desired Pc as setpoint.
-#
-# Its command is alpha, and its trim is the feed-forward alpha. Therefore:
-#
-#     alpha_cmd = alpha_trim + PID correction
-#
-# The PID output is limited to the valid throttle-map range [0, 1].
-PcController = PID(
+# The command is held between accepted 100 Hz measurements. The integral and
+# previous error are committed once per sample, never during nonlinear solves.
+# Starting at the steady-state trim avoids a startup command step.
+kp = 0.001
+ki = 0.001
+kd = 0.0
+
+
+def throttle_pid(t, pressure, setpoint, trim, *, dt, memory):
+    integral, previous_error = memory
+    error = setpoint - pressure
+    derivative = (error - previous_error) / dt
+    candidate_integral = integral + error * dt
+
+    candidate = trim + kp * error + ki * candidate_integral + kd * derivative
+    if (candidate > 1.0 and ki * error > 0.0) or (candidate < 0.0 and ki * error < 0.0):
+        candidate_integral = integral
+
+    command = trim + kp * error + ki * candidate_integral + kd * derivative
+    return max(0.0, min(1.0, command)), (candidate_integral, error)
+
+
+PcController = Sequence(
     "Pc Controller",
     Engine,
-    feedback=chamber_pressure / psi,
-    setpoint=pc_setpoint,
-    command=alpha_cmd,
-    trim=alpha_trim,
-    proportional_gain=0.001,
-    integral_gain=0.001,
-    derivative_gain=0.0,
-    minimum=0.0,
-    maximum=1.0,
+    target=alpha_cmd,
+    function=throttle_pid,
+    inputs=[chamber_pressure / psi, pc_setpoint, alpha_trim],
+    sample_rate=100.0,
+    memory=(0.0, 0.0),
 )
 
-
-# ---------------------------------------------------------------------------
-# Throttle map
-# ---------------------------------------------------------------------------
+# ---- Throttle map ---- #
 
 # The throttle map converts alpha into the two commanded valve discharge
 # coefficients. These are command values, not actual valve positions.
@@ -618,9 +591,7 @@ ThrottleMap = Map.from_hdf5(
 )
 
 
-# ---------------------------------------------------------------------------
-# Valve actuators
-# ---------------------------------------------------------------------------
+# ---- Valve actuators ---- #
 
 # The actuators convert commanded valve Cd values into actual valve positions.
 # These actual positions are what the plant uses.
@@ -651,9 +622,7 @@ OxActuator = Actuator(
 )
 
 
-# ---------------------------------------------------------------------------
-# Feed lines
-# ---------------------------------------------------------------------------
+# ---- Feed lines ---- #
 
 fuel_main_mdot = State(1.0)
 
@@ -685,9 +654,7 @@ OxMain = DischargeCoefficient(
 )
 
 
-# ---------------------------------------------------------------------------
-# Injector manifolds
-# ---------------------------------------------------------------------------
+# ---- Injector manifolds ---- #
 
 FuelManifold = Volume(
     "Injector Fuel Manifold",
@@ -708,9 +675,7 @@ OxManifold = Volume(
 )
 
 
-# ---------------------------------------------------------------------------
-# Injector orifices
-# ---------------------------------------------------------------------------
+# ---- Injector orifices ---- #
 
 FuelOrf = DischargeCoefficient(
     "Injector Fuel Orifices",
@@ -738,9 +703,7 @@ OxOrf = DischargeCoefficient(
 mixture_ratio <<= OxOrf.mass_flow / FuelOrf.mass_flow
 
 
-# ---------------------------------------------------------------------------
-# Combustion chamber
-# ---------------------------------------------------------------------------
+# ---- Combustion chamber ---- #
 
 Chamber = Volume(
     "Combustion Chamber",
@@ -752,9 +715,7 @@ Chamber = Volume(
 )
 
 
-# ---------------------------------------------------------------------------
-# Nozzle
-# ---------------------------------------------------------------------------
+# ---- Nozzle ---- #
 
 Nozzle = IsentropicNozzle(
     "Nozzle",
@@ -770,16 +731,12 @@ Nozzle = IsentropicNozzle(
 )
 
 
-# ---------------------------------------------------------------------------
-# Derived thrust estimate
-# ---------------------------------------------------------------------------
+# ---- Derived thrust estimate ---- #
 
 F = Nozzle.mass_flow * Nozzle.exit_velocity + (Nozzle.exit_static_pressure - Nozzle.ambient_pressure) * Nozzle.expansion_ratio * Nozzle.throat_area
 
 
-# ---------------------------------------------------------------------------
-# Tracked outputs
-# ---------------------------------------------------------------------------
+# ---- Tracked outputs ---- #
 
 Engine.track("Fuel Injector Pressure [psia]", InjFuel.pressure / psi)
 Engine.track("Ox Injector Pressure [psia]", InjOx.pressure / psi)
@@ -805,9 +762,7 @@ Engine.track("Ox Mass Flow [kg/s]", OxOrf.mass_flow)
 Engine.track("Thrust [lbf]", F / pound_force)
 
 
-# ---------------------------------------------------------------------------
-# Steady-state initialization
-# ---------------------------------------------------------------------------
+# ---- Steady-state initialization ---- #
 
 # The steady-state solve initializes the engine at the initial setpoint before
 # the transient controller is allowed to move the valves.
@@ -818,11 +773,9 @@ SteadyState(Engine).solve(
 )
 
 
-# ---------------------------------------------------------------------------
-# Transient solve
-# ---------------------------------------------------------------------------
+# ---- Transient solve ---- #
 
-# The transient solve activates the sequence, PID controller, actuators, line
+# The transient solve activates the sampled Sequence, actuators, line
 # inertia, manifold volumes, chamber volume, and nozzle response.
 Transient(Engine).solve(
     dt=dt,
@@ -833,12 +786,9 @@ Transient(Engine).solve(
 )
 
 
-# ---------------------------------------------------------------------------
-# Plot results
-# ---------------------------------------------------------------------------
+# ---- Plot results ---- #
 
 result = fplt.open(filename).at("Engine/transient/runs/base/tracks")
-# result.tree()
 
 mr = result.trace(y="Mixture_Ratio", x="time", name="Mixture Ratio")
 
@@ -865,7 +815,7 @@ result.plot(
     xlabel="Time [s]",
     ylabel="Alpha",
     y2label="Pressure [psia]",
-    title="Pc PID Throttle Control",
+    title="Sequence PID Throttle Control",
 )
 
 

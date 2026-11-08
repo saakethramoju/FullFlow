@@ -34,8 +34,8 @@ This example keeps the model intentionally simple:
 7. The valve may open and close repeatedly during one simulation.
 8. No custom components are used.
 
-The relief valve uses a Sequence that reads the previous accepted pressure and
-valve command, then changes the discharge coefficient of a CompressibleOrifice.
+The relief Sequence reads accepted tank pressure and retains its previous
+valve command within the hysteresis band.
 """
 
 from scipy.constants import *
@@ -131,8 +131,8 @@ def relief_valve_schedule(t, tank_pressure, previous_relief_valve_cd):
     return previous_relief_valve_cd
 
 
-# Sequence inputs come from the previous accepted timestep, so hysteresis keeps
-# its prior valve position without hidden closure state during solver retries.
+# The Sequence reads accepted pressure and retains its previous valve position
+# within the deadband without hidden mutable controller state.
 ReliefValveSequence = Sequence(
     "Relief Valve Cd Schedule",
     GasTankNetwork,

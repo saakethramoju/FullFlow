@@ -2027,7 +2027,6 @@ For HDF5 layout and export options beyond linearization, see
 | `SequenceCommand` | One command entry managed by a sequence. |
 | `SequenceCondition` | One sensor condition required by a sequence command or abort. |
 | `SequenceAbort` | One clean transient stop rule. |
-| `PID` | Transient-only PID controller. |
 | `Actuator` | Command-to-position actuator with optional limits and rate limiting. |
 
 ## Lookup callables, live inputs, and priority switching
@@ -2393,9 +2392,10 @@ when data is unavailable.
 
 ## Sequences, controllers, and actuators
 
-`Sequence` applies time-based or trace-based commands.  `PID` computes a control
-command during transient solves.  `Actuator` turns the command into a rate-limited
-plant position.
+`Sequence` supplies time schedules, continuously coupled feedback, discrete
+switching, and sampled digital feedback through Python functions. Controller
+mathematics such as PID and LQR remain user-defined. `Actuator` turns a
+command into a bounded or rate-limited plant position.
 
 ```python
 Net = Network("Command Example")
@@ -2403,87 +2403,47 @@ valve_command = State(0.0)
 valve_position = State(0.0)
 
 OpenValve = Sequence(
-    "Open Valve Command",
-    Net,
+    "Open Valve Command", Net,
     target=valve_command,
-    times=[0.0, 0.5, 1.0],
-    values=[0.0, 0.5, 1.0],
+    times=[0.0, 0.5, 1.0], values=[0.0, 0.5, 1.0],
 )
 
 ValveActuator = Actuator(
-    "Valve Actuator",
-    Net,
-    command=valve_command,
-    position=valve_position,
-    minimum=0.0,
-    maximum=1.0,
-    rate_limit=2.0,
+    "Valve Actuator", Net,
+    command=valve_command, position=valve_position,
+    minimum=0.0, maximum=1.0, rate_limit=2.0,
 )
 ```
 
-Transient timesteps are shortened to land on command breakpoints where possible.
-This avoids stepping past command changes and makes sequence-driven simulations
-behave more like test procedures.
-
-### PID startup, trim, and integral dynamics
-
-`PID` remains transient-only: a steady-state solve leaves the initialized command
-alone, then the controller takes over when transient integration begins. Existing
-constructor usage is unchanged:
+For sampled digital PID, a function receives the accepted plant measurement and
+its own controller memory once per sample:
 
 ```python
-pressure_command = State(0.35)
-pressure_setpoint = State(3.0e6)
+def pressure_pid(t, pressure, target, *, dt, memory):
+    integral, previous_error = memory
+    error = target - pressure
+    integral += error * dt
+    derivative = (error - previous_error) / dt
+    command = max(0.0, min(1.0, Kp*error + Ki*integral + Kd*derivative))
+    return command, (integral, error)
 
-PressurePID = PID(
-    "Pressure PID",
-    Net,
-    feedback=measured_pressure,
-    setpoint=pressure_setpoint,
-    proportional_gain=2.0e-7,
-    integral_gain=5.0e-8,
-    derivative_gain=0.0,
-    trim=feed_forward_command,
-    command=pressure_command,
-    minimum=0.0,
-    maximum=1.0,
+Sequence(
+    "Pressure PID", Net,
+    target=valve_command, function=pressure_pid,
+    inputs=[measured_pressure, pressure_setpoint],
+    sample_rate=100.0, memory=(0.0, 0.0),
 )
 ```
 
-At transient initialization, the PID calculates a public `command_bias` so the
-first output equals the command already established by the user or steady-state
-model. Startup is therefore bumpless both with and without `trim`. After startup,
-`trim` remains a live feed-forward contribution, so later trim changes still
-produce immediate requested-command changes.
+The sampling frequency is in **Hz**, and output remains held between samples.
+Use `event=True` for precise discrete switching, not for sampled controllers.
+Continuous feedback reads current nonlinear trial States; sampled feedback reads
+accepted States. High-rate samples and precise event localization can require
+additional network solves. Ordinary custom Components remain available for
+continuous controller differential equations.
 
-The accumulated error is a normal FullFlow dynamic State:
-
-```text
-d(integral_error)/dt = integral_error_dot
-integral_error_dot   = error          # normal integration
-integral_error_dot   = 0              # anti-windup hold
-```
-
-FullFlow integrates this state implicitly with the physical network. The PID uses
-accepted `State.previous` history for its derivative calculation, so repeated
-nonlinear evaluations within one timestep do not consume or overwrite controller
-history. Public diagnostics include `error`, `integral_error`,
-`integral_error_dot`, `proportional`, `integral`, `derivative`, `command_bias`,
-`raw_command`, and `saturated`.
-
-The derivative acts on error, so a setpoint step can produce derivative kick when
-`derivative_gain` is nonzero. Physical valve or motor rate limits should normally
-be modeled with `Actuator`; PID `minimum` and `maximum` clamp only the requested
-command.
-
-### One-time events versus repeating hysteresis
-
-Use a Sensor-triggered `Sequence.command(...)` when the control statement is
-"once this accepted event occurs, begin this command trace." Use a function-based
-`Sequence` with the target command State included in `inputs` when the logic must
-open, close, and reopen repeatedly. Inside the hysteresis band, return the
-previous accepted command input. This keeps all memory in FullFlow-managed State
-history and avoids hidden mutable closure variables during timestep retries.
+For mathematical details, controller timing, memory guarantees, limitations,
+and example links, see **[SEQUENCE.md](docs/SEQUENCE.md)**.
 
 ## Units
 
@@ -2544,7 +2504,7 @@ The repository includes examples for:
 - Heat-transfer transients
 - Water hammer
 - Sensor events, commands, and test-data anchoring
-- PID throttle examples
+- Sampled PID rocket-engine throttle control and thrust-vector LQR
 - Engine startup-style examples
 
 Examples that import ThermoProp require `fullflow[thermo]` or `fullflow[examples]`.
@@ -2554,6 +2514,7 @@ Examples that import ThermoProp require `fullflow[thermo]` or `fullflow[examples
 Detailed reference guides:
 
 - [System and component API](src/fullflow/System/SYSTEM.md)
+- [Sequence controllers and scheduling](docs/SEQUENCE.md)
 - [Steady-state solver](src/fullflow/Solvers/STEADY_STATE_SOLVER.md)
 - [Transient solver](src/fullflow/Solvers/TRANSIENT_SOLVER.md)
 - [Linearization](src/fullflow/Solvers/LINEARIZATION.md)

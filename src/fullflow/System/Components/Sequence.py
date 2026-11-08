@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from copy import deepcopy
+import inspect
 import math
 from typing import TYPE_CHECKING, Callable, Any
 
@@ -104,7 +106,7 @@ class SequenceAbort:
 
 
 class Sequence(Component):
-    """Transient command source and abort scheduler for test-like simulations."""
+    """Transient schedules and user-defined feedback or switching control."""
 
     TRANSIENT_ONLY = True
 
@@ -117,8 +119,38 @@ class Sequence(Component):
         values=None,
         function: Callable[..., float] | None = None,
         inputs: list[Any] | tuple[Any, ...] | Any | None = None,
+        event: bool = False,
+        sample_rate: float | None = None,
+        memory: Any = None,
     ):
         """Initialize the object and register any FullFlow state wiring."""
+        self._event_enabled = bool(event)
+        self._event_command = None
+        self._step_held = False
+        self._sample_enabled = sample_rate is not None
+        if self._event_enabled and function is None:
+            raise ValueError(f"{name}: event=True requires a function-based Sequence.")
+        if self._sample_enabled:
+            rate = float(sample_rate)
+            if not math.isfinite(rate) or rate <= 0.0 or not math.isfinite(1.0 / rate):
+                raise ValueError(f"{name}: sample_rate must be a finite positive frequency in Hz.")
+            if rate > 1.0e10:
+                raise ValueError(f"{name}: sample_rate is too high for reliable floating-point scheduling.")
+            if function is None or event:
+                raise ValueError(f"{name}: sampled Sequences require function=... and cannot use event=True.")
+            if target is None:
+                raise ValueError(f"{name}: sampled Sequences require an initialized target State.")
+            self._sample_period = 1.0 / rate
+        else:
+            if memory is not None:
+                raise ValueError(f"{name}: memory requires sample_rate.")
+            self._sample_period = None
+        self._sample_memory = deepcopy(memory)
+        self._sample_origin = None
+        self._sample_index = 1
+        self._sample_command = None
+        self._sample_pass_dt = False
+        self._sample_pass_memory = False
         self._table_sequence = times is not None or values is not None
         self._function_sequence = function is not None
         self._has_primary_sequence = self._table_sequence or self._function_sequence
@@ -129,6 +161,10 @@ class Sequence(Component):
         self._abort_entries: list[SequenceAbort] = []
 
         self.setup()
+        # Scheduling and memory are internal, not solver State inputs.
+        del self.event
+        del self.sample_rate
+        del self.memory
 
         self.evaluate_in_pre_evaluation = True
 
@@ -181,6 +217,23 @@ class Sequence(Component):
         if self._function_sequence:
             if not callable(self._read(self.function)):
                 raise TypeError(f"{self.name}: function must be callable.")
+            if not self._event_enabled and not self._sample_enabled and any(item is self.target for item in self._input_list):
+                self._step_held = True
+            if self._sample_enabled:
+                try:
+                    signature = inspect.signature(self._read(self.function))
+                    params = signature.parameters
+                    flexible = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
+                    self._sample_pass_dt = flexible or 'dt' in params
+                    self._sample_pass_memory = flexible or 'memory' in params or memory is not None
+                except (TypeError, ValueError):
+                    self._sample_pass_dt = memory is not None
+                    self._sample_pass_memory = memory is not None
+                if not self.target.is_assigned:
+                    raise ValueError(f"{self.name}: sampled target State must have an initial command value.")
+                self._sample_command = float(self.target.value)
+                if not math.isfinite(self._sample_command):
+                    raise ValueError(f"{self.name}: sampled target State must have a finite initial command.")
 
         if not self._target_was_provided:
             self.target.value = float(self._sequenced_value())
@@ -378,13 +431,113 @@ class Sequence(Component):
         time_value = float(time_value)
 
         if self._has_primary_sequence:
-            self.target.value = float(self._sequenced_value(time_value=time_value))
+            if self._sample_enabled:
+                self.target.value = self._sample_command
+            elif self._event_enabled:
+                if self._event_command is None:
+                    self._event_command = float(self._sequenced_value(time_value=time_value))
+                self.target.value = self._event_command
+            elif self._step_held:
+                self.target.value = self._previous_input_value(self.target)
+            else:
+                self.target.value = float(self._sequenced_value(time_value=time_value))
 
         for entry in self._command_entries:
             self._apply_command(entry, time_value)
 
+    def initialize_sampling(self, time_value: float) -> None:
+        """Start the clock at the accepted initial point; hold the initial target."""
+        if not self._sample_enabled:
+            return
+        self._sample_origin = float(time_value)
+        self._sample_index = 1
+        self._sample_command = float(self.target.value)
+
+    def next_sample_time(self) -> float | None:
+        """Compute the next exact clock time without accumulating time drift."""
+        if self._sample_origin is None:
+            return None
+        return self._sample_origin + self._sample_index * self._sample_period
+
+    def sample_due(self, time_value: float) -> bool:
+        next_time = self.next_sample_time()
+        if next_time is None:
+            return False
+        tolerance = 1e-12 * max(1.0, abs(next_time), abs(time_value))
+        return abs(time_value - next_time) <= tolerance
+
+    def prepare_sample(self, time_value: float):
+        """Evaluate once from an accepted plant state, without committing memory."""
+        if not self.sample_due(time_value):
+            return None
+        measured = [self._read(item) for item in self._input_list]
+        kwargs = {}
+        if self._sample_pass_dt:
+            kwargs['dt'] = self._sample_period
+        if self._sample_pass_memory:
+            kwargs['memory'] = deepcopy(self._sample_memory)
+        result = self._read(self.function)(float(time_value), *measured, **kwargs)
+        if self._sample_pass_memory:
+            if not isinstance(result, tuple) or len(result) != 2:
+                raise SolverSetupError(
+                    f"{self.name}: stateful sampled function must return (command, new_memory)."
+                )
+            command, new_memory = result
+        else:
+            command, new_memory = result, None
+        command = float(command)
+        if not math.isfinite(command):
+            raise SolverSetupError(f"{self.name}: sampled function returned a nonfinite command.")
+        return command, deepcopy(new_memory)
+
+    def accept_sample(self, value, memory) -> None:
+        """Commit exactly one accepted sample, with no extra nonlinear solve."""
+        self._sample_command = value
+        self.target.value = value
+        self._sample_memory = memory
+        self._sample_index += 1
+
+    def initialize_event(self) -> None:
+        """Latch an initial discrete command from the current accepted State."""
+        if not self._event_enabled:
+            return
+        self._event_command = None
+        self._event_command = self.event_request(float(self._network_time()))
+        self.target.value = self._event_command
+
+    def _event_probe_inputs(self):
+        """Return current guard inputs without changing the latched command."""
+        return tuple(
+            self._event_command if item is self.target and self._event_command is not None
+            else self._read(item)
+            for item in self._input_list
+        )
+
+    def _event_request_from_inputs(self, time_value, values):
+        """Probe a discrete function using supplied values, without changing States."""
+        value = float(self._read(self.function)(float(time_value), *values))
+        if not math.isfinite(value):
+            raise SolverSetupError(f"{self.name}: event function returned a nonfinite command.")
+        return value
+
+    def event_request(self, time_value: float) -> float:
+        """Evaluate a pure discrete function at a converged candidate solution."""
+        if not self._event_enabled:
+            raise ValueError("Only event-enabled functions have event requests.")
+        return self._event_request_from_inputs(time_value, self._event_probe_inputs())
+
+    def accept_event(self, command: float) -> None:
+        """Commit the discrete mode exactly once at a located event boundary."""
+        if not self._event_enabled:
+            raise ValueError("Only event-enabled functions can accept an event.")
+        self._event_command = float(command)
+        self.target.value = self._event_command
+
     def commit_commands(self) -> None:
         """Commit valid command samples after an accepted timestep."""
+        if self._step_held:
+            self.target.value = float(self._sequenced_value())
+            self.target.store_previous()
         for entry in self._command_entries:
             entry.commit()
 
@@ -823,7 +976,7 @@ class Sequence(Component):
         t = self._network_time() if time_value is None else float(time_value)
 
         if self._function_sequence:
-            input_values = [self._previous_input_value(item) for item in self._input_list]
+            input_values = [self._feedback_input_value(item) for item in self._input_list]
             return self._read(self.function)(t, *input_values)
 
         return np.interp(t, self.times.value, self.values.value)
@@ -864,6 +1017,17 @@ class Sequence(Component):
             return float(self.network.time.value)
 
         return float(self.network.time)
+
+    def _feedback_input_value(self, variable):
+        """Read the trial plant State, but retain accepted self-feedback."""
+        if variable is self.target:
+            if self._event_enabled and self._event_command is not None:
+                return self._event_command
+            return self._previous_input_value(variable)
+        current = self._read(variable)
+        if current is None and is_state_like(variable):
+            return self._previous_input_value(variable)
+        return current
 
     def _previous_input_value(self, variable):
         if is_state_like(variable):

@@ -73,6 +73,7 @@ class TransientStepSolve:
         self._invalid_residual_directional_gain = 10.0
         self._active_equation_scaling: EquationScaling | None = None
         self._reset_prediction_history()
+        self._pending_trial = None
 
     def _clear_newton_jacobian(self) -> None:
         """Discard any cached modified-Newton Jacobian."""
@@ -137,6 +138,37 @@ class TransientStepSolve:
             self._clear_newton_jacobian()
         return EquationScaling.transient(cache, residual_count, scales)
 
+    def _finish_trial(self, cache, previous_x, t_new, dt, residual_count, *, commit=True, **jacobian_options):
+        """Stage a solved candidate; only accepted trials advance State history."""
+        if commit:
+            cache.store_previous_values()
+            cache.commit_sequence_commands()
+            self._record_accepted_step(cache, previous_x, t_new, dt, residual_count, **jacobian_options)
+        else:
+            self._pending_trial = (
+                cache, previous_x, t_new, dt, residual_count, jacobian_options,
+                self._active_equation_scaling,
+            )
+
+    def accept_trial(self):
+        """Commit a previously solved candidate without another nonlinear solve."""
+        if self._pending_trial is None:
+            raise RuntimeError("No successfully solved transient trial is pending.")
+        cache, previous_x, t_new, dt, residual_count, options, scaling = self._pending_trial
+        self._pending_trial = None
+        cache.store_previous_values()
+        cache.commit_sequence_commands()
+        self._active_equation_scaling = scaling
+        try:
+            self._record_accepted_step(cache, previous_x, t_new, dt, residual_count, **options)
+        finally:
+            self._active_equation_scaling = None
+
+    def discard_trial(self):
+        """Invalidate trial and predictor history after restoring the accepted point."""
+        self._pending_trial = None
+        self._reset_prediction_history()
+
     def _record_accepted_step(
         self, cache, previous_x: np.ndarray, t_new: float, dt: float, residual_count: int,
         *, jacobian=None, jacobian_scale=None, jacobian_method=None,
@@ -195,7 +227,11 @@ class TransientStepSolve:
                 target = getattr(component, "target", None)
                 if target is not None:
                     try:
-                        values.append((id(target), True, float(target.value)))
+                        values.append((
+                            id(target),
+                            'sampled' if getattr(component, '_sample_enabled', False) else True,
+                            float(target.value),
+                        ))
                     except (TypeError, ValueError, AttributeError):
                         pass
             else:
@@ -217,7 +253,11 @@ class TransientStepSolve:
             a, b = old[2], new[2]
             if not np.isfinite(a) or not np.isfinite(b):
                 return True
-            if abs(a - b) > 0.25 * max(abs(a), abs(b), 1.0e-12):
+            if old[1] == 'sampled':
+                threshold = 0.25 * max(1.0, abs(a), abs(b))
+            else:
+                threshold = 0.25 * max(abs(a), abs(b), 1.0e-12)
+            if abs(a - b) > threshold:
                 return True
         return False
 
@@ -574,14 +614,17 @@ class TransientStepSolve:
         dt: float,
         least_squares_settings: LeastSquaresSettings,
         state_settings: StateEvaluationSettings,
+        commit: bool = True,
+        trial_guess: np.ndarray | None = None,
     ) -> StepDiagnostics:
-        """Solve and accept one implicit backward-Euler timestep."""
+        """Solve an implicit timestep; optionally defer acceptance for event checks."""
         least_squares_settings.validate()
         state_settings.validate()
         self._active_time = float(t_new)
         self._active_dt = float(dt)
         self._active_state_settings = state_settings
 
+        self._pending_trial = None
         cache = self._cache_getter()
         accepted_snapshot = cache.snapshot_mutable_states()
         accepted_time = float(self.network.time.value)
@@ -607,9 +650,7 @@ class TransientStepSolve:
             )
             max_r0 = self._residual_norm(r0)
             if max_r0 <= least_squares_settings.rtol:
-                cache.store_previous_values()
-                cache.commit_sequence_commands()
-                self._record_accepted_step(cache, x0, t_new, dt, len(r0))
+                self._finish_trial(cache, x0, t_new, dt, len(r0), commit=commit)
                 return self._make_diagnostics(
                     time=t_new, dt=dt, x0=x0, sol=None,
                     residual=r0, elapsed_time=predictor_elapsed,
@@ -625,9 +666,7 @@ class TransientStepSolve:
                     t_new=t_new,
                     dt=dt,
                 )
-                cache.store_previous_values()
-                cache.commit_sequence_commands()
-                self._record_accepted_step(cache, x0, t_new, dt, len(r0))
+                self._finish_trial(cache, x0, t_new, dt, len(r0), commit=commit)
                 return self._make_diagnostics(
                     time=t_new, dt=dt, x0=x0, sol=None,
                     residual=r0, elapsed_time=predictor_elapsed,
@@ -635,6 +674,12 @@ class TransientStepSolve:
 
 
             guess = self._predict_initial_guess(cache, x0, accepted_time, dt, len(r0))
+            if trial_guess is not None:
+                candidate = np.asarray(trial_guess, dtype=float)
+                if (candidate.shape == x0.shape and np.all(np.isfinite(candidate))
+                        and np.all(candidate >= cache.lower_bound_array())
+                        and np.all(candidate <= cache.upper_bound_array())):
+                    guess = candidate
             use_prediction = False
             probe_x = None
             probe_residual = None
@@ -685,9 +730,7 @@ class TransientStepSolve:
                         len(predicted_final) == len(r0) and
                         (not len(predicted_final) or
                          self._residual_norm(predicted_final) <= least_squares_settings.rtol)):
-                    cache.store_previous_values()
-                    cache.commit_sequence_commands()
-                    self._record_accepted_step(cache, x0, t_new, dt, len(predicted_final))
+                    self._finish_trial(cache, x0, t_new, dt, len(predicted_final), commit=commit)
                     return self._make_diagnostics(
                         time=t_new, dt=dt, x0=guess, sol=None,
                         residual=predicted_final,
@@ -755,10 +798,8 @@ class TransientStepSolve:
                     )
                 else:
                     elapsed_time = time.perf_counter() - start_time
-                    cache.store_previous_values()
-                    cache.commit_sequence_commands()
-                    self._record_accepted_step(
-                        cache, x0, t_new, dt, len(accepted_residual),
+                    self._finish_trial(
+                        cache, x0, t_new, dt, len(accepted_residual), commit=commit,
                         jacobian=newton_sol.jacobian,
                         jacobian_scale=newton_sol.jacobian_scale,
                         jacobian_method=least_squares_settings.jacobian_method,
@@ -830,22 +871,22 @@ class TransientStepSolve:
             sol.fun = np.asarray(final_residual, dtype=float).copy()
             sol.cost = 0.5 * float(np.dot(sol.fun, sol.fun))
             elapsed_time = time.perf_counter() - start_time
-            cache.store_previous_values()
-            cache.commit_sequence_commands()
-            self._record_accepted_step(cache, x0, t_new, dt, len(final_residual))
+            self._finish_trial(cache, x0, t_new, dt, len(final_residual), commit=commit)
             return self._make_diagnostics(
                 time=t_new, dt=dt, x0=initial_guess, sol=sol,
                 residual=final_residual, elapsed_time=elapsed_time,
             )
 
         except Exception:
+            self._pending_trial = None
             self._clear_newton_jacobian()
             cache.clear_sequence_command_pending()
             cache.restore_mutable_states(accepted_snapshot)
             self.network.time.value = accepted_time
             raise
         finally:
-            cache.clear_sequence_command_pending()
+            if commit or self._pending_trial is None:
+                cache.clear_sequence_command_pending()
             self._active_cache = None
             self._active_equation_scaling = None
 
