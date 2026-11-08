@@ -55,10 +55,18 @@ def _copy(value, array_cache=None):
 
 
 def _field_names(obj):
-    """Return the declared field names for an object."""
+    """Return instance fields, including declared slots on custom helpers."""
     if is_dataclass(obj):
         return tuple(f.name for f in fields(obj))
-    return tuple(vars(obj)) if hasattr(obj, '__dict__') else ()
+    names = list(vars(obj)) if hasattr(obj, '__dict__') else []
+    for cls in type(obj).__mro__:
+        slots = cls.__dict__.get('__slots__', ())
+        if isinstance(slots, str):
+            slots = (slots,)
+        for name in slots:
+            if name not in ('__dict__', '__weakref__') and name not in names and hasattr(obj, name):
+                names.append(name)
+    return tuple(names)
 
 
 class OperatingCheckpoint:

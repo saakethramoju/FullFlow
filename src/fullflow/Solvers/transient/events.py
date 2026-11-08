@@ -23,6 +23,10 @@ class SequenceSwitches:
         )
         self.records = []
         self.probes = 0
+        self.reconciliation_residual_calls = 0
+        self.reconciliation_scipy_solves = 0
+        self.reconciliation_reported_jacobian_builds = 0
+        self.reconciliation_scale_jacobian_builds = 0
 
     def initialize(self):
         for sequence in self.sequences:
@@ -97,6 +101,7 @@ class SequenceSwitches:
         cache.set_transient_context(dt=0.0)
 
         def residual(values):
+            self.reconciliation_residual_calls += 1
             for state, value in zip(algebraic, values):
                 state.value = float(value)
             cache.apply_sequence_commands(t)
@@ -118,6 +123,7 @@ class SequenceSwitches:
             lower = np.asarray([float(s.lower_bound) for s in algebraic])
             upper = np.asarray([float(s.upper_bound) for s in algebraic])
             scales = EquationScaling(np.ones(len(remaining), dtype=bool))
+            self.reconciliation_scale_jacobian_builds += 1
             scales.initialize(
                 residual, current, settings.jacobian_method,
                 bounds=(lower, upper) if settings.solver_method != 'lm' else None,
@@ -129,12 +135,14 @@ class SequenceSwitches:
                     bounds = {} if settings.solver_method == 'lm' else {
                         'bounds': (lower-current, upper-current),
                     }
+                    self.reconciliation_scipy_solves += 1
                     sol = least_squares(
                         lambda correction: scales.residual(residual(current+correction)),
                         np.zeros_like(current), jac=settings.jacobian_method,
                         method=settings.solver_method, **bounds,
                         ftol=1e-12, xtol=1e-12, gtol=1e-12, max_nfev=100,
                     )
+                    self.reconciliation_reported_jacobian_builds += int(sol.njev or 0)
                     remaining = residual(current+sol.x)
                     if (np.all(np.isfinite(remaining)) and
                             np.max(np.abs(scales.residual(remaining)), initial=0.0) <= settings.rtol):
@@ -175,6 +183,7 @@ class SequenceSwitches:
                 return diagnostics, False
             end_guards = self._guards()
             end_x = cache.iteration_value_array()
+            prior_jacobian = self.solver.step_solver.event_jacobian_seed()
             self._restore(checkpoint)
             low, high = t_start, t_new
             low_x, high_x = start_x, end_x
@@ -198,7 +207,9 @@ class SequenceSwitches:
                     least_squares_settings=settings,
                     state_settings=state_settings, commit=False,
                     trial_guess=guess,
+                    event_jacobian_seed=prior_jacobian,
                 )
+                prior_jacobian = self.solver.step_solver.event_jacobian_seed()
                 guards = self._guards()
                 candidate_x = cache.iteration_value_array()
                 if self._requests(candidate_time):
@@ -211,6 +222,7 @@ class SequenceSwitches:
                 least_squares_settings=settings,
                 state_settings=state_settings, commit=False,
                 trial_guess=high_x,
+                event_jacobian_seed=prior_jacobian,
             )
             switches = self._requests(high)
             if not switches:

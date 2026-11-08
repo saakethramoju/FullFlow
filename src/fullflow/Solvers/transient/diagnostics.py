@@ -116,6 +116,7 @@ class TransientPrinter:
         solve_time: float,
         success: bool = True,
         stop_reason: str | None = None,
+        work_statistics: dict[str, int] | None = None,
     ) -> None:
         """Print a final transient summary similar to steady-state verbose."""
         final = diagnostics_list[-1] if diagnostics_list else None
@@ -173,8 +174,20 @@ class TransientPrinter:
             table.add_row(_plain("Minimum dt used"), _plain(f"{min_dt:.9g}"))
             table.add_row(_plain("Maximum dt used"), _plain(f"{max_dt:.9g}"))
         table.add_row(_plain("Solve time"), _plain(f"{solve_time:.3f} s"))
-        table.add_row(_plain("Total function evaluations"), _plain(total_nfev))
-        table.add_row(_plain("Total Jacobian evaluations"), _plain(total_njev))
+        table.add_row(_plain("Accepted-step reported function evaluations"), _plain(total_nfev))
+        table.add_row(_plain("Accepted-step reported Jacobian evaluations"), _plain(total_njev))
+        if work_statistics:
+            for label, key in (
+                ("All implicit residual calls (incl. probes/retries)", "residual_calls"),
+                ("Implicit step solve calls (incl. probes/retries)", "implicit_step_calls"),
+                ("Newton Jacobian builds (incl. failed attempts)", "newton_jacobian_builds"),
+                ("Verified event-probe Jacobian reuses", "event_jacobian_seed_uses"),
+                ("SciPy solver calls", "scipy_solves"),
+                ("Localized event probe solves", "event_probes"),
+                ("Post-switch algebraic residual calls", "reconciliation_residual_calls"),
+                ("One-sided Jacobian steps", "one_sided_jacobian_steps"),
+            ):
+                table.add_row(_plain(label), _plain(work_statistics.get(key, 0)))
         table.add_row(_plain("Total cost"), _plain(f"{total_cost:.6e}"))
         if last_optimality is not None:
             table.add_row(_plain("Last scaled optimality"), _plain(f"{float(last_optimality):.3e}"))

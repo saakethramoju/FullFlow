@@ -74,6 +74,20 @@ class TransientStepSolve:
         self._active_equation_scaling: EquationScaling | None = None
         self._reset_prediction_history()
         self._pending_trial = None
+        self.work_statistics = {}
+        self._reset_work_statistics()
+
+    def _reset_work_statistics(self):
+        self.work_statistics = dict.fromkeys((
+            "implicit_step_calls", "residual_calls", "newton_attempts",
+            "newton_jacobian_builds", "newton_rejections", "scipy_solves",
+            "scipy_reported_jacobian_builds", "scale_jacobian_builds",
+            "one_sided_jacobian_steps", "event_jacobian_seed_uses",
+            "event_jacobian_seed_rejections",
+        ), 0)
+
+    def _count_newton_jacobian(self):
+        self.work_statistics["newton_jacobian_builds"] += 1
 
     def _clear_newton_jacobian(self) -> None:
         """Discard any cached modified-Newton Jacobian."""
@@ -163,6 +177,28 @@ class TransientStepSolve:
             self._record_accepted_step(cache, previous_x, t_new, dt, residual_count, **options)
         finally:
             self._active_equation_scaling = None
+
+    def event_jacobian_seed(self):
+        """Return the verified finite-difference model for a pending event trial."""
+        pending = self._pending_trial
+        if pending is None:
+            return None
+        cache, _, _, dt, residual_count, options, scaling = pending
+        jac = options.get("jacobian")
+        scale = options.get("jacobian_scale")
+        if (jac is None or scale is None or scaling is None
+                or scaling.scales is None):
+            return None
+        return (
+            np.array(jac, copy=True), np.array(scale, copy=True),
+            np.array(scaling.scales, copy=True), dt,
+            getattr(cache, "version", None),
+            tuple(id(state) for state in cache.iteration_variables),
+            residual_count, options.get("jacobian_method"),
+            cache.iteration_labels,
+            frozenset(getattr(cache, "_active_sensor_balance_owner_ids", ())),
+            frozenset(getattr(cache, "_direct_sensor_balance_owner_ids", ())),
+        )
 
     def discard_trial(self):
         """Invalidate trial and predictor history after restoring the accepted point."""
@@ -370,6 +406,7 @@ class TransientStepSolve:
         """Stop TRF/dogbox after a complete accepted iterate reaches rtol."""
         scaling = self._active_equation_scaling
         if scaling is not None and scaling.scales is None:
+            self.work_statistics["scale_jacobian_builds"] += 1
             bounds = (cache.lower_bound_array(), cache.upper_bound_array())
             scaling.initialize(self.residual, x0, settings.jacobian_method, bounds=bounds)
         kwargs = self._least_squares_kwargs(cache, x0, settings)
@@ -400,7 +437,9 @@ class TransientStepSolve:
 
             kwargs["callback"] = accepted_iteration
 
+        self.work_statistics["scipy_solves"] += 1
         sol = least_squares(**kwargs)
+        self.work_statistics["scipy_reported_jacobian_builds"] += int(sol.njev or 0)
         nfev, njev = sol.nfev, sol.njev
         for diff_step in (np.sqrt(np.finfo(float).eps), np.finfo(float).eps ** 0.75):
             if (settings.solver_method == "lm" or not np.all(np.isfinite(sol.fun))
@@ -449,6 +488,7 @@ class TransientStepSolve:
 
     def _try_modified_newton(self, cache, x0, r0, settings, jacobian=None, jacobian_scale=None):
         """Solve and verify a timestep using Newton/Broyden."""
+        self.work_statistics["newton_attempts"] += 1
         candidate = solve_modified_newton(
             self.residual, x0, r0,
             rtol=settings.rtol,
@@ -456,6 +496,7 @@ class TransientStepSolve:
             initial_jacobian=jacobian,
             initial_scale=jacobian_scale,
             equation_scaling=self._active_equation_scaling,
+            on_jacobian_build=self._count_newton_jacobian,
         )
 
 
@@ -491,6 +532,7 @@ class TransientStepSolve:
 
     def residual(self, x: np.ndarray) -> np.ndarray:
         """Compute current trial residual: dynamics, algebraic, then balances."""
+        self.work_statistics["residual_calls"] += 1
         cache = self._active_cache or self._cache_getter()
 
 
@@ -587,6 +629,7 @@ class TransientStepSolve:
         """Evaluate the initial network and store accepted transient history."""
         state_settings.validate()
         self._reset_prediction_history()
+        self._reset_work_statistics()
         cache = self._cache_getter()
         cache.run_pre_evaluation()
         cache = self._cache_getter()
@@ -616,8 +659,10 @@ class TransientStepSolve:
         state_settings: StateEvaluationSettings,
         commit: bool = True,
         trial_guess: np.ndarray | None = None,
+        event_jacobian_seed=None,
     ) -> StepDiagnostics:
         """Solve an implicit timestep; optionally defer acceptance for event checks."""
+        self.work_statistics["implicit_step_calls"] += 1
         least_squares_settings.validate()
         state_settings.validate()
         self._active_time = float(t_new)
@@ -648,6 +693,28 @@ class TransientStepSolve:
             self._active_equation_scaling = self._scaling_for_step(
                 cache, x0, accepted_time, dt, len(r0),
             )
+            if event_jacobian_seed is not None:
+                (jac, varscale, rowscale, old_dt, version, ids, count, method,
+                 labels, active_sensors, direct_sensors) = event_jacobian_seed
+                if (least_squares_settings.solver_method == "trf"
+                        and method == least_squares_settings.jacobian_method
+                        and old_dt > 0.0 and 0.5 <= dt / old_dt <= 2.0
+                        and version == getattr(cache, "version", None)
+                        and ids == tuple(id(state) for state in cache.iteration_variables)
+                        and labels == cache.iteration_labels
+                        and active_sensors == frozenset(getattr(cache, "_active_sensor_balance_owner_ids", ()))
+                        and direct_sensors == frozenset(getattr(cache, "_direct_sensor_balance_owner_ids", ()))
+                        and count == len(r0)
+                        and rowscale.shape == r0.shape
+                        and jac.shape == (len(r0), len(x0))
+                        and varscale.shape == x0.shape
+                        and np.all(np.isfinite(jac))
+                        and np.all(np.isfinite(varscale)) and np.all(varscale > 0.0)
+                        and np.all(np.isfinite(rowscale)) and np.all(rowscale > 0.0)):
+                    self._active_equation_scaling.scales = rowscale.copy()
+                else:
+                    event_jacobian_seed = None
+                    self.work_statistics["event_jacobian_seed_rejections"] += 1
             max_r0 = self._residual_norm(r0)
             if max_r0 <= least_squares_settings.rtol:
                 self._finish_trial(cache, x0, t_new, dt, len(r0), commit=commit)
@@ -759,6 +826,8 @@ class TransientStepSolve:
             # The same commands can move through zero-flow/kink regions again.
             if changed_controls:
                 self._encountered_nonsmooth_control = True
+            if self._encountered_nonsmooth_control and least_squares_settings.jacobian_method == "3-point":
+                self.work_statistics["one_sided_jacobian_steps"] += 1
             step_settings = (
                 replace(least_squares_settings, jacobian_method="2-point")
                 if (self._encountered_nonsmooth_control
@@ -774,6 +843,23 @@ class TransientStepSolve:
                     probe_x=probe_x, probe_residual=probe_residual,
                     baseline_residual=r0,
                 )
+                if event_jacobian_seed is not None and jacobian is None:
+                    seed_jac, seed_scale, _, _, _, _, _, seed_method, _, _, _ = event_jacobian_seed
+                    if seed_method == step_settings.jacobian_method:
+                        if probe_x is not None and probe_residual is not None:
+                            delta = (probe_x - x0) / seed_scale
+                            expected = seed_jac @ delta
+                            actual = self._active_equation_scaling.residual(probe_residual-r0)
+                            magnitude = max(float(np.linalg.norm(actual)), float(np.linalg.norm(expected)))
+                            if magnitude and np.isfinite(magnitude):
+                                err = float(np.linalg.norm(actual-expected)) / magnitude
+                            else:
+                                err = float("inf")
+                            if np.isfinite(err) and err <= 0.65:
+                                jacobian, jacobian_scale = seed_jac, seed_scale
+                                self.work_statistics["event_jacobian_seed_uses"] += 1
+                            else:
+                                self.work_statistics["event_jacobian_seed_rejections"] += 1
                 try:
                     newton_sol, _ = self._try_modified_newton(
                         cache, initial_guess, initial_residual, step_settings,
@@ -786,6 +872,7 @@ class TransientStepSolve:
                 except SensorDataStop:
                     raise
                 except Exception:
+                    self.work_statistics["newton_rejections"] += 1
                     self._clear_newton_jacobian()
                     # A component can switch equations without a Sensor event.
                     # If its old row weights fail, rebuild from the new equations.
@@ -802,7 +889,7 @@ class TransientStepSolve:
                         cache, x0, t_new, dt, len(accepted_residual), commit=commit,
                         jacobian=newton_sol.jacobian,
                         jacobian_scale=newton_sol.jacobian_scale,
-                        jacobian_method=least_squares_settings.jacobian_method,
+                        jacobian_method=step_settings.jacobian_method,
                         jacobian_reused=newton_sol.jacobian_reused,
                         jacobian_rebuilt=newton_sol.jacobian_rebuilt,
                     )

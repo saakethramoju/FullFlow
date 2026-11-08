@@ -45,6 +45,7 @@ class Transient:
         self.step_diagnostics: list[StepDiagnostics] = []
         self.event_records: list[dict[str, Any]] = []
         self.event_probes = 0
+        self.work_statistics = {}
 
     def linearize(
         self, inputs=None, outputs=None, filename=None, *, times=None,
@@ -341,6 +342,7 @@ class Transient:
         switches.initialize()
         self.event_records = switches.records
         self.event_probes = 0
+        self.work_statistics = {}
 
         # Initialize accepted state history before marching.
         self.step_solver.initialize(state_settings)
@@ -524,6 +526,17 @@ class Transient:
                 break
 
         elapsed_time = time.perf_counter() - solve_start_time
+        self.work_statistics = dict(self.step_solver.work_statistics)
+        self.work_statistics.update(
+            event_probes=switches.probes,
+            localized_switches=len(switches.records),
+            reconciliation_residual_calls=switches.reconciliation_residual_calls,
+            reconciliation_scipy_solves=switches.reconciliation_scipy_solves,
+            reconciliation_reported_jacobian_builds=switches.reconciliation_reported_jacobian_builds,
+            reconciliation_scale_jacobian_builds=switches.reconciliation_scale_jacobian_builds,
+        )
+        for key, value in self.work_statistics.items():
+            run_metadata[f"solver_work_{key}"] = value
         if self.event_records:
             run_metadata["sequence_localized_event_count"] = len(self.event_records)
             run_metadata["sequence_localized_events"] = list(self.event_records)
@@ -564,6 +577,7 @@ class Transient:
                 solve_time=elapsed_time,
                 success=stop_reason is None,
                 stop_reason=stop_reason,
+                work_statistics=self.work_statistics,
             )
             self.printer.print_sensor_event_summary(self.network.sensor_event_list)
             self.printer.print_network_solution()

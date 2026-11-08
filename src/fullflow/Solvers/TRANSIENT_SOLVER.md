@@ -74,6 +74,18 @@ After the first time-commanded operating-mode change, the timestep solver can us
 
 Successful nonlinear termination alone is insufficient: the computed state is accepted only when its verified scaled residuals meet `rtol`. A failed trial can trigger numerical refinement and, if needed, step rejection. FullFlow reports actual solver statistics and raw residuals; it does not treat an unsuccessful iterate as a converged state.
 
+### Event-probe Jacobian reuse
+
+For `Sequence(event=True)`, multiple trial solves may share the same accepted starting state and pre-switch command. A converged Newton/Broyden trial can supply a Jacobian estimate to a nearby trial when the equation layout, unknown ordering, Jacobian method, and sensor-balance configuration agree. The trial timestep must also be comparable to the previous one.
+
+The solver checks the transferred Jacobian against the actual residual change before using it. A rejected estimate triggers normal Jacobian construction; an accepted estimate is still subject to nonlinear iterations, line searching, and the unchanged final residual test. No Component-specific derivatives or annotations are needed. Each precisely located switch may still require several full-network solves.
+
+### Work diagnostics
+
+Accepted-step solver counts do not include every rejected, speculative, or event-localization evaluation. `transient.work_statistics` reports whole-solve counts for implicit residual calls, Newton attempts and Jacobian builds, SciPy calls, event probes, and post-switch algebraic reconciliation. The accepted-step diagnostic table retains its own counters separately.
+
+The verbose summary distinguishes these scopes. HDF5 stores the whole-solve counters as `solver_work_*` entries in the run metadata table. SciPy Jacobian counts use the counts reported by completed SciPy solves; the full residual-call count includes numerical differentiation and failed attempts. When a time-commanded mode change triggers an internal switch to one-sided finite differences, `one_sided_jacobian_steps` reports how many implicit solves used that recovery policy.
+
 ## Residual scaling
 
 FullFlow handles dynamic integration residuals and user algebraic equations differently.

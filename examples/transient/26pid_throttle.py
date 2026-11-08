@@ -125,7 +125,7 @@ from fullflow import *
 
 dt = 0.01
 t_final = 5.0
-filename = "23pid_throttle"
+filename = "26pid_throttle"
 
 
 # ---- File / map generation switches ---- #

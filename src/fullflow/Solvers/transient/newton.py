@@ -38,6 +38,7 @@ def solve_modified_newton(
     initial_jacobian: np.ndarray | None = None,
     initial_scale: np.ndarray | None = None,
     equation_scaling: EquationScaling | None = None,
+    on_jacobian_build: Callable[[], None] | None = None,
 ) -> OptimizeResult:
     """Solve an unbounded system using modified Newton and Broyden updates."""
     opt = options or ModifiedNewtonOptions()
@@ -102,6 +103,8 @@ def solve_modified_newton(
         if builds >= opt.max_jacobian_builds:
             raise ModifiedNewtonFailure("Jacobian refresh limit reached.")
         builds += 1
+        if on_jacobian_build is not None:
+            on_jacobian_build()
         jac = np.empty((len(current_f), len(current_y)), dtype=float)
         for j in range(len(current_y)):
             step = eps * max(abs(float(current_y[j])), 1.0)

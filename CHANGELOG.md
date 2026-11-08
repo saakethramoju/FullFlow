@@ -2,6 +2,11 @@
 
 ## 4.0.2
 
+* Added continuous Sequence feedback, precisely localized switching, and sampled digital control with accepted-only controller memory updates.
+* Improved event-trial prediction and preserved coupled nonlinear validation and rollback.
+* Reused verified numerical Jacobians between compatible event-localization trials, with safeguarded fallback and whole-solve nonlinear-work diagnostics.
+* Extended operating-point checkpoints to capture mutable fields on custom slotted Python helper objects.
+* Added controller regression tests, a Sequence usage guide, and representative control benchmarks.
 * Reduced steady-state and transient overhead through faster State handling, selective trial restoration, and more efficient checkpoint snapshots.
 * Improved checkpoint restoration and retrospective linearization for mutable and dataclass-backed component state.
 
