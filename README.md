@@ -2443,7 +2443,7 @@ additional network solves. Ordinary custom Components remain available for
 continuous controller differential equations.
 
 For mathematical details, controller timing, memory guarantees, limitations,
-and example links, see **[SEQUENCE.md](docs/SEQUENCE.md)**.
+and example links, see **[SEQUENCE.md](src/fullflow/System/Components/SEQUENCE.md)**.
 
 ## Units
 
@@ -2514,7 +2514,10 @@ Examples that import ThermoProp require `fullflow[thermo]` or `fullflow[examples
 Detailed reference guides:
 
 - [System and component API](src/fullflow/System/SYSTEM.md)
-- [Sequence controllers and scheduling](docs/SEQUENCE.md)
+- [Sequence controllers and scheduling](src/fullflow/System/Components/SEQUENCE.md)
+- [Map interpolation](src/fullflow/System/Components/MAP.md)
+- [Lookup integration](src/fullflow/System/Components/LOOKUP.md)
+- [Sensor measurements and conditions](src/fullflow/System/Components/SENSOR.md)
 - [Steady-state solver](src/fullflow/Solvers/STEADY_STATE_SOLVER.md)
 - [Transient solver](src/fullflow/Solvers/TRANSIENT_SOLVER.md)
 - [Linearization](src/fullflow/Solvers/LINEARIZATION.md)

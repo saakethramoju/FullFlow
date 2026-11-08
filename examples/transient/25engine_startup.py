@@ -1,13 +1,3 @@
-# Approximate map-generation-only runtime: 84.0 seconds (simulation not run).
-
-import numpy as np
-from scipy.constants import *
-
-from fullflow import *
-from thermoprop import *
-import fullplot as fplt
-
-
 """
 Dual-Propellant Dry-Line Priming and Ignition Startup Example
 ============================================================
@@ -42,7 +32,7 @@ The startup sequence is intentionally split into two phases:
        the injector pressure bluelines latch, and the ignition command turns on.
        The ignition command does not directly force chamber pressure or nozzle
        flow. Instead, it drives a physical combustion-progress state whose time
-       constant is the chamber residence time.
+       constant is the greater of the chamber residence and ignition-development times.
 
 Physical layout
 ---------------
@@ -81,15 +71,16 @@ is tracked as an effective drain/bypass path. This is a reduced-order version of
 
 Combustion progress is modeled as:
 
-    d(progress)/dt = (ignition_command - progress) / residence_time
+    d(progress)/dt = (ignition_command - progress) / progress_time
 
 where:
 
     residence_time = chamber_gas_inventory / injector_total_mass_flow
+    progress_time = max(residence_time, ignition_development_time)
 
-This makes the ignition transition depend on chamber gas inventory and injector
-mass flow instead of an arbitrary command ramp. The ignition command is still a
-sequence event, but the burn-in is a dynamic state.
+The minimum progress time represents finite ignition development; chamber
+residence time still determines the response once it is longer. The ignition
+command is still a sequence event, but the burn-in is a dynamic state.
 
 What this example is and is not
 ------------------------------
@@ -109,10 +100,18 @@ one-state residence-time approximation suitable for a lumped transient example.
 
 Files
 -----
-The combustion map is stored in the same HDF5 file used for results. Set
-``generate_combustion_map = True`` once to generate the map, then set it back to
-``False`` for normal runs.
+The combustion map and solver output share `25engine_startup.h5`, using the
+configured `filename`.
+Regenerate the map only if its thermochemistry or range needs changing.
 """
+
+import numpy as np
+from scipy.constants import *
+
+from fullflow import *
+from thermoprop import *
+import fullplot as fplt
+
 
 
 # -----------------------------------------------------------------------------
@@ -122,8 +121,7 @@ The combustion map is stored in the same HDF5 file used for results. Set
 dt = 0.001
 t_final = 0.35
 filename = '25engine_startup'
-# Output HDF5 file stem. FullFlow and FullPlot will use this file for both
-# generated map data and transient results.
+# The combustion map and solver results share this file.
 
 # Set this to True only when the RP-1/LOX product-property map needs to be
 # regenerated. Normal example runs should leave it False so startup simulation
@@ -207,11 +205,10 @@ chamber_volume = 6.0e-2
 nozzle_throat_area = 6.0 / 1550.0
 nozzle_expansion_ratio = 5.0
 
-# Guards used in the residence-time calculation. They keep the denominator from
-# going to zero before injector flow exists and prevent an unrealistically tiny
-# residence time in the first few post-ignition timesteps.
+# The ignition-development floor is a reduced-order combustion-model parameter,
+# not a nonlinear-solver tolerance.
 minimum_combustion_mass_flow = 1.0e-6
-minimum_combustion_residence_time = 1.0e-4
+minimum_combustion_progress_time = 3.0e-3
 
 
 
@@ -382,7 +379,7 @@ class FirstOrderProgress(Component):
         progress = float(self.progress.value)
         time_constant = max(
             float(self.time_constant.value),
-            minimum_combustion_residence_time,
+            minimum_combustion_progress_time,
         )
 
         # Keep the progress model in its physical range. These clamps are local
@@ -897,11 +894,11 @@ combustion_residence_time = chamber_gas_inventory / smooth_max(
     1.0e-8,
 )
 
-# Apply a lower bound to keep the reduced-order progress model well behaved at
-# the first few timesteps after ignition.
+# The chamber residence time controls flushing; the minimum also represents
+# finite flame development after the ignition permissives latch.
 combustion_residence_time = smooth_max(
     combustion_residence_time,
-    minimum_combustion_residence_time,
+    minimum_combustion_progress_time,
     1.0e-9,
 )
 

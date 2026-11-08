@@ -130,7 +130,7 @@ filename = "26pid_throttle"
 
 # ---- File / map generation switches ---- #
 
-# FullPlot writes maps and FullFlow solver results into this HDF5 file.
+# The combustion map, throttle map, and solver results share filename.
 
 # Set this True only when the combustion-products map needs to be regenerated.
 # This can take longer than running the transient example.
