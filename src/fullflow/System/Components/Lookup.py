@@ -1437,6 +1437,10 @@ class Lookup(Component, Generic[T]):
     def _update_existing_output(self, args: list[Any], kwargs: dict[str, Any]) -> Any:
         obj = self.output.value
 
+        # Mapping.update modifies entries; it does not recompute a physical model.
+        if isinstance(obj, Mapping):
+            raise NotImplementedError
+
         update = getattr(obj, "update", None)
 
         if update is None or not callable(update):
