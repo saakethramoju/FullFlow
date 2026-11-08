@@ -18,7 +18,6 @@ if TYPE_CHECKING:
 
 T = TypeVar("T")
 
-_SIGNATURE_CACHE: dict[int, tuple[inspect.Signature | None, set[str], bool]] = {}
 _UPDATE_ACCEPTS_SOLVE_CACHE: dict[type, bool] = {}
 
 _MISSING = object()
@@ -698,33 +697,23 @@ class Lookup(Component, Generic[T]):
         return args, kwargs
 
     def _inspect_callable_signature(self) -> None:
-        cache_key = id(self.callable)
-        cached = _SIGNATURE_CACHE.get(cache_key)
-
-        if cached is None:
-            accepted_keywords: set[str] = set()
-            accepts_var_keyword = False
+        accepted_keywords: set[str] = set()
+        accepts_var_keyword = False
+        try:
+            signature = inspect.signature(self.callable)
+        except (TypeError, ValueError):
             signature = None
 
-            try:
-                signature = inspect.signature(self.callable)
-            except (TypeError, ValueError):
-                pass
+        if signature is not None:
+            for parameter in signature.parameters.values():
+                if parameter.kind == parameter.VAR_KEYWORD:
+                    accepts_var_keyword = True
+                elif parameter.kind in {
+                    parameter.POSITIONAL_OR_KEYWORD,
+                    parameter.KEYWORD_ONLY,
+                }:
+                    accepted_keywords.add(parameter.name)
 
-            if signature is not None:
-                for parameter in signature.parameters.values():
-                    if parameter.kind == parameter.VAR_KEYWORD:
-                        accepts_var_keyword = True
-                    elif parameter.kind in {
-                        parameter.POSITIONAL_OR_KEYWORD,
-                        parameter.KEYWORD_ONLY,
-                    }:
-                        accepted_keywords.add(parameter.name)
-
-            cached = (signature, accepted_keywords, accepts_var_keyword)
-            _SIGNATURE_CACHE[cache_key] = cached
-
-        signature, accepted_keywords, accepts_var_keyword = cached
         object.__setattr__(self, "_signature", signature)
         object.__setattr__(self, "_accepted_keywords", accepted_keywords)
         object.__setattr__(self, "_accepts_var_keyword", accepts_var_keyword)

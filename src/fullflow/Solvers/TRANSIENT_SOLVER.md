@@ -70,7 +70,7 @@ The default nonlinear settings are:
 | `state_max_passes` | `5` | Maximum passes to settle derived component values |
 | `state_tolerance` | `1e-10` | Convergence threshold for those evaluation passes |
 
-After the first time-commanded operating-mode change, the timestep solver can use one-sided (`"2-point"`) finite differences in place of symmetric (`"3-point"`) differences. This improves derivatives near nonsmooth flow transitions, such as zero pressure drop. The choice is internal and does not require component-specific annotations or changes to the user's equations.
+When a sufficiently large time-commanded operating-mode change is detected, the solver temporarily uses one-sided (`"2-point"`) finite differences instead of the requested symmetric (`"3-point"`) differences. This can avoid derivatives spanning different flow regimes. The recovery window is bounded to sixteen accepted steps after the most recent qualifying change; the requested method is restored afterward. Additional command changes restart the window. The verbose summary distinguishes the requested method from steps evaluated with the temporary method. Residual acceptance tolerances are unchanged.
 
 Successful nonlinear termination alone is insufficient: the computed state is accepted only when its verified scaled residuals meet `rtol`. A failed trial can trigger numerical refinement and, if needed, step rejection. FullFlow reports actual solver statistics and raw residuals; it does not treat an unsuccessful iterate as a converged state.
 
@@ -84,7 +84,7 @@ The solver checks the transferred Jacobian against the actual residual change be
 
 Accepted-step solver counts do not include every rejected, speculative, or event-localization evaluation. `transient.work_statistics` reports whole-solve counts for implicit residual calls, Newton attempts and Jacobian builds, SciPy calls, event probes, and post-switch algebraic reconciliation. The accepted-step diagnostic table retains its own counters separately.
 
-The verbose summary distinguishes these scopes. HDF5 stores the whole-solve counters as `solver_work_*` entries in the run metadata table. SciPy Jacobian counts use the counts reported by completed SciPy solves; the full residual-call count includes numerical differentiation and failed attempts. When a time-commanded mode change triggers an internal switch to one-sided finite differences, `one_sided_jacobian_steps` reports how many implicit solves used that recovery policy.
+The verbose summary distinguishes these scopes. HDF5 stores the whole-solve counters as `solver_work_*` entries in the run metadata table. SciPy Jacobian counts use the counts reported by completed SciPy solves; the full residual-call count includes numerical differentiation and failed attempts. The `one_sided_jacobian_steps` statistic counts implicit solves performed with the temporary one-sided recovery policy, including retries and event probes.
 
 ## Residual scaling
 

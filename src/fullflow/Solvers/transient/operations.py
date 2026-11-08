@@ -102,7 +102,7 @@ class TransientStepSolve:
         """Forget prior accepted steps at the beginning of a new solve."""
         self._clear_newton_jacobian()
         self._scipy_refinement = None
-        self._encountered_nonsmooth_control = False
+        self._one_sided_recovery_steps = 0
         self._accepted_equation_scales: np.ndarray | None = None
         self._previous_step_x: np.ndarray | None = None
         self._accepted_step_x: np.ndarray | None = None
@@ -220,7 +220,13 @@ class TransientStepSolve:
         self._accepted_step_ids = tuple(id(state) for state in cache.iteration_variables)
         self._accepted_step_version = getattr(cache, "version", None)
         self._accepted_residual_count = residual_count
-        self._accepted_control_values = self._control_values(cache)
+        current_controls = self._control_values(cache)
+        if (self._accepted_control_values is not None and
+                self._controls_changed(self._accepted_control_values, current_controls)):
+            self._one_sided_recovery_steps = 16
+        elif self._one_sided_recovery_steps:
+            self._one_sided_recovery_steps -= 1
+        self._accepted_control_values = current_controls
         scaling = self._active_equation_scaling
         self._accepted_equation_scales = (
             scaling.scales.copy() if scaling is not None and scaling.scales is not None
@@ -811,28 +817,22 @@ class TransientStepSolve:
 
 
             initial_residual = predicted_residual if use_prediction else r0
-            # A jump/steep change in an applied command can place a nonlinear
-            # flow equation at a kink (e.g. valve flow at zero pressure drop).
-            # Symmetric differences then average different physical branches.
-            # Select the feasible one-sided derivative *before* the solve, not
-            # as a second-solver fallback or an equation-specific workaround.
+            # Use one-sided differences briefly after a command-mode change.
+            # Return to the requested method once the transition has settled.
             previous_controls = self._accepted_control_values
             changed_controls = (
-                previous_controls is not None and
-                self._controls_changed(previous_controls, self._control_values(cache))
+                previous_controls is not None
+                and self._controls_changed(previous_controls, self._control_values(cache))
             )
-            # Once a time-commanded mode change has been encountered, keep
-            # one-sided differences for the remainder of this transient solve.
-            # The same commands can move through zero-flow/kink regions again.
-            if changed_controls:
-                self._encountered_nonsmooth_control = True
-            if self._encountered_nonsmooth_control and least_squares_settings.jacobian_method == "3-point":
+            one_sided = (
+                (changed_controls or self._one_sided_recovery_steps > 0)
+                and least_squares_settings.jacobian_method == "3-point"
+            )
+            if one_sided:
                 self.work_statistics["one_sided_jacobian_steps"] += 1
             step_settings = (
                 replace(least_squares_settings, jacobian_method="2-point")
-                if (self._encountered_nonsmooth_control
-                    and least_squares_settings.jacobian_method == "3-point")
-                else least_squares_settings
+                if one_sided else least_squares_settings
             )
             if self._may_try_modified_newton(
                 cache, step_settings, initial_guess, initial_residual,

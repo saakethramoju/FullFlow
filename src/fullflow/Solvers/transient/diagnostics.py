@@ -157,14 +157,20 @@ class TransientPrinter:
         if stop_reason:
             table.add_row(_plain("Stop reason"), _plain(stop_reason))
         if last_status is not None:
-            table.add_row(_plain("Last SciPy status"), _plain(last_status))
-        table.add_row(_plain("Last SciPy message"), _plain(last_message))
+            table.add_row(_plain("Last nonlinear status"), _plain(last_status))
+            table.add_row(_plain("Last nonlinear message"), _plain(last_message))
         requested_dt_text = f"{float(requested_dt):.9g}"
 
         table.add_row(_plain("Solver type"), _plain("Fixed-step implicit backward Euler"))
-        table.add_row(_plain("Nonlinear solver"), _plain("scipy.optimize.least_squares"))
+        table.add_row(
+            _plain("Nonlinear solver"),
+            _plain("Safeguarded Newton/Broyden with SciPy least_squares fallback"
+                   if method == "trf" else "SciPy least_squares"),
+        )
         table.add_row(_plain("Solver method"), _plain(method))
-        table.add_row(_plain("Jacobian method"), _plain(jac))
+        table.add_row(_plain("Requested Jacobian method"), _plain(jac))
+        if work_statistics and work_statistics.get("one_sided_jacobian_steps", 0):
+            table.add_row(_plain("Temporary Jacobian recovery"), _plain("2-point near command transitions"))
         table.add_row(_plain("Start time"), _plain(f"{start_time:.9g}"))
         table.add_row(_plain("Final time"), _plain(f"{final_time:.9g}"))
         table.add_row(_plain("Requested dt"), _plain(requested_dt_text))
@@ -185,7 +191,7 @@ class TransientPrinter:
                 ("SciPy solver calls", "scipy_solves"),
                 ("Localized event probe solves", "event_probes"),
                 ("Post-switch algebraic residual calls", "reconciliation_residual_calls"),
-                ("One-sided Jacobian steps", "one_sided_jacobian_steps"),
+                ("Command-transition one-sided Jacobian steps", "one_sided_jacobian_steps"),
             ):
                 table.add_row(_plain(label), _plain(work_statistics.get(key, 0)))
         table.add_row(_plain("Total cost"), _plain(f"{total_cost:.6e}"))
