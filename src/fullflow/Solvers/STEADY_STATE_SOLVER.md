@@ -68,23 +68,23 @@ The nonlinear solver automatically scales equations, including arbitrary dimensi
 
 Let `r(x)` be the raw residual vector and `J` its raw Jacobian with respect to the unknowns. With characteristic unknown scales
 
-$$
+```math
 s_{x,j}=\max(|x_j|,1),
-$$
+```
 
 FullFlow estimates each row's sensitivity:
 
-$$
+```math
 q_i=\max_j\left(|J_{ij}|s_{x,j}\right).
-$$
+```
 
 The row scales are derived from finite, non-negligible sensitivities, bounded below by `1e-10` and above by the lesser of `1e12` and **1,000 times the median usable row sensitivity** (with the implemented safeguards). Rows with unusable sensitivities retain a scale of one. This limit prevents an extreme initial Jacobian row from effectively removing an equation from the least-squares objective.
 
 The nonlinear solver uses
 
-$$
+```math
 \hat r_i=r_i/s_{r,i},\qquad \hat J_{ij}=J_{ij}/s_{r,i}.
-$$
+```
 
 The scales stay fixed during an individual solve; they are not recomputed at every trial point. FullFlow reuses its initial numerical Jacobian when constructing the SciPy solve rather than building a separate, redundant Jacobian just for scaling.
 

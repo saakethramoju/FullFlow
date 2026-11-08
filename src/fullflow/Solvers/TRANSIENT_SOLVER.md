@@ -17,15 +17,15 @@ The user chooses the nominal timestep. FullFlow can shorten steps at known sched
 
 For a dynamic equation `(state, derivative)`, backward Euler requires
 
-$$
+```math
 x_{n+1}-x_n-\Delta t\,f_{n+1}=0.
-$$
+```
 
 For `(variable, integrated_state, derivative)`, the solver adjusts `variable` while integrating `integrated_state`:
 
-$$
+```math
 s_{n+1}-s_n-\Delta t\,f_{n+1}=0.
-$$
+```
 
 This supports models in which pressure or temperature is the nonlinear unknown while mass or internal energy is the stored physical state.
 
@@ -49,7 +49,7 @@ The initial state is the state currently assigned in the network. The solver eva
 
 If a step fails, the solver restores the previous accepted state and halves the attempted timestep. By default it permits `max_step_retries=8` and uses a minimum retry timestep of `dt * 1e-9` unless `minimum_dt` is supplied. Exhausting the retry limit raises `TransientStepError` with diagnostic residuals. This is a **timestep integration safeguard**, not an alternative set of physical equations.
 
-Tabular breakpoints prevent stepping over known discontinuities. Sampled `Sequence` controllers use exact integer-indexed sample times and hold commands between accepted updates without event searches. An event-enabled Sequence can locate discontinuous switching using additional implicit trial solves. Sensor and mode events invalidate cached Jacobians and equation scales as needed. A Sequence may also request an abort, which ends the run and records the stop reason. For controller timing and memory semantics, see [SEQUENCE.md](../../../docs/SEQUENCE.md).
+Tabular breakpoints prevent stepping over known discontinuities. Sampled `Sequence` controllers use exact integer-indexed sample times and hold commands between accepted updates without event searches. An event-enabled Sequence can locate discontinuous switching using additional implicit trial solves. Sensor and mode events invalidate cached Jacobians and equation scales as needed. A Sequence may also request an abort, which ends the run and records the stop reason. For controller timing and memory semantics, see [SEQUENCE.md](../System/Components/SEQUENCE.md).
 
 ## Nonlinear solution
 
@@ -92,18 +92,18 @@ FullFlow handles dynamic integration residuals and user algebraic equations diff
 
 For an integrated state `s`, its previous value `s_old`, derivative `f`, and attempted timestep `dt`, the integration residual is
 
-$$
+```math
 R_{\mathrm{BE}}=\frac{s-s_{\mathrm{old}}-dt\,f}
 {dt\,\max(|s|,|s_{\mathrm{old}}|,|dt\,f|,1)}.
-$$
+```
 
 This normalization is built into the transient runtime. These integration rows are **not** scaled a second time.
 
 Algebraic component balances, user `Balance` equations, and forced-steady derivative rows use the shared automatic **Jacobian-based equation scaling**. For unknown scales `s_x,j = max(abs(x_j), 1)`, the raw Jacobian defines row sensitivities
 
-$$
+```math
 q_i=\max_j(|J_{ij}|s_{x,j}).
-$$
+```
 
 Usable row scales are bounded between `1e-10` and the lesser of `1e12` and 1,000 times the median usable sensitivity. Invalid or negligible sensitivities retain a row scale of one. The solver works with `r_i / s_r,i`, keeping scales fixed within each nonlinear solve.
 

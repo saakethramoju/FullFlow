@@ -33,9 +33,9 @@ trial inputs during nonlinear solves.
 
 For a one-dimensional cell between $x_0$ and $x_1$, linear interpolation is
 
-$$
+```math
 y(x)=(1-w)y_0+wy_1,\qquad w=\frac{x-x_0}{x_1-x_0}.
-$$
+```
 
 For two axes, `Map` uses bilinear interpolation; higher-dimensional maps use
 multilinear interpolation. Axis dictionaries may specify `"spacing": "log"`;
