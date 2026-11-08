@@ -21,15 +21,27 @@ PID or LQR-specific equations. `sample_rate` is measured in updates per second
 
 ## Continuous feedback
 
-For continuous proportional control:
+This example defines the network, shared States, and proportional callback.
+Connect `pressure` and `command` to the plant components in your model:
 
 ```python
+from fullflow import Network, Sequence, State
+
+network = Network("Continuous Pressure Control")
+pressure = State(2.0e5)
+setpoint = State(2.1e5)
+command = State(0.0)
+gain = 1.0e-5
+
+
 def pressure_control(t, pressure, setpoint):
     return gain * (setpoint - pressure)
 
-Sequence(
-    "Pressure Feedback", network,
-    target=command, function=pressure_control,
+PressureFeedback = Sequence(
+    "Pressure Feedback",
+    network,
+    target=command,
+    function=pressure_control,
     inputs=[pressure, setpoint],
 )
 ```
@@ -49,9 +61,20 @@ switching mode instead.
 
 ## Bang-bang and localized switching
 
-A controller using hysteresis needs the last accepted command:
+A controller using hysteresis needs the last accepted command. Here the
+pressure thresholds are in pascals; connect `tank_pressure` and `valve_command`
+to the tank and valve components:
 
 ```python
+from fullflow import Network, Sequence, State
+
+network = Network("Pressurant Control")
+tank_pressure = State(2.9e5)
+valve_command = State(0.0)
+lower_threshold = 2.8e5
+upper_threshold = 3.2e5
+
+
 def bang_bang(t, pressure, previous_command):
     if pressure > upper_threshold:
         return 0.0
@@ -59,10 +82,13 @@ def bang_bang(t, pressure, previous_command):
         return 1.0
     return previous_command
 
-Sequence(
-    "Pressurant Control", network,
-    target=valve_command, function=bang_bang,
-    inputs=[tank_pressure, valve_command], event=True,
+PressurantControl = Sequence(
+    "Pressurant Control",
+    network,
+    target=valve_command,
+    function=bang_bang,
+    inputs=[tank_pressure, valve_command],
+    event=True,
 )
 ```
 
@@ -84,19 +110,36 @@ A digital controller updates every $T_s=1/f_s$ seconds. Its first callback is
 at the initial simulation time plus $T_s$; the target must have an initial
 value. Sample times use an integer index to avoid accumulated clock drift.
 
+This example initializes the gains and controller memory. Connect `pressure`
+and `valve_command` to the plant; tune the gains for its units and dynamics:
+
 ```python
+from fullflow import Network, Sequence, State
+
+network = Network("Sampled Pressure Control")
+pressure = State(2.0e5)
+setpoint = State(2.1e5)
+valve_command = State(0.0)
+Kp = 1.0e-5
+Ki = 2.0e-6
+Kd = 1.0e-7
+
+
 def pid(t, pressure, setpoint, *, dt, memory):
     integral, last_error = memory
     error = setpoint - pressure
     integral += error * dt
     derivative = (error - last_error) / dt
-    command = max(0.0, min(1.0, Kp*error + Ki*integral + Kd*derivative))
+    command = max(0.0, min(1.0, Kp * error + Ki * integral + Kd * derivative))
     return command, (integral, error)
 
-Sequence(
-    "Digital PID", network,
-    target=valve_command, function=pid,
-    inputs=[pressure, setpoint], sample_rate=100.0,
+DigitalPID = Sequence(
+    "Digital PID",
+    network,
+    target=valve_command,
+    function=pid,
+    inputs=[pressure, setpoint],
+    sample_rate=100.0,
     memory=(0.0, 0.0),
 )
 ```
