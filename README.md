@@ -284,6 +284,8 @@ Important network methods:
 - `network.solve(...)` is a convenience wrapper around
   `SteadyState(network).solve(...)`.
 - `network.static_evaluate(...)` evaluates components without nonlinear solving.
+- `network.snapshot()` captures reusable initial conditions; `network.restore(snapshot)`
+  returns the same Network to that operating point.
 
 ### Component
 
@@ -1392,6 +1394,77 @@ separate `failures` list. Every successful option has the same `tracked`,
 `components`, `solver`, `events`, `model`, and `history` keys as a normal solve.
 For a single selected option, any failed earlier attempts appear directly in
 `results["failures"]`. HDF5 model-option run groups remain unchanged.
+
+## Reusing Networks for repeated simulations
+
+`Network.snapshot()` captures the current operating point so the same `Network`
+can be used for multiple independent cases. `Network.restore(snapshot)` resets
+its numerical States, prior-step values, Component runtime fields, controller
+memory, Sensor records, State expressions, and bounds. Registered `State` and
+`Component` objects retain their identities, so existing connections stay valid.
+
+Create the Network and its selected model configuration first, then save its
+initial conditions. Restore before *each* case, including the first, and change
+only the inputs for that case:
+
+```python
+# Flight is an existing Network; Rocket is one of its Components.
+# Register the track before capturing the snapshot.
+Flight.track("Altitude [m]", Rocket.altitude)
+
+initial = Flight.snapshot()
+solver = Transient(Flight)
+
+cases = [(18.0, 0.008), (20.0, 0.010), (22.0, 0.012)]
+apogees = []
+
+for speed, drag in cases:
+    Flight.restore(initial)
+    Rocket.velocity.value = speed
+    Rocket.drag_coefficient.value = drag
+
+    result = solver.solve(
+        dt=0.02, t_final=4.0,
+        history="summary", filename=None,
+    )
+    apogees.append(result["tracked"]["Altitude [m]"]["max"])
+```
+
+`Flight`, `Rocket`, and the case inputs above are defined by the application.
+For a standalone example, run
+[`examples/transient/30monte_carlo.py`](examples/transient/30monte_carlo.py).
+The same snapshot pattern works for repeated steady-state solves:
+
+```python
+initial = network.snapshot()
+steady = SteadyState(network)
+
+for pressure in pressures:
+    network.restore(initial)
+    tank.pressure.value = pressure
+    result = steady.solve(filename=None)
+    # Read the relevant entries from result["tracked"] or result["components"].
+```
+
+Snapshots are bound to the original Network and selected `Model` option. They
+cannot be restored to a different Network or after topology/model-option
+changes; capture a new snapshot for a different configuration. Numerical values
+can be changed freely between runs. Arbitrary external state, including module
+globals, external random generators, or open resource handles, is not
+necessarily rewound and must be managed by the application.
+
+When the same `Transient` instance is reused, FullFlow verifies the current
+State graph and equation layout before retaining prepared solver metadata.
+Changes that invalidate the layout trigger reconstruction; numerical Jacobians,
+Newton history, and timestep prediction are reset for independent solves.
+This saves preparation overhead, not the cost of integrating each trajectory.
+
+For a large campaign, prefer `history="summary"` and `filename=None` unless
+complete time series are needed. Use a separate Network and solver **per
+process**, not one Network shared between workers. Each worker can restore its
+own initial snapshot for multiple cases, and return only compact results.
+Avoid concurrent writes to the same HDF5 filename. Seed randomized cases
+independently of worker scheduling.
 
 ## Linearization and local state-space models
 

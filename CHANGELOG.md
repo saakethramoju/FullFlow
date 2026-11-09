@@ -1,38 +1,13 @@
 # Changelog
 
-## Unreleased
-
-* Return consistently structured dictionaries from steady-state and transient
-  solves, with intuitive access to tracked values, Component attributes,
-  solver statistics, events, and model-option results; remove `return_type`.
-* Add `history="summary"` for streaming extrema and final values without
-  retaining accepted-step output records or historical checkpoints.
-* Keep full-history HDF5/FullPlot output unchanged and support compact summary
-  HDF5 exports and final-point linearization in summary mode.
-* Add a lightweight repeated-flight example using the summary results API.
-
-* Allow Components to reference other registered Components directly, including
-  references inside containers, without wrapping or copying them as States.
-* Preserve Component identity through checkpoints, transient retries, model
-  options, and historical linearization; reject invalid cross-network or stale
-  references before solving.
-* Prevent stale Lookup caching when a callable receives a Component object.
-* Add a coupled tank-and-vehicle transient example demonstrating mass and
-  acceleration feedback between custom Components.
-
 ## 4.0.2
 
-* Added verified numerical Jacobian coloring, sparse linear solves, and improved nonlinear recovery for steady-state and transient simulations.
-* Reduced repeated Jacobian work in SciPy fallback and reused eligible Newton factorizations.
-* Moved precomputed example input maps under `examples/maps/` and separated them from generated solver results.
-* Added a full-example CI check that must pass before PyPI publication.
-* Added continuous Sequence feedback, precisely localized switching, and sampled digital control with accepted-only controller memory updates.
-* Improved event-trial prediction and preserved coupled nonlinear validation and rollback.
-* Reused verified numerical Jacobians between compatible event-localization trials, with safeguarded fallback and whole-solve nonlinear-work diagnostics.
-* Extended operating-point checkpoints to capture mutable fields on custom slotted Python helper objects.
-* Added controller regression tests, a Sequence usage guide, and representative control benchmarks.
-* Reduced steady-state and transient overhead through faster State handling, selective trial restoration, and more efficient checkpoint snapshots.
-* Improved checkpoint restoration and retrospective linearization for mutable and dataclass-backed component state.
+* Improved steady-state and transient performance with verified Jacobian coloring, sparse linear solves, guarded Jacobian reuse, and more efficient state/checkpoint handling.
+* Improved nonlinear recovery and event handling, including precise Sequence switching, sampled digital controllers, and accepted-only controller memory updates.
+* Added structured dictionaries for steady-state and transient results and `history="summary"` for compact extrema, final values, HDF5 summaries, and final-point linearization; removed `return_type`.
+* Supported direct references between Components and improved identity preservation across retries, checkpoints, model options, and linearization.
+* Added `Network.snapshot()` and `Network.restore()` for repeated simulations.
+* Many new examples!
 
 ## 4.0.1
 

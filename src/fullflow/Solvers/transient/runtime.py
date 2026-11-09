@@ -174,6 +174,65 @@ class TransientRuntimeCache:
         self._history_state_refs = self._states_with_history()
         self.version = self.network.version
 
+    def prepare_reused_run(self) -> bool:
+        """Validate the equation layout before reusing cached solver metadata."""
+        if not self.is_current():
+            return False
+        if any(self._is_sensor_anchor_owner(item) for item in self.component_list):
+            return False
+        if (len(self.component_list) != len(self.network.component_list)
+                or any(a is not b for a, b in zip(self.component_list, self.network.component_list))):
+            return False
+
+        self.network.validate_component_references()
+        self.set_transient_context(dt=0.0)
+        self.apply_sequence_commands(float(self.network.time.value))
+        evaluate_components_for_equation_discovery(self.component_list, solve_mode="transient")
+
+        for component in self.component_list:
+            equations = component_dynamics(component)
+            old_variables = self._transient_variable_lists.get(id(component), ())
+            old_states = self._transient_state_lists.get(id(component), ())
+            if (len(equations) != len(old_variables)
+                    or any(eq.variable is not var or eq.state is not state
+                           for eq, var, state in zip(equations, old_variables, old_states))):
+                return False
+
+        component_equations = [
+            (component, eq.variable)
+            for component in self.component_list
+            for eq in component_balances(component)
+        ]
+        previous_components = [(item.owner, item.state) for item in self.algebraic_component_items]
+        if (len(component_equations) != len(previous_components)
+                or any(owner is not old_owner or state is not old_state
+                       for (owner, state), (old_owner, old_state)
+                       in zip(component_equations, previous_components))):
+            return False
+
+        from fullflow.Solvers.equations import balance_object_equations
+        balance_equations = [
+            (balance, eq.variable)
+            for balance in self.balance_list
+            for eq in balance_object_equations(balance)
+        ]
+        previous_balances = [(item.owner, item.state) for item in self.balance_items]
+        if (len(balance_equations) != len(previous_balances)
+                or any(owner is not old_owner or state is not old_state
+                       for (owner, state), (old_owner, old_state)
+                       in zip(balance_equations, previous_balances))):
+            return False
+
+        # A replaced State may affect convergence even if it is not an unknown.
+        current_states = self._collect_all_state_refs()
+        if (len(current_states) != len(self.all_state_refs)
+                or any(a is not b for a, b in zip(current_states, self.all_state_refs))):
+            return False
+        self._active_sensor_balance_owner_ids.clear()
+        self._direct_sensor_balance_owner_ids.clear()
+        self._sensor_balance_configured = False
+        return True
+
     @staticmethod
     def _is_sensor_anchor_owner(component: Any) -> bool:
         """Return True for Sensor-like components that can act as balances."""

@@ -145,6 +145,42 @@ In full mode, accepted operating-point checkpoints also preserve internal model 
 
 `verbose=True` prints the final summary and network state. `statistics=True` prints accepted-step progress and solver diagnostics. Model-option runs start from restored initial conditions, so alternative options are evaluated independently.
 
+## Reusing a transient Network
+
+For independent runs with the same model topology, build the Network and
+`Transient` solver once, capture an initial snapshot, and restore it before
+changing each case's inputs:
+
+```python
+initial = network.snapshot()
+transient = Transient(network)
+
+for pressure in starting_pressures:
+    network.restore(initial)
+    tank.pressure.value = pressure
+    result = transient.solve(
+        dt=0.01, t_final=10.0,
+        history="summary", filename=None,
+    )
+```
+
+A snapshot restores State values and integration history, Component runtime
+fields, controller memory, and Sensor events without replacing registered
+objects. It is valid only for the same Network and selected Model option, with
+unchanged structure. When reusing a `Transient` instance, FullFlow checks
+equation ownership and reachable State references before reusing prepared
+runtime metadata. It rebuilds that metadata when validation fails. Numerical
+Jacobians and nonlinear iteration/prediction history are not carried over to
+independent runs; valid learned Jacobian sparsity can be retained with its
+existing safety checks.
+
+For campaigns, `history="summary"` returns final values and tracked extrema
+without full time series. Use `history="full"` if historical plots or
+multi-time linearization are needed. Separate worker processes must each own
+their Network, solver, and snapshot; do not share an HDF5 output filename.
+See
+[`examples/transient/30monte_carlo.py`](../../../examples/transient/30monte_carlo.py).
+
 ## Forced-steady sweeps
 
 `Transient.solve()` performs normal dynamic integration. To advance a time-dependent model while forcing selected dynamics to zero, use:

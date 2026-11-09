@@ -288,7 +288,14 @@ class Transient:
         self._ignore_balances = ignore_balances
         self._force_steady = force_steady
         self._force_steady_exceptions = force_steady_exceptions
-        self._runtime_cache = None
+        prior_cache = self._runtime_cache
+        reuse_allowed = (
+            prior_cache is not None
+            and prior_cache.version == self.network.version
+            and prior_cache.ignore_balances == ignore_balances
+            and prior_cache.force_steady == force_steady
+            and prior_cache.force_steady_exceptions == force_steady_exceptions
+        )
 
         dt = self._validate_timestep(dt)
 
@@ -328,7 +335,10 @@ class Transient:
         self.history = TransientHistory(history)
         self.step_diagnostics = []
         summary_stats = DiagnosticSummary()
-        cache = self._refresh_runtime_cache()
+        if reuse_allowed and prior_cache.prepare_reused_run():
+            cache = prior_cache
+        else:
+            cache = self._refresh_runtime_cache()
 
         run_metadata = dict(metadata or {})
         run_metadata.update(cache.dynamic_mode_summary())

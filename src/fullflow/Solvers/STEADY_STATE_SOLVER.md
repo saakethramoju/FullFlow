@@ -134,6 +134,33 @@ Model-option runs have their own run groups. Returned dictionaries and HDF5 cont
 
 A successfully solved operating point can be linearized with `steady.linearize(...)`. Linearization independently checks the operating point's equations using scaled consistency criteria; it does not change the nonlinear solver's accepted state. See [LINEARIZATION.md](LINEARIZATION.md).
 
+## Repeated steady-state solves
+
+Use `Network.snapshot()` and `Network.restore(snapshot)` to reset a model before
+independent steady-state parameter cases without recreating its Components:
+
+```python
+initial = network.snapshot()
+steady = SteadyState(network)
+
+for pressure in inlet_pressures:
+    network.restore(initial)
+    inlet_pressure.value = pressure
+    result = steady.solve(filename=None)
+```
+
+Capture a snapshot after constructing the model and selecting its active option.
+The snapshot restores numerical and runtime state while preserving the identity
+of each Component and State. It cannot be transferred to another Network or
+restored after the Network structure or selected Model option changes. Custom
+Components with state outside the Network may need a separate reset.
+
+This reuse pattern avoids reconstructing the model, but does not guarantee
+reuse of steady-state solver factorizations or Jacobians between solves. For
+quasi-steady time sweeps, `SteadyState.solve(dt=..., t_final=...)` still uses
+the transient stepping machinery. See [TRANSIENT_SOLVER.md](TRANSIENT_SOLVER.md)
+and [`examples/transient/30monte_carlo.py`](../../../examples/transient/30monte_carlo.py).
+
 ## Implementation files
 
 - `steady_state/solver.py`: public API and time-sweep dispatch

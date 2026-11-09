@@ -11,6 +11,63 @@ if TYPE_CHECKING:
     from fullflow.System import Balance, Component, State
 
 
+class _NetworkSnapshot:
+    """Reusable initial operating point for one unchanged Network."""
+
+    def __init__(self, network):
+        from fullflow.Solvers.linearization.checkpoints import OperatingCheckpoint
+        from fullflow.Solvers.linearization.checkpoints import _copy, _field_names
+
+        network.validate_component_references()
+        self.network = network
+        self.version = network.version
+        self.components = tuple(network.component_list)
+        self.balances = tuple(network.balance_list)
+        self.models = tuple(network.model_list)
+        self.options = tuple((model, model.active_option_name) for model in self.models)
+        self.operating_point = OperatingCheckpoint(network)
+        self.state_references = []
+        for obj, _ in self.operating_point.attributes:
+            for name in _field_names(obj):
+                try:
+                    value = getattr(obj, name)
+                except Exception:
+                    continue
+                if is_state_like(value) and not isinstance(value, Component):
+                    self.state_references.append((obj, name, value))
+        self.state_configuration = {
+            state: (state._expr, state._lower_bound, state._upper_bound, state._keep_feasible)
+            for state in self.operating_point.states.states if isinstance(state, State)
+        }
+        self.sensor_events = _copy(network.sensor_event_list)
+
+    def restore(self, network):
+        from fullflow.Solvers.linearization.checkpoints import _copy
+
+        if network is not self.network:
+            raise ValueError("A Network snapshot can only restore its original Network.")
+        if (network.version != self.version
+                or any(a is not b for a, b in zip(network.component_list, self.components))
+                or len(network.component_list) != len(self.components)
+                or any(a is not b for a, b in zip(network.balance_list, self.balances))
+                or len(network.balance_list) != len(self.balances)
+                or any(a is not b for a, b in zip(network.model_list, self.models))
+                or len(network.model_list) != len(self.models)
+                or any(model.active_option_name != option for model, option in self.options)):
+            raise ValueError("Cannot restore after changing Network structure or model options.")
+        self.operating_point.restore()
+        for owner, name, state in self.state_references:
+            if getattr(owner, name, None) is not state:
+                setattr(owner, name, state)
+        for state, (expression, lower, upper, feasible) in self.state_configuration.items():
+            state._expr = expression
+            state._lower_bound = lower
+            state._upper_bound = upper
+            state._keep_feasible = feasible
+        network.sensor_event_list = _copy(self.sensor_events)
+        network.validate_component_references()
+
+
 class Network:
     """Container for a complete FullFlow simulation model."""
     def __init__(self, name: str) -> None:
@@ -24,6 +81,16 @@ class Network:
         self.tracked_state_list: list[dict[str, Any]] = []
         self.sensor_event_list: list[Any] = []
         self._version = 0
+
+    def snapshot(self):
+        """Capture a reusable initial operating point, including Component runtime state."""
+        return _NetworkSnapshot(self)
+
+    def restore(self, snapshot) -> None:
+        """Restore a snapshot without replacing registered Components or States."""
+        if not isinstance(snapshot, _NetworkSnapshot):
+            raise TypeError("Network.restore() expects a snapshot from Network.snapshot().")
+        snapshot.restore(self)
 
     @property
     def version(self) -> int:

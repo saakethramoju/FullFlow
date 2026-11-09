@@ -696,8 +696,6 @@ class TransientStepSolve:
         state_settings.validate()
         self._reset_prediction_history()
         self._reset_work_statistics()
-        self._jacobian_structure = JacobianStructure()
-        self._jacobian_structure_version = None
         cache = self._cache_getter()
         cache.run_pre_evaluation()
         cache = self._cache_getter()

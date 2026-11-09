@@ -87,6 +87,8 @@ class NetworkStateSnapshot:
                 if value_id not in seen_states:
                     seen_states.add(value_id)
                     states.append(value)
+                if value._expr is None:
+                    visit(value._value)
                 return
 
             if isinstance(value, (type, ModuleType, FunctionType, MethodType)):
