@@ -1,4 +1,3 @@
-
 """
 Simple reciprocating piston-cylinder example.
 

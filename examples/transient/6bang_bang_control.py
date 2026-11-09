@@ -1,4 +1,3 @@
-
 """
 Bang-bang pressurized methane tank transient example.
 
@@ -219,7 +218,6 @@ def bang_bang_condition(t, pressure, previous_cda):
         return 1.0
 
     return previous_cda
-
 
 
 BangBangSequence = Sequence(

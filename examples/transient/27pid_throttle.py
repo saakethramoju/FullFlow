@@ -521,6 +521,7 @@ Pc_max_psia = 310.0
 
 pc_setpoint = State(290.0)
 
+
 def pc_setpoint_step(t):
     """Pc command sequence.
 
@@ -793,7 +794,7 @@ Transient(Engine).solve(
 
 # ---- Plot results ---- #
 
-result = fplt.open(filename).at("Engine/transient/runs/base/tracks")
+result = fplt.open(filename).at("Engine/transient/tracks")
 
 mr = result.trace(y="Mixture_Ratio", x="time", name="Mixture Ratio")
 

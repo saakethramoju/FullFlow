@@ -2,6 +2,7 @@
 
 ## 4.0.2
 
+* Simplified HDF5 solver and linearization paths by removing the redundant `runs/base` groups.
 * Improved steady-state and transient performance with Jacobian coloring, sparse linear solves, guarded Jacobian reuse, and faster state/checkpoint handling.
 * Improved Sequence control with accepted-step, continuous, sampled, and event-driven feedback; fixed timestep-boundary switches by retaining the committed right-hand commands through floating-point time rounding and applying the per-timestep switch limit only within each requested timestep.
 * Added structured steady/transient result dictionaries and `history="summary"` for compact extrema, final values, HDF5 summaries, and final-point linearization; removed `return_type`.

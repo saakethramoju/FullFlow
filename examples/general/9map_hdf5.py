@@ -1,4 +1,3 @@
-
 """
 HDF5 Map example.
 

@@ -1,4 +1,3 @@
-
 from pathlib import Path
 
 import h5py
@@ -205,7 +204,7 @@ Transient(Test).solve(
 # This is not required for normal plotting. It is included so users can see
 # where the clean abort is recorded for automated post-processing.
 with h5py.File(RESULT_FILE, "r") as h5:
-    metadata = h5["Sequence_Commands_And_Abort/transient/runs/base/metadata"]
+    metadata = h5["Sequence_Commands_And_Abort/transient/metadata"]
 
     keys = [item.decode() if isinstance(item, bytes) else str(item) for item in metadata["key"][:]]
     values = [item.decode() if isinstance(item, bytes) else str(item) for item in metadata["value"][:]]
@@ -220,7 +219,7 @@ with h5py.File(RESULT_FILE, "r") as h5:
 # Plot the command, pressure, and redline
 # ---------------------------------------------------------------------------
 
-result = fplt.open(str(RESULT_FILE)).at("Sequence_Commands_And_Abort/transient/runs/base")
+result = fplt.open(str(RESULT_FILE)).at("Sequence_Commands_And_Abort/transient")
 #result.tree() # uncomment to see the result file structure
 
 result_time = result.time("time")

@@ -14,6 +14,7 @@ class Rotor(Component):
 
     Use it to couple pump and turbine torques when shaft speed must accelerate or
     decelerate rather than remain prescribed."""
+
     def __init__(
         self,
         name: str,
@@ -37,14 +38,13 @@ class Rotor(Component):
         return [(self.rotor_speed, self.rotor_speed_dot)]
 
 
-
-
 class GasTurbine(Component):
     """Quasi-steady gas turbine that converts pressure drop and torque into power.
 
     Use it with supplied map-derived flow parameter and torque values; it does not
     independently predict turbine geometry or off-design performance."""
-    def __init__(self, 
+
+    def __init__(self,
                  name: str,
                  network: Network,
                  rotor_speed: State,
@@ -57,7 +57,7 @@ class GasTurbine(Component):
                  specific_heat_ratio: float,
                  upstream_total_enthalpy: State | None = None,
                  ideal_total_enthalpy_change: float | None = None,
-                 
+
                  efficiency: State | None = None,
                  discharge_total_enthalpy: State | None = None,
                  shaft_power: State | None = None,
@@ -101,16 +101,14 @@ class GasTurbine(Component):
             self.efficiency.value = actual_total_enthalpy_change / ideal_total_enthalpy_change
 
 
-
-
-
 class ConstantDensityPump(Component):
     """Pump model for liquids whose density change is negligible.
 
     Use it for incompressible centrifugal or positive-displacement pump calculations
     when a head-rise curve or map supplies the operating head."""
+
     def __init__(self,
-                 name: str, 
+                 name: str,
                  network: Network,
                  mass_flow: State,
                  rotor_speed: State,
@@ -131,7 +129,7 @@ class ConstantDensityPump(Component):
     def evaluate_states(self):
         """Evaluate the component for the current network state."""
         mdot = self.mass_flow.value
-        H = self.head_rise.value 
+        H = self.head_rise.value
         g = self.gravitational_acceleration.value
         rho = self.density.value
         po_in = self.upstream_pressure.value
@@ -174,23 +172,19 @@ class ConstantDensityPump(Component):
         return [(self.mass_flow, self.discharge_pressure_error)]
 
 
-
-
-
-
-
 class PolytropicPump(Component):
 
     """Pump or compressor model that accounts for density change through the machine.
 
     Use it for cryogenic liquids, dense fluids, or compression ratios where the
     constant-density head relation is inadequate."""
+
     def __init__(self,
-                 name: str, 
+                 name: str,
                  network: Network,
                  mass_flow: State,
                  rotor_speed: State,
-                 head_rise: State, 
+                 head_rise: State,
                  upstream_pressure: State,
                  discharge_pressure: State,
                  upstream_density: State,

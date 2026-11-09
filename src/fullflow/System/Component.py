@@ -170,9 +170,6 @@ class Component:
         self.network.add_component(self)
 
 
-
-
-
     def active_in_solver(self, solve_mode: str) -> bool:
         """Return whether this component should run in the requested solver."""
         if bool(getattr(self, "TRANSIENT_ONLY", False)):

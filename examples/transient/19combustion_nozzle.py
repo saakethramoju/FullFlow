@@ -1,4 +1,3 @@
-
 """
 Smooth transient feed-system throttling example.
 

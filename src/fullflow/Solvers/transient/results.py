@@ -64,7 +64,7 @@ class TransientHistory:
         network,
         step_rows: list[dict[str, Any]],
         *,
-        group_path: str = "transient/runs/base",
+        group_path: str = "transient",
         metadata: dict[str, Any] | None = None,
         result: dict[str, Any] | None = None,
     ) -> None:

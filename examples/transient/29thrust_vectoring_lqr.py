@@ -161,7 +161,7 @@ Transient(Rocket).solve(
 # -----------------------------------------------------------------------------
 
 results = fplt.open(filename).at(
-    "Rocket_Pitch_Stabilization/transient/runs/base/tracks"
+    "Rocket_Pitch_Stabilization/transient/tracks"
 )
 results.plot(
     y=[

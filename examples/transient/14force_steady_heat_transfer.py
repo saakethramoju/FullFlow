@@ -1,4 +1,3 @@
-
 """
 Simple forced-steady time-sweep example.
 

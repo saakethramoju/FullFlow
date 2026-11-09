@@ -1,4 +1,3 @@
-
 """
 Steady-state concentric-tube heat exchanger example.
 
@@ -364,7 +363,6 @@ GasolineMap1 = Map(
 )
 
 
-
 # -----------------------------------------------------------------------------
 # Hot-fluid node 2 and property map
 # -----------------------------------------------------------------------------
@@ -395,8 +393,6 @@ GasolineMap2 = Map(
         "specific_heat": gasoline_specific_heat_cp,
     },
 )
-
-
 
 
 # -----------------------------------------------------------------------------
@@ -482,7 +478,6 @@ HotFluidFriction2 = Colebrook(
 )
 
 
-
 # Hot node 2 is another lumped storage volume. Steady state drives its mass and
 # energy derivatives to zero.
 HotFluidNode2 = Volume(
@@ -533,9 +528,6 @@ HotFluidFriction3 = Colebrook(
 )
 
 
-
-
-
 # -----------------------------------------------------------------------------
 # Coolant property lookups
 #
@@ -578,7 +570,6 @@ CoolantNode2Fluid = Lookup(
 )
 
 
-
 # -----------------------------------------------------------------------------
 # Annulus helper components
 #
@@ -599,7 +590,6 @@ AnnulusHydraulicDiameter = HydraulicDiameter(
     cross_sectional_area=Aox,
     wetted_perimeter=Pw_coolant,
 )
-
 
 
 # -----------------------------------------------------------------------------
@@ -652,7 +642,6 @@ CoolantNode1 = Volume(
     mass_flow_in=CoolantTube1.mass_flow,
     mass_flow_out=10
 )
-
 
 
 # -----------------------------------------------------------------------------
@@ -738,9 +727,6 @@ CoolantFriction3 = Colebrook(
 )
 
 
-
-
-
 # -----------------------------------------------------------------------------
 # Solid wall material lookups
 #
@@ -764,7 +750,6 @@ SolidNode2Material = Lookup(
     "c101",
     temperature = 298
 )
-
 
 
 # Solid thermal nodes. These provide energy balances for the tube wall.
@@ -797,7 +782,6 @@ TubeConduction = Conduction(
     conductive_area=A_wall_cross_section,
     length=L,
 )
-
 
 
 # -----------------------------------------------------------------------------
@@ -942,9 +926,6 @@ CoolantNode1.heat_rate = -Coolant1Solid2Convection.heat_rate
 CoolantNode2.heat_rate = -Coolant2Solid1Convection.heat_rate
 
 
-
-
-
 # -----------------------------------------------------------------------------
 # Tracks
 #
@@ -972,8 +953,6 @@ HeatExchanger.track("Coolant Node 2 Temperature [K]", CoolantNode2Fluid.temperat
 
 HeatExchanger.track("Solid Node 1 Temperature [K]", TubeNode1.temperature)
 HeatExchanger.track("Solid Node 2 Temperature [K]", TubeNode2.temperature)
-
-
 
 
 # -----------------------------------------------------------------------------

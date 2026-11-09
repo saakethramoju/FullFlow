@@ -12,7 +12,6 @@ from rich.table import Table
 from rich.text import Text
 
 
-
 def _plain(value: Any) -> Text:
     """Return literal Rich text so user labels are never parsed as markup."""
     return Text(str(value))

@@ -1,4 +1,3 @@
-
 """
 Heatsink thrust chamber assembly transient example.
 

@@ -1,4 +1,3 @@
-
 import numpy as np
 from scipy.constants import *
 
@@ -575,7 +574,7 @@ Transient(ValveOpeningSim).solve(
 # -----------------------------------------------------------------------------
 
 result = fplt.open(filename).at(
-    "Sudden_Valve_Opening/transient/runs/base/tracks"
+    "Sudden_Valve_Opening/transient/tracks"
 )
 
 

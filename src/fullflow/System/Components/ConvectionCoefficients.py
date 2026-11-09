@@ -68,8 +68,6 @@ class Gnielinski(Component):
         self.stanton_number.value = Nu / (Re * Pr) if Re * Pr != 0.0 else 0.0
 
 
-
-
 class Miropolskii(Component):
     """Forced-convection correlation for two-phase film-boiling flow.
 
@@ -143,16 +141,12 @@ class Miropolskii(Component):
         self.convection_coefficient.value = Nu * k_v / Dh
 
 
-
-
-
-
-
 class Petukhov(Component):
     """Turbulent internal-flow correlation for developed single-phase flow.
 
     Use it for strongly turbulent tube flow with a known Darcy friction factor;
     Gnielinski is generally preferable closer to the transition regime."""
+
     def __init__(
         self,
         name: str,
@@ -208,12 +202,12 @@ class Petukhov(Component):
         self.stanton_number.value = Nu / (Re * Pr)
 
 
-
 class SiederTate(Component):
     """Turbulent internal-flow correlation with a wall-viscosity correction.
 
     Use it when the wall and bulk temperatures differ enough that viscosity changes
     materially across the thermal boundary layer."""
+
     def __init__(
         self,
         name: str,
@@ -268,13 +262,12 @@ class SiederTate(Component):
         self.stanton_number.value = Nu / (Re*Pr)
 
 
-
-
 class DittusBoelter(Component):
     """Simple turbulent internal-flow correlation for smooth tubes.
 
     Use it for fully developed single-phase flow with modest property variation and
     Re well above transition; prefer Sieder-Tate for large wall/bulk differences."""
+
     def __init__(
         self,
         name: str,
@@ -318,7 +311,7 @@ class DittusBoelter(Component):
             Pr = mu * Cp / k
             self.prandtl_number.value = Pr
 
-        
+
         Nu = 0.023 * Re**0.8 * Pr**(1.0 / 3.0)
 
         self.convection_coefficient.value = Nu * k / Dh
@@ -327,17 +320,14 @@ class DittusBoelter(Component):
         self.stanton_number.value = Nu / (Re*Pr)
 
 
-
-
-
-
 class Bartz(Component):
     """Gas-side convection correlation for rocket chambers and nozzles.
 
     Use it for high-speed reacting-gas heat transfer near chamber, throat, and nozzle
     walls; it is not intended for ordinary incompressible pipe convection."""
-    def __init__(self, 
-                 name: str, 
+
+    def __init__(self,
+                 name: str,
                  network: Network,
                  mass_flow: State,
                  hydraulic_diameter: State | float,
@@ -366,7 +356,7 @@ class Bartz(Component):
 
         if self.throat_converging_radius.is_assigned:
             rc = self.throat_converging_radius.value
-            
+
             geometric_correction = D/rc
         else:
             geometric_correction = 1
@@ -378,14 +368,12 @@ class Bartz(Component):
         self.convection_coefficient.value = hg
 
 
-
-
-
 class NaturalConvection(Component):
     """Simple natural-convection estimate for an externally heated surface.
 
     Use it for preliminary buoyancy-driven heat-transfer estimates when there is no
     imposed flow and detailed geometry-specific correlations are unnecessary."""
+
     def __init__(
         self,
         name: str,
@@ -442,12 +430,12 @@ class NaturalConvection(Component):
         self.convection_coefficient.value = Nu * k / L
 
 
-
 class ChurchillChu(Component):
     """Natural-convection correlation for an isothermal vertical surface.
 
     Use it for buoyancy-driven external flow across a broad Rayleigh-number range;
     choose a geometry-specific correlation for horizontal or enclosed surfaces."""
+
     def __init__(
         self,
         name: str,

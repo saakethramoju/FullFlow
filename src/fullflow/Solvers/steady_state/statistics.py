@@ -673,7 +673,7 @@ class SolverStatistics:
 def statistics_path(filename: str, network_name: str | None = None, table_group: str = "statistics") -> HDF5Target:
     """Return the HDF5 target for solver statistics."""
     if network_name is None:
-        return HDF5Target(filename, f"steady_state/runs/base/{safe_group_name(table_group)}")
+        return HDF5Target(filename, f"steady_state/{safe_group_name(table_group)}")
     return HDF5Target(
         filename,
         f"{safe_group_name(network_name)}/{run_group_path('steady_state')}/{safe_group_name(table_group)}",

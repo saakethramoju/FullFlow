@@ -1,4 +1,3 @@
-
 """
 Basic Balance example.
 

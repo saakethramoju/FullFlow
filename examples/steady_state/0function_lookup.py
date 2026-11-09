@@ -1,4 +1,3 @@
-
 """
 Steady-state Lookup callable example: concrete column sizing.
 

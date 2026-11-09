@@ -185,7 +185,7 @@ FullFlow does **not** compute a hybrid-system transition map, saltation matrix, 
 An individual result is stored at a path resembling:
 
 ```text
-<Network>/linearization/steady_state/runs/base/
+<Network>/linearization/steady_state/
     A, B, C, D
     x0, xdot0, u0, y0
     states, inputs, outputs, time
@@ -196,7 +196,21 @@ For a transient run the path uses `transient` instead of `steady_state`.
 
 For multiple operating points, results are written under numbered `points/0`, `points/1`, and so on, with each point's own `time` dataset.
 
-`result.save(filename)` writes or replaces the individual result while preserving any saved `points/` group at the same run path. Multi-time saving replaces the existing `points/` group for the matching run path while preserving the base result. Use separate filenames to retain multiple different base analyses or point selections for the same run.
+`result.save(filename)` writes or replaces the individual result while preserving any saved `points/` group at the same solver path. Multi-time saving replaces the existing `points/` group for the matching solver path while preserving the individual result. Use separate filenames to retain multiple different analyses or point selections for the same solver type.
+
+To read a result with FullPlot, select its solver group before calling
+`linearization()`. For example, after running the transient linearization example:
+
+```python
+import fullplot as fplt
+
+file = fplt.open("2transient.h5").at("Transient_Gas_Feed/linearization/transient")
+point = file.linearization(time=0.5)
+print(point.A)
+```
+
+Explicit group selection also works with FullPlot versions whose root-level
+linearization discovery expects the older export layout.
 
 ## Diagnostics and error handling
 

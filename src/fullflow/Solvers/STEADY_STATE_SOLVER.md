@@ -125,7 +125,7 @@ The named components retain backward-Euler integration equations; all other dyna
 `filename=...` saves a static steady-state result under:
 
 ```text
-/<network_name>/steady_state/runs/base
+/<network_name>/steady_state
 ```
 
 Returned dictionaries and HDF5 contain physical component values and **raw** residuals; summary diagnostics also distinguish raw from scaled residual magnitudes. `verbose=True` prints the solve summary, variables, residuals, and network solution. `statistics=True` enables additional iteration diagnostics.

@@ -1,4 +1,3 @@
-
 """
 Transient Solid Heat Transfer With Natural Convection
 ====================================================
@@ -52,7 +51,6 @@ This example intentionally uses no custom components. The two surface heat
 rates are calculated by built-in Convection components, and the net heat rate is
 just a derived State made by adding those two heat-rate states together.
 """
-
 
 
 from fullflow import *

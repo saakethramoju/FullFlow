@@ -1,4 +1,3 @@
-
 """
 Multiple Balance example.
 
@@ -30,6 +29,7 @@ sum_residual = x + y - sum_target
 
 # A residual can also be a function. This is useful when the equation is easier
 # to read with normal Python code.
+
 def product_residual():
     return x.value * y.value - product_target.value
 

@@ -1,4 +1,3 @@
-
 """
 Composition mixer example.
 

@@ -1,4 +1,3 @@
-
 """
 Transient Node Inertia Example
 ==============================

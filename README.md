@@ -2036,7 +2036,7 @@ variable labels, operating time, and numerical
 diagnostics. An individual steady-state result uses a hierarchy similar to:
 
 ```text
-<Network>/linearization/steady_state/runs/base/
+<Network>/linearization/steady_state/
     A, B, C, D
     x0, xdot0, u0, y0
     states, inputs, outputs, time
@@ -2045,8 +2045,8 @@ diagnostics. An individual steady-state result uses a hierarchy similar to:
 
 Transient results use `transient` instead of `steady_state`. Multiple-time
 results are stored under numbered `points/0`, `points/1`, and so on, each with
-its own `time` dataset. Saving a single result replaces the base matrices while preserving
-saved `points/` at the same run path. Saving multiple times replaces only the
+its own `time` dataset. Saving a single result replaces the matrices while preserving
+saved `points/` at the same solver path. Saving multiple times replaces only the
 corresponding `points/` group. Use different filenames to retain independent
 analyses of the same operating points.
 

@@ -56,8 +56,7 @@ class _NetworkSnapshot:
                 or any(a is not b for a, b in zip(network.component_list, self.components))
                 or len(network.component_list) != len(self.components)
                 or any(a is not b for a, b in zip(network.balance_list, self.balances))
-                or len(network.balance_list) != len(self.balances)
-):
+                or len(network.balance_list) != len(self.balances)):
             raise ValueError("Cannot restore after changing Network structure.")
         self.operating_point.restore()
         for obj, names, references in reversed(self.runtime_attributes):
@@ -89,6 +88,7 @@ class _NetworkSnapshot:
 
 class Network:
     """Container for a complete FullFlow simulation model."""
+
     def __init__(self, name: str) -> None:
         """Initialize the object and register any FullFlow state wiring."""
         self.name = name
@@ -161,7 +161,6 @@ class Network:
 
     def add_balance(self, balance: Balance) -> None:
         self._add_unique(balance, self.balance_list)
-
 
 
     def sensor_components(self) -> list[Any]:
@@ -358,7 +357,6 @@ class Network:
     def balances(self) -> list[str]:
         """Return algebraic equations contributed by this component."""
         return [balance.name for balance in self.balance_list]
-
 
 
     @staticmethod
@@ -638,7 +636,7 @@ class Network:
     def _save_records(
         self,
         filename: str | None = None,
-        group_path: str = "steady_state/runs/base",
+        group_path: str = "steady_state",
         metadata: dict[str, Any] | None = None,
     ):
         """Write network, steady-state, or transient results to an HDF5 file."""
@@ -668,7 +666,7 @@ class Network:
     def save(
         self,
         filename: str | None = None,
-        group_path: str = "steady_state/runs/base",
+        group_path: str = "steady_state",
         metadata: dict[str, Any] | None = None,
     ):
         """Export the current network and return its organized values."""

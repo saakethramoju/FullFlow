@@ -60,6 +60,7 @@ class SteadyState:
             self.residual,
             self.static_runner,
         )
+
     def linearize(
         self, inputs=None, outputs=None, filename=None, *, times=None,
         verbose=False,
@@ -241,7 +242,7 @@ class SteadyState:
         self,
         filename: str | None = None,
         state_settings: StateEvaluationSettings | None = None,
-        group_path: str = "steady_state/runs/base",
+        group_path: str = "steady_state",
         metadata: dict[str, Any] | None = None,
     ):
         """Run one static evaluation."""
@@ -263,7 +264,7 @@ class SteadyState:
         state_settings: StateEvaluationSettings | None = None,
         statistics: bool = False,
         statistics_filename: str | None = None,
-        group_path: str = "steady_state/runs/base",
+        group_path: str = "steady_state",
         metadata: dict[str, Any] | None = None,
     ):
         """Run one nonlinear solve."""
@@ -313,7 +314,7 @@ class SteadyState:
         minimum_dt: float | None = None,
         ignore_balances=None,
         exceptions=None,
-        group_path: str = "transient/runs/base",
+        group_path: str = "transient",
         metadata: dict[str, Any] | None = None,
     ):
         """Run a quasi-steady time sweep using the transient runtime machinery."""

@@ -8,10 +8,9 @@ import numpy as np
 from fullflow.Exports.HDF5 import _initialize_file, hdf5_path, safe_group_name
 
 
-def _path(result, network_name, solver_type):
+def _path(network_name, solver_type):
     """Return the HDF5 path for a linearization result."""
-    base = f"{safe_group_name(network_name)}/linearization/{solver_type}/runs"
-    return f"{base}/base"
+    return f"{safe_group_name(network_name)}/linearization/{solver_type}"
 
 
 def _write(group, result):
@@ -35,7 +34,7 @@ def save_linearization(result, filename, network_name=None, solver_type=None):
     network_name = network_name or result.network_name
     solver_type = solver_type or result.solver_type
     path = hdf5_path(filename)
-    group_path = _path(result, network_name, solver_type)
+    group_path = _path(network_name, solver_type)
     with h5py.File(path, "a") as h5:
         _initialize_file(h5)
         group = h5.require_group(group_path)
@@ -53,15 +52,13 @@ def save_linearizations(results, filename, network_name, solver_type="transient"
     if not str(filename).strip():
         raise ValueError("filename must not be empty.")
     path = hdf5_path(filename)
+    group_path = _path(network_name, solver_type)
     with h5py.File(path, "a") as h5:
         _initialize_file(h5)
-        group_paths = {_path(result, network_name, solver_type) for result in results.values()}
-        for group_path in group_paths:
-            points_path = f"{group_path}/points"
-            if points_path in h5:
-                del h5[points_path]
+        points_path = f"{group_path}/points"
+        if results and points_path in h5:
+            del h5[points_path]
         for index, result in enumerate(results.values()):
-            group_path = _path(result, network_name, solver_type)
-            point = h5.require_group(f"{group_path}/points/{index}")
+            point = h5.require_group(f"{points_path}/{index}")
             _write(point, result)
     return path

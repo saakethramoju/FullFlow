@@ -1,4 +1,3 @@
-
 """
 Composition splitter example.
 

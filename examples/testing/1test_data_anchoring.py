@@ -1,4 +1,3 @@
-
 from pathlib import Path
 import math
 
@@ -72,7 +71,6 @@ GENERATE_TEST_DATA = True
 HERE = Path(__file__).resolve().parent
 TEST_DATA_FILE = HERE / "test_data_anchoring_hotfire.h5"
 RESULT_FILE = HERE / "test_data_anchoring_result.h5"
-
 
 
 # ---------------------------------------------------------------------------
@@ -275,7 +273,7 @@ Transient(Test).solve(
 # Plot the anchored simulation result
 # ---------------------------------------------------------------------------
 
-result = fplt.open(str(RESULT_FILE)).at("Test_Data_Anchoring/transient/runs/base")
+result = fplt.open(str(RESULT_FILE)).at("Test_Data_Anchoring/transient")
 #result.tree() # uncomment to see the result file structure
 
 result_time = result.time("time")

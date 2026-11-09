@@ -1,4 +1,3 @@
-
 """Transient gas feed system with two volumes and an adjustable outlet valve."""
 
 from types import SimpleNamespace
@@ -104,9 +103,9 @@ transient.linearize(
     filename=filename,
 )
 
-file = fplt.open(filename + ".h5")
-points = file.linearization(solver="transient", times=times)
-final = file.linearization(solver="transient")
+file = fplt.open(filename + ".h5").at("Transient_Gas_Feed/linearization/transient")
+points = file.linearization(times=times)
+final = file.linearization()
 
 print("Final states:", final.states)
 print("Final A:\n", final.A)

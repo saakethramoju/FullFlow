@@ -11,6 +11,7 @@ if TYPE_CHECKING:
 
 class Balance:
     """User-defined algebraic residual attached directly to a network."""
+
     def __init__(
         self,
         name: str,

@@ -249,7 +249,7 @@ Transient(Spacecraft).solve(
 # -----------------------------------------------------------------------------
 
 results = fplt.open(filename).at(
-    "Spacecraft_Reaction_Control/transient/runs/base/tracks"
+    "Spacecraft_Reaction_Control/transient/tracks"
 )
 
 results.plot(

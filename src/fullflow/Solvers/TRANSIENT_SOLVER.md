@@ -158,7 +158,7 @@ A property calculation may fail at a temporary trial state. After a valid residu
 By default (`history="full"`), the solver retains the initial state and every accepted timestep. With `history="summary"`, it instead retains sampled extrema for registered tracks, final Component values, sparse events, aggregate diagnostics, and a final operating checkpoint without the trajectory history. Numerical retries and event rollback are unchanged. When `filename=...` is specified, HDF5 results are written under:
 
 ```text
-/<network_name>/transient/runs/base
+/<network_name>/transient
 ```
 
 Full-history export includes time, component histories, tracked states, sensors, diagnostics, final values, and metadata. Existing FullPlot data access continues to use these physical values. Summary-mode export instead stores compact summary tables and final values; it does not fabricate a time series. Both modes return organized Python dictionaries with `tracked`, `components`, `balances`, `events`, and `solver`. Summary mode has no `time` or `values` arrays.

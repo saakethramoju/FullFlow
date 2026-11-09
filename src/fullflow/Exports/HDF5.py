@@ -18,7 +18,7 @@ import numpy as np
 HDF5_EXTENSIONS = {".h5", ".hdf5"}
 _STRING_DTYPE = h5py.string_dtype(encoding="utf-8")
 _FORMAT = "fullflow-simple-hdf5"
-_SCHEMA_VERSION = 6
+_SCHEMA_VERSION = 7
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,7 +199,14 @@ def run_group_path(
     """Return the canonical network-relative HDF5 path for one solver run."""
     solve_type = safe_group_name(solve_type)
 
-    return f"{solve_type}/runs/{safe_group_name(run_name)}"
+    return solve_type if run_name == "base" else f"{solve_type}/{safe_group_name(run_name)}"
+
+
+def _solution_group_path(group_path: str, default: str) -> str:
+    parts = str(group_path).strip("/").split("/")
+    if len(parts) >= 3 and parts[0] in ("steady_state", "transient") and parts[1] == "runs":
+        parts = parts[:1] + (parts[3:] if parts[2] == "base" else parts[2:])
+    return "/".join(parts) or default
 
 
 def _metadata_rows(metadata: dict[str, Any]) -> list[dict[str, Any]]:
@@ -448,9 +455,6 @@ def _write_static_tracks(parent: h5py.Group, rows: list[dict[str, Any]]) -> h5py
     return tracks_group
 
 
-
-
-
 def _sensor_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [row for row in solution_records(rows) if row.get("component_type") == "Sensor"]
 
@@ -529,8 +533,6 @@ def _write_sensors(parent: h5py.Group, rows: list[dict[str, Any]], time_values: 
         )
 
     return sensors_group
-
-
 
 
 def _write_sensor_conditions(parent: h5py.Group, rows: list[dict[str, Any]]) -> None:
@@ -689,7 +691,7 @@ def write_solution(
     records: list[dict[str, Any]],
     *,
     network_name: str | None = None,
-    group_path: str = "steady_state/runs/base",
+    group_path: str = "steady_state",
     metadata: dict[str, Any] | None = None,
 ) -> Path:
     """Write one exported network solution to HDF5."""
@@ -698,8 +700,9 @@ def write_solution(
         section = target.group_path.strip("/") or group_path.strip("/")
     else:
         path = hdf5_path(target)
-        section = group_path.strip("/") or "steady_state/runs/base"
+        section = group_path.strip("/") or "steady_state"
 
+    section = _solution_group_path(section, "steady_state")
     if network_name is None:
         network_name = "network"
 
@@ -709,8 +712,9 @@ def write_solution(
         _initialize_file(h5)
         network_group = _require_object_group(h5, network_name, "network")
 
-        section_group = network_group.require_group(section)
-        _delete_children(section_group, ["metadata", "components", "tracks", "sensors", "table"])
+        if section in network_group:
+            del network_group[section]
+        section_group = network_group.create_group(section)
         section_group.attrs["kind"] = section.rsplit("/", 1)[-1]
         section_group.attrs["updated_utc"] = _now()
 
@@ -727,6 +731,7 @@ def write_solution(
 
     return path
 
+
 def write_transient_solution(
     filename: str | Path,
     *,
@@ -739,7 +744,7 @@ def write_transient_solution(
     sensor_event_rows: list[dict[str, Any]] | None = None,
     sensor_condition_trace_rows: list[dict[str, Any]] | None = None,
     sequence_command_trace_rows: list[dict[str, Any]] | None = None,
-    group_path: str = "transient/runs/base",
+    group_path: str = "transient",
     metadata: dict[str, Any] | None = None,
 ) -> Path:
     """Write one time-history run for a network."""
@@ -752,31 +757,20 @@ def write_transient_solution(
     else:
         time_values = np.asarray(output_times, dtype=float)
 
-    group_path = group_path.strip("/") or "transient/runs/base"
-
-    if group_path.startswith("transient/runs/"):
-        solve_section = "transient"
-    elif group_path.startswith("steady_state/runs/"):
-        solve_section = "steady_state"
-    elif group_path.startswith("runs/"):
-        solve_section = "transient"
+    group_path = _solution_group_path(group_path, "transient")
+    if group_path.startswith("runs/"):
+        group_path = _solution_group_path(f"transient/{group_path}", "transient")
+    if group_path.split("/", 1)[0] not in ("transient", "steady_state"):
         group_path = f"transient/{group_path}"
-    else:
-        solve_section = "transient"
-        group_path = f"transient/runs/{group_path}"
+    solve_section = group_path.split("/", 1)[0]
 
     with h5py.File(path, "a") as h5:
         _initialize_file(h5)
         network_group = _require_object_group(h5, network_name, "network")
-        solve_group = network_group.require_group(solve_section)
-        solve_group.attrs["kind"] = solve_section
-        solve_group.attrs["updated_utc"] = _now()
-        solve_group.require_group("runs")
-
         if group_path in network_group:
             del network_group[group_path]
         run_group = network_group.create_group(group_path)
-        run_group.attrs["kind"] = "run"
+        run_group.attrs["kind"] = solve_section
         run_group.attrs["updated_utc"] = _now()
 
         metadata = {} if metadata is None else dict(metadata)
@@ -812,6 +806,7 @@ def write_transient_solution(
 
     return path
 
+
 def write_tables(
     target: str | Path | HDF5Target,
     tables: dict[str, list[dict[str, Any]]],
@@ -843,12 +838,12 @@ def write_summary_solution(
     network_name: str,
     result: dict[str, Any],
     final_records: list[dict[str, Any]],
-    group_path: str = "transient/runs/base",
+    group_path: str = "transient",
     metadata: dict[str, Any] | None = None,
 ) -> Path:
     """Store a compact result with no fabricated time-history datasets."""
     path = hdf5_path(filename)
-    group_path = group_path.strip("/")
+    group_path = _solution_group_path(group_path, "transient")
     with h5py.File(path, "a") as h5:
         _initialize_file(h5)
         network_group = _require_object_group(h5, network_name, "network")

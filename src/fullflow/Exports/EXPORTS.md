@@ -74,13 +74,11 @@ The standard steady-state layout is:
 /<network_name>
     attrs: kind="network", name="original network name"
     /steady_state
-        /runs
-            /base
-                /metadata
-                /components/<component>/<attribute>
-                /tracks/<tracked_name>
-                /table/<column>
-                /diagnostics/<column>
+        /metadata
+        /components/<component>/<attribute>
+        /tracks/<tracked_name>
+        /table/<column>
+        /diagnostics/<column>
 ```
 
 The standard transient layout is:
@@ -88,18 +86,28 @@ The standard transient layout is:
 ```text
 /<network_name>
     /transient
-        /runs
-            /base
-                /metadata
-                /time
-                /components/<component>/<attribute>
-                /tracks/<tracked_name>
-                /table/<column>
-                /diagnostics/<column>
-                /final/components/<component>/<attribute>
-                /final/tracks/<tracked_name>
-                /final/table/<column>
+        /metadata
+        /time
+        /components/<component>/<attribute>
+        /tracks/<tracked_name>
+        /table/<column>
+        /diagnostics/<column>
+        /final/components/<component>/<attribute>
+        /final/tracks/<tracked_name>
+        /final/table/<column>
 ```
+
+FullFlow stores one result per Network and solver type. Repeating a solve replaces
+that result while preserving the other solver type, other Networks, and map groups
+in the same file. Use separate filenames to keep multiple simulations.
+
+Linearization results are stored under
+`/<network_name>/linearization/<solver_type>/`. Multiple operating points use
+its `points/<index>/` subgroup.
+
+New exports use HDF5 schema version 7. Existing files keep their old layout until
+the corresponding results are regenerated. Update older plotting paths by
+removing `/runs/base`.
 
 ## HDF5 map files
 

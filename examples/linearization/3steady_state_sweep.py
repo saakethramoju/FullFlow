@@ -1,4 +1,3 @@
-
 """Linearize a two-node feed system during a quasi-steady pressure sweep."""
 
 import fullplot as fplt
@@ -78,9 +77,8 @@ steady.linearize(
     filename=filename,
 )
 
-points = fplt.open(filename + ".h5").linearization(
-    solver="steady_state", times=times,
-)
+file = fplt.open(filename + ".h5").at("Steady_Pressure_Sweep/linearization/steady_state")
+points = file.linearization(times=times)
 
 for time, point in points.items():
     print(f"t = {time:g} s, mass flow = {point.y0[2]:.4f} kg/s")

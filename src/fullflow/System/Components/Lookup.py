@@ -1075,6 +1075,7 @@ class Lookup(Component, Generic[T]):
                 pass
 
         return value
+
     def state(self, name: str, default: Any = _MISSING) -> State:
         if default is not _MISSING and not self.accepts_input(name):
             self.output_state(name, default)
@@ -1438,6 +1439,7 @@ class Lookup(Component, Generic[T]):
             self.dirty = False
         finally:
             object.__setattr__(self, "_is_evaluating", False)
+
     def _call_new(self, args: list[Any], kwargs: dict[str, Any]) -> Any:
         if self.wrap_errors:
             try:

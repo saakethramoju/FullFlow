@@ -1,4 +1,3 @@
-
 """
 Lookup function example.
 

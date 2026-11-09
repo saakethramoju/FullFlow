@@ -1,4 +1,3 @@
-
 """Steady-state sensitivity of a manifold and two restrictions."""
 
 from fullflow import *

@@ -1,4 +1,3 @@
-
 from pathlib import Path
 
 import numpy as np
@@ -129,7 +128,7 @@ Transient(Test).solve(
 # Plot the result and condition lines
 # ---------------------------------------------------------------------------
 
-result = fplt.open(str(RESULT_FILE)).at("Sensor_Events/transient/runs/base")
+result = fplt.open(str(RESULT_FILE)).at("Sensor_Events/transient")
 #result.tree() # uncomment to see the result file structure
 
 result_time = result.time("time")

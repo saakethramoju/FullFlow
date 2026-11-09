@@ -118,7 +118,7 @@ Transient(Thermal).solve(
 # -----------------------------------------------------------------------------
 
 results = fplt.open(filename).at(
-    "Spacecraft_Battery_Heater/transient/runs/base/tracks"
+    "Spacecraft_Battery_Heater/transient/tracks"
 )
 results.plot(
     y=results.trace(y="Battery Temperature [K]", x="time"),

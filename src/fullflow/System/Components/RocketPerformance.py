@@ -9,13 +9,13 @@ if TYPE_CHECKING:
     from fullflow.System import Network
 
 
-
 class SpecificImpulse(Component):
 
     """Specific impulse from thrust and propellant mass flow."""
+
     def __init__(
-        self, 
-        name: str, 
+        self,
+        name: str,
         network: Network,
         thrust: State,
         mass_flow: State,
@@ -30,15 +30,13 @@ class SpecificImpulse(Component):
         self.specific_impulse.value = self.thrust.value / (self.mass_flow.value * self.gravitational_acceleration.value)
 
 
-
-
-
 class IdealCharacteristicVelocity(Component):
 
     """Ideal-gas characteristic velocity diagnostic."""
+
     def __init__(
-        self, 
-        name: str, 
+        self,
+        name: str,
         network: Network,
         total_temperature: State,
         gas_constant: float,

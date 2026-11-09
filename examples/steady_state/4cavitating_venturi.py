@@ -1,4 +1,3 @@
-
 """
 Cavitating Venturi Injector Network
 ===================================
@@ -98,7 +97,6 @@ generate_map(
     overwrite=True,
     raise_errors=True,
 )
-
 
 
 # -----------------------------------------------------------------------------

@@ -1,4 +1,3 @@
-
 """
 Transient Turbopump Startup: Combustion Map, Turbine Map, and Rotor
 ===================================================================

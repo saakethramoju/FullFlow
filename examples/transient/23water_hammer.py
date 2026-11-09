@@ -1,4 +1,3 @@
-
 """
 GFSSP Example 15 Style Water-Hammer / Valve-Closure Model
 =========================================================
@@ -432,7 +431,6 @@ for i in range(node_count):
     pipe_nodes.append(node)
 
 
-
 # -----------------------------------------------------------------------------
 # Tracks
 # -----------------------------------------------------------------------------
@@ -472,7 +470,6 @@ for i in range(node_count):
 # -----------------------------------------------------------------------------
 
 
-
 SteadyState(WaterHammer).solve(
     verbose=True,
     filename=filename,
@@ -489,13 +486,12 @@ Transient(WaterHammer).solve(
 )
 
 
-
 # -----------------------------------------------------------------------------
 # Plot with FullPlot
 # -----------------------------------------------------------------------------
 
 result = fplt.open(filename).at(
-    "Water_Hammer/transient/runs/base/tracks"
+    "Water_Hammer/transient/tracks"
 )
 
 

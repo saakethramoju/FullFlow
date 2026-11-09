@@ -14,6 +14,7 @@ class CompressibleOrifice(Component):
 
     Use it for short gas valves, injectors, and orifices where storage, wall friction,
     and detailed nozzle geometry are secondary to the effective flow area."""
+
     def __init__(
         self,
         name: str,
@@ -70,10 +71,6 @@ class CompressibleOrifice(Component):
             self.choked.value = False
 
         self.mass_flow.value = flow_sign * CdA * Po * flow_function
-
-
-
-
 
 
 class IsentropicDiffuser(Component):
@@ -139,22 +136,16 @@ class IsentropicDiffuser(Component):
             self.total_enthalpy.value = self.upstream_static_enthalpy.value + 0.5 * u1**2
 
 
-
-
-
-
-
-
-
 class IsentropicNozzle(Component):
 
     """Ideal-gas converging-diverging nozzle with choking and shock diagnostics.
 
     Use it for rocket or gas-system nozzles where quasi-one-dimensional isentropic
     expansion is suitable outside any modeled normal shock."""
+
     def __init__(
-        self, 
-        name: str, 
+        self,
+        name: str,
         network: Network,
         upstream_total_pressure: State,
         upstream_total_temperature: State,

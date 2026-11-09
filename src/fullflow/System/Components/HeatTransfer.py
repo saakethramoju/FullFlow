@@ -35,7 +35,6 @@ class Conduction(Component):
         self.heat_rate.value = k * A / L * (T2 - T1)
 
 
-
 class Radiation(Component):
     """Diffuse-gray radiation exchange between two surfaces."""
     SIGMA = 5.670374419e-8  # W/m^2-K^4
@@ -77,9 +76,6 @@ class Radiation(Component):
         self.heat_rate.value = self.SIGMA * (T2**4 - T1**4) / denominator
 
 
-
-
-
 class AmbientRadiation(Component):
     """Radiation exchange between a surface and a large ambient enclosure."""
     SIGMA = 5.670374419e-8  # W/m^2-K^4
@@ -113,13 +109,9 @@ class AmbientRadiation(Component):
         self.heat_rate.value = self.SIGMA * A * (Tamb**4 - Ts**4) / denominator
 
 
-
-
-
-
-
 class Convection(Component):
     """Convective heat transfer between a wall/surface state and a fluid state."""
+
     def __init__(
         self,
         name: str,
@@ -143,12 +135,9 @@ class Convection(Component):
         self.heat_rate.value = h * A * (Tf - Ts)
 
 
-
-
-
-
 class TemperatureRecoveryFactor(Component):
     """Boundary-layer recovery factor from Prandtl number."""
+
     def __init__(
         self,
         name: str,
@@ -174,13 +163,9 @@ class TemperatureRecoveryFactor(Component):
             self.recovery_factor.value = Pr ** 0.5
 
 
-
-
-
-
-
 class AdiabaticWallTemperature(Component):
     """Adiabatic wall temperature for compressible boundary-layer heat transfer."""
+
     def __init__(
         self,
         name: str,
@@ -200,11 +185,6 @@ class AdiabaticWallTemperature(Component):
         r = self.recovery_factor.value
 
         self.adiabatic_wall_temperature.value = T + r * (T0 - T)
-
-
-
-
-
 
 
 class EckertReferenceTemperature(Component):

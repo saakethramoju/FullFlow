@@ -30,7 +30,6 @@ class ModifiedNewtonFailure(RuntimeError):
     """Signal an unsuccessful nonlinear solve."""
 
 
-
 class _InvalidNewtonTrial(ModifiedNewtonFailure):
     pass
 
@@ -83,7 +82,6 @@ class _FactoredNewtonMatrix:
             return False
         self.corrections.append((action, row.copy(), denominator))
         return True
-
 
 
 def solve_modified_newton(

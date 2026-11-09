@@ -250,7 +250,7 @@ class Transient:
         ignore_balances=None,
         force_steady=None,
         force_steady_exceptions=None,
-        group_path: str = "transient/runs/base",
+        group_path: str = "transient",
         metadata: dict[str, Any] | None = None,
     ):
         """Advance the network from its current time to ``t_final``."""

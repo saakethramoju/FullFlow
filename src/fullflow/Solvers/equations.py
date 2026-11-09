@@ -47,8 +47,6 @@ def _as_list(value: Any, *, property_name: str) -> list[Any]:
     raise FullFlowConfigurationError(f"{property_name} must return a list or tuple, not {type(value).__name__}.")
 
 
-
-
 def _is_unassigned_state_error(error: BaseException) -> bool:
     """Return True when an exception was caused by an unassigned State."""
     current: BaseException | None = error
@@ -135,6 +133,7 @@ def evaluate_components_for_equation_discovery(
             "  - Make it a dynamics or balances solve variable with an initial guess",
         ])
         raise FullFlowConfigurationError("\n".join(lines)) from None
+
 
 def component_dynamics(owner: Any) -> list[DynamicEquation]:
     """Return normalized dynamic equations for a component."""

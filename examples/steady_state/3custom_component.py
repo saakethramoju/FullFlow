@@ -1,4 +1,3 @@
-
 """
 Custom Component Example: Liquid Oxygen Pump Feed System
 ========================================================
@@ -230,7 +229,7 @@ class CustomPump(Component):
     """
 
     def __init__(
-        self, 
+        self,
         name: str,
         network: Network,
         mass_flow: State,

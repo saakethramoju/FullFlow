@@ -142,4 +142,3 @@ class NetworkStateSnapshot:
             state._value, state._previous, state._second_previous = snapshot_triplet(
                 value, previous, second_previous, self._snapshot_value,
             )
-

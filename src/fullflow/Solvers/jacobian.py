@@ -76,5 +76,3 @@ class JacobianStructure:
                 return None
         self.colored_builds += 1
         return jac
-
-

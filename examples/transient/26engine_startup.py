@@ -115,7 +115,6 @@ from thermoprop import *
 import fullplot as fplt
 
 
-
 # -----------------------------------------------------------------------------
 # Run options
 # -----------------------------------------------------------------------------
@@ -212,7 +211,6 @@ minimum_combustion_mass_flow = 1.0e-6
 minimum_combustion_progress_time = 3.0e-3
 
 
-
 # -----------------------------------------------------------------------------
 # Optional combustion-product map generation
 # -----------------------------------------------------------------------------
@@ -271,7 +269,6 @@ if generate_combustion_map:
         overwrite=True,
         raise_errors=True,
     )
-
 
 
 # -----------------------------------------------------------------------------
@@ -1050,7 +1047,7 @@ Transient(Priming).solve(
 # fill/exposure state, mixture ratio, ignition progress, and residence time.
 
 result = fplt.open(filename).at(
-    "Dual_Propellant_Priming/transient/runs/base/tracks"
+    "Dual_Propellant_Priming/transient/tracks"
 )
 
 # Main valve command review.

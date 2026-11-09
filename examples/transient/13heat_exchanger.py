@@ -1,4 +1,3 @@
-
 """
 Transient concentric-tube heat exchanger example.
 
@@ -153,7 +152,6 @@ filename = '13heat_exchanger'
 # -----------------------------------------------------------------------------
 # Output file
 # -----------------------------------------------------------------------------
-
 
 
 def harmonic_mean(a, b):
@@ -376,6 +374,7 @@ HeatExchanger = Network("Heat Exchanger")
 hot_fluid_source_pressure = State(3.500e5)
 hot_fluid_source_temperature = State(hot_source_temperature_initial)
 
+
 def hot_source_temperature_schedule(t):
     """Ramp the fixed hot-source temperature after the initialized state."""
 
@@ -453,7 +452,6 @@ GasolineMap1 = Map(
 )
 
 
-
 # -----------------------------------------------------------------------------
 # Hot-fluid node 2 and property map
 # -----------------------------------------------------------------------------
@@ -484,8 +482,6 @@ GasolineMap2 = Map(
         "specific_heat": gasoline_specific_heat_cp,
     },
 )
-
-
 
 
 # -----------------------------------------------------------------------------
@@ -571,7 +567,6 @@ HotFluidFriction2 = Colebrook(
 )
 
 
-
 # Hot node 2 is another lumped storage volume. Steady state drives its mass and
 # energy derivatives to zero.
 HotFluidNode2 = Volume(
@@ -622,9 +617,6 @@ HotFluidFriction3 = Colebrook(
 )
 
 
-
-
-
 # -----------------------------------------------------------------------------
 # Coolant property lookups
 #
@@ -667,7 +659,6 @@ CoolantNode2Fluid = Lookup(
 )
 
 
-
 # -----------------------------------------------------------------------------
 # Annulus helper components
 #
@@ -688,7 +679,6 @@ AnnulusHydraulicDiameter = HydraulicDiameter(
     cross_sectional_area=Aox,
     wetted_perimeter=Pw_coolant,
 )
-
 
 
 # -----------------------------------------------------------------------------
@@ -741,7 +731,6 @@ CoolantNode1 = Volume(
     mass_flow_in=CoolantTube1.mass_flow,
     mass_flow_out=coolant_mass_flow_initial
 )
-
 
 
 # -----------------------------------------------------------------------------
@@ -827,9 +816,6 @@ CoolantFriction3 = Colebrook(
 )
 
 
-
-
-
 # -----------------------------------------------------------------------------
 # Solid wall material lookups
 #
@@ -853,7 +839,6 @@ SolidNode2Material = Lookup(
     "c101",
     temperature = 300
 )
-
 
 
 # Solid thermal nodes. These provide energy balances for the tube wall.
@@ -890,7 +875,6 @@ TubeConduction = Conduction(
     conductive_area=A_wall_cross_section,
     length=L,
 )
-
 
 
 # -----------------------------------------------------------------------------
@@ -1035,9 +1019,6 @@ CoolantNode1.heat_rate = -Coolant1Solid2Convection.heat_rate
 CoolantNode2.heat_rate = -Coolant2Solid1Convection.heat_rate
 
 
-
-
-
 # -----------------------------------------------------------------------------
 # Tracks
 #
@@ -1083,9 +1064,6 @@ HeatExchanger.track("Tube Node 2 Heat Rate [W]", TubeNode2.heat_rate)
 
 HeatExchanger.track("Hot Fluid Node 1 Convection Coefficient [W/m2-K]", HotFluid1Solid1Convection.convection_coefficient)
 HeatExchanger.track("Coolant Node 2 Convection Coefficient [W/m2-K]", Coolant2Solid1Convection.convection_coefficient)
-
-
-
 
 
 # -----------------------------------------------------------------------------

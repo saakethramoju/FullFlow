@@ -1,4 +1,3 @@
-
 """
 Lookup class and chained lookup example.
 

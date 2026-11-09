@@ -1,4 +1,3 @@
-
 """
 State bounds, containers, and tracking example.
 

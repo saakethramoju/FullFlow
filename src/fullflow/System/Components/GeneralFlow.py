@@ -16,6 +16,7 @@ class FlowTube(Component):
 
     Use it when transient flow acceleration or distributed pipe effects matter more
     than a simple quasi-steady restriction model."""
+
     def __init__(
         self,
         name: str,
@@ -152,12 +153,6 @@ class FlowTube(Component):
         return [(self.mass_flow, self.mass_flow_dot)]
 
 
-
-
-
-
-
-
 class AdiabaticFlow(Component):
     """Adiabatic connection that conserves total enthalpy between flow stations.
 
@@ -232,14 +227,12 @@ class AdiabaticFlow(Component):
             self.total_enthalpy.value = h1
 
 
-
-
-
 class DarcyWeisbach(Component):
     """Incompressible pipe branch using Darcy-Weisbach pressure loss.
 
     Use it for liquid or low-Mach internal flow when length, diameter, friction factor,
     and elevation describe the dominant pressure losses."""
+
     def __init__(
         self,
         name: str,
@@ -270,7 +263,7 @@ class DarcyWeisbach(Component):
         L = self.length.value
         D = self.hydraulic_diameter.value
         rho = self.density.value
-        
+
         if not self.cross_sectional_area.is_assigned:
             self.cross_sectional_area.derive_from((math.pi / 4.0) * self.hydraulic_diameter**2)
         A = self.cross_sectional_area.value
@@ -312,14 +305,12 @@ class DarcyWeisbach(Component):
         return [(self.mass_flow, self.mass_flow_dot)]
 
 
-
-
-
 class DischargeCoefficient(Component):
     """Quasi-steady incompressible restriction represented by effective area CdA.
 
     Use it for short valves, fittings, and calibrated orifices where detailed pipe
     length and wall-friction effects are unnecessary."""
+
     def __init__(
         self,
         name: str,
@@ -371,7 +362,6 @@ class DischargeCoefficient(Component):
         if self.length.is_assigned:
             return [(self.mass_flow, self.mass_flow_dot)]
         return []
-
 
 
 class CavitatingVenturi(Component):
@@ -435,13 +425,10 @@ class CavitatingVenturi(Component):
             value = max(0.0, 2.0 * rho * abs(dP))
 
             self.mass_flow.value = sign * Cd_noncav * A * math.sqrt(value)
-            
+
     @property
     def ignored_export_attributes(self):
         return super().ignored_export_attributes | {"critical_downstream_pressure"}
-
-
-
 
 
 class SeriesCdA(Component):
@@ -449,6 +436,7 @@ class SeriesCdA(Component):
 
     Use it to collapse several lumped restrictions carrying the same flow into one
     effective restriction."""
+
     def __init__(
         self,
         name: str,
@@ -478,14 +466,12 @@ class SeriesCdA(Component):
         self.effective_area.value = 1.0 / inverse_area_squared_sum**0.5
 
 
-
-
-
 class ParallelCdA(Component):
     """Equivalent CdA for quasi-steady incompressible restrictions in parallel.
 
     Use it to collapse branches sharing the same pressure drop into one effective
     restriction."""
+
     def __init__(
         self,
         name: str,
@@ -504,11 +490,9 @@ class ParallelCdA(Component):
         )
 
 
-
-
-
 class RectanglePoiseuille(Component):
     """Poiseuille-number helper for laminar rectangular ducts."""
+
     def __init__(
         self,
         name: str,
@@ -520,10 +504,10 @@ class RectanglePoiseuille(Component):
         """Initialize the object and register any FullFlow state wiring."""
         if height <= 0.0:
             raise ValueError(f"Rectangle height must be positive. Got length={height}.")
-        
+
         if width <= 0.0:
             raise ValueError(f"Rectangle width must be positive. Got length={width}.")
-        
+
         self.setup()
         a = max(height/2, width/2)
         b = min(height/2, width/2)
@@ -536,11 +520,9 @@ class RectanglePoiseuille(Component):
         self.poiseuille_number.value = A0 + A1*x + A2*x**2 + A3*x**3 + A4*x**4
 
 
-
-
-
 class EllipsePoiseuille(Component):
     """Poiseuille-number helper for laminar elliptical ducts."""
+
     def __init__(
         self,
         name: str,
@@ -552,7 +534,7 @@ class EllipsePoiseuille(Component):
         """Initialize the object and register any FullFlow state wiring."""
         if semi_major_axis <= 0.0:
             raise ValueError(f"Ellipse semi-major axis must be positive. Got length={semi_major_axis}.")
-        
+
         if semi_minor_axis <= 0.0:
             raise ValueError(f"Ellipse semi-minor axis must be positive. Got length={semi_minor_axis}.")
 
@@ -568,12 +550,9 @@ class EllipsePoiseuille(Component):
         self.poiseuille_number.value = A0 + A1*x + A2*x**2 + A3*x**3 + A4*x**4
 
 
-
-
-
-
 class CircularAnnulusPoiseuille(Component):
     """Poiseuille-number helper for laminar circular annuli."""
+
     def __init__(
         self,
         name: str,
@@ -585,7 +564,7 @@ class CircularAnnulusPoiseuille(Component):
         """Initialize the object and register any FullFlow state wiring."""
         if inner_diameter <= 0.0:
             raise ValueError(f"Annulus inner diameter must be positive. Got length={inner_diameter}.")
-        
+
         if outer_diameter <= 0.0:
             raise ValueError(f"Annulus outer_diameter must be positive. Got length={outer_diameter}.")
 
@@ -607,13 +586,9 @@ class CircularAnnulusPoiseuille(Component):
             self.poiseuille_number.value = A0 + A1*x + A2*x**2 + A3*x**3 + A4*x**4
 
 
-
-
-
-
-
 class HydraulicDiameter(Component):
     """Hydraulic diameter computed from area and wetted perimeter."""
+
     def __init__(
         self,
         name: str,

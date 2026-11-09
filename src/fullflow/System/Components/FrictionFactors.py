@@ -10,12 +10,12 @@ if TYPE_CHECKING:
     from fullflow.System import Network, State
 
 
-
 class Colebrook(Component):
     """Darcy friction factor for developed flow in rough internal passages.
 
     Use Colebrook in turbulent flow when relative roughness matters. Below the
     configured transition Reynolds number, the component uses a laminar relation."""
+
     def __init__(
         self,
         name: str,
@@ -73,13 +73,12 @@ class Colebrook(Component):
         return 1.0 / x**2
 
 
-
-
 class Churchill(Component):
     """Continuous Darcy friction factor from laminar through turbulent flow.
 
     Use it when a simulation crosses the transition regime and a smooth correlation
     is more useful numerically than switching abruptly between separate formulas."""
+
     def __init__(
         self,
         name: str,
@@ -124,14 +123,12 @@ class Churchill(Component):
         }
 
 
-
-
-
 class PetukhovFriction(Component):
     """Darcy friction factor for smooth, developed internal flow.
 
     Use it for turbulent smooth-wall tubes, particularly alongside the Petukhov or
     Gnielinski heat-transfer correlations; use Colebrook when roughness matters."""
+
     def __init__(
         self,
         name: str,

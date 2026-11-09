@@ -608,28 +608,51 @@ class State:
         return State._derived(lambda: func(self.numeric_value))
 
     def sqrt(self) -> "State": return self._unary(math.sqrt)
+
     def exp(self) -> "State": return self._unary(math.exp)
+
     def expm1(self) -> "State": return self._unary(math.expm1)
+
     def log(self) -> "State": return self._unary(math.log)
+
     def log10(self) -> "State": return self._unary(math.log10)
+
     def log2(self) -> "State": return self._unary(math.log2)
+
     def log1p(self) -> "State": return self._unary(math.log1p)
+
     def sin(self) -> "State": return self._unary(math.sin)
+
     def cos(self) -> "State": return self._unary(math.cos)
+
     def tan(self) -> "State": return self._unary(math.tan)
+
     def asin(self) -> "State": return self._unary(math.asin)
+
     def acos(self) -> "State": return self._unary(math.acos)
+
     def atan(self) -> "State": return self._unary(math.atan)
+
     def sinh(self) -> "State": return self._unary(math.sinh)
+
     def cosh(self) -> "State": return self._unary(math.cosh)
+
     def tanh(self) -> "State": return self._unary(math.tanh)
+
     def asinh(self) -> "State": return self._unary(math.asinh)
+
     def acosh(self) -> "State": return self._unary(math.acosh)
+
     def atanh(self) -> "State": return self._unary(math.atanh)
+
     def degrees(self) -> "State": return self._unary(math.degrees)
+
     def radians(self) -> "State": return self._unary(math.radians)
+
     def floor(self) -> "State": return self._unary(math.floor)
+
     def ceil(self) -> "State": return self._unary(math.ceil)
+
     def trunc(self) -> "State": return self._unary(math.trunc)
 
     @staticmethod

@@ -51,7 +51,7 @@ class StaticEvaluation:
         self,
         filename: str | None = None,
         state_settings: StateEvaluationSettings | None = None,
-        group_path: str = "steady_state/runs/base",
+        group_path: str = "steady_state",
         metadata: dict[str, Any] | None = None,
     ):
         """Run pre-evaluation, settle derived states, and export results."""
@@ -114,7 +114,7 @@ class NonlinearSolve:
         state_settings: StateEvaluationSettings | None = None,
         statistics: SolverStatistics | None = None,
         statistics_filename: str | None = None,
-        group_path: str = "steady_state/runs/base",
+        group_path: str = "steady_state",
         metadata: dict[str, Any] | None = None,
     ):
         """Run one steady-state solve on the current concrete network."""
@@ -161,7 +161,7 @@ class NonlinearSolve:
             if len(x0) == 0 and len(r0) == 0:
                 return self.static_runner.run_once(
                     filename=filename,
-                            state_settings=state_settings,
+                    state_settings=state_settings,
                     group_path=group_path,
                     metadata=metadata,
                 )

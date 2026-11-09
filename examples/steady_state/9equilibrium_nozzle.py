@@ -1,4 +1,3 @@
-
 """
 Finite-area combustor equilibrium nozzle example.
 

@@ -1,4 +1,3 @@
-
 """
 Simple Custom Transient Components: Draining Tank and Opening Valve
 ==================================================================
