@@ -13,6 +13,7 @@ from .operations import NonlinearSolve, StaticDiagnostics, StaticEvaluation, Sol
 from .runtime import RuntimeCache
 from .settings import LeastSquaresSettings, StateEvaluationSettings
 from fullflow.Solvers.results import SolutionRecords, steady_result
+from fullflow.Exports.HDF5 import run_group_path
 from .statistics import SolverStatistics, statistics_path
 from fullflow.Exceptions import SensorDataStop, SolverSetupError
 
@@ -366,6 +367,7 @@ class SteadyState:
         statistics: bool = False,
         state_max_passes: int = 20,
         state_tolerance: float = 1e-10,
+        group: str | None = None,
     ):
         """Evaluate the network without nonlinear solving."""
         self._linearization_source = None
@@ -377,6 +379,7 @@ class SteadyState:
         )
         result = self._static_evaluate_once(
             filename=filename,
+            group_path=run_group_path("steady_state", group=group),
             state_settings=state_settings,
             metadata={"solve_type": "steady_state"},
         )
@@ -404,6 +407,7 @@ class SteadyState:
         state_max_passes: int = 5,
         state_tolerance: float = 1e-10,
         ignore_balances=None,
+        group: str | None = None,
     ):
         """Solve the network steady state."""
         self._linearization_source = None
@@ -421,6 +425,7 @@ class SteadyState:
                 dt=float(dt),
                 t_final=float(t_final),
                 filename=filename,
+                group_path=run_group_path("transient", group=group),
                 history=history,
                 verbose=verbose,
                 statistics=statistics,
@@ -448,6 +453,7 @@ class SteadyState:
         if static:
             return self.static_evaluate(
                 filename=filename,
+                group=group,
                 verbose=verbose,
                 statistics=statistics,
                 state_max_passes=state_max_passes,
@@ -468,11 +474,12 @@ class SteadyState:
         )
         result = self._solve_once(
             filename=filename,
+            group_path=run_group_path("steady_state", group=group),
             least_squares_settings=least_squares_settings,
             state_settings=state_settings,
             statistics=statistics,
             statistics_filename=(
-                statistics_path(filename, self.network.name)
+                statistics_path(filename, self.network.name, group=group)
                 if statistics and filename is not None else None
             ),
             metadata={"solve_type": "steady_state"},

@@ -97,9 +97,28 @@ The standard transient layout is:
         /final/table/<column>
 ```
 
-FullFlow stores one result per Network and solver type. Repeating a solve replaces
-that result while preserving the other solver type, other Networks, and map groups
-in the same file. Use separate filenames to keep multiple simulations.
+By default, FullFlow stores one result per Network and solver type. Use `group`
+to keep multiple simulations in the same file:
+
+```python
+SteadyState(network).solve(filename="results", group="flight_01")
+Transient(network).solve(dt=0.01, t_final=1.0, filename="results", group="flight_01")
+```
+
+These results are stored at `/<network_name>/flight_01/steady_state` and
+`/<network_name>/flight_01/transient`. Nested names such as `campaign/flight_01`
+are supported. Names follow the same HDF5 normalization as Networks and tracks;
+`steady_state`, `transient`, and `linearization` are reserved as the first group
+segment. Omitting `group` preserves the default layout above.
+
+Repeating a solve replaces only that group and solver type. Other groups,
+Networks, solver types, and maps in the file are preserved.
+
+For parallel simulations, each worker owns its Network and solver. Solve first,
+then use `transient.save(filename)` under a shared process lock to serialize only
+the file writes. The saved result retains the group passed to `solve()`; pass
+`group=...` to `save()` to select a different destination. See
+[`30monte_carlo.py`](../../../examples/transient/30monte_carlo.py).
 
 Linearization results are stored under
 `/<network_name>/linearization/<solver_type>/`. Multiple operating points use

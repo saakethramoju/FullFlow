@@ -10,6 +10,7 @@ from rich.console import Console
 
 from fullflow.Solvers.steady_state.settings import LeastSquaresSettings, StateEvaluationSettings
 from fullflow.Exceptions import SensorDataStop, TransientStepError
+from fullflow.Exports.HDF5 import run_group_path
 
 from .diagnostics import TransientPrinter
 from .evaluation import TransientStateEvaluator
@@ -44,6 +45,9 @@ class Transient:
         self.event_records: list[dict[str, Any]] = []
         self.event_probes = 0
         self.work_statistics = {}
+        self._last_result = None
+        self._run_metadata = None
+        self._output_path = "transient"
 
     def linearize(
         self, inputs=None, outputs=None, filename=None, *, times=None,
@@ -204,12 +208,14 @@ class Transient:
         max_step_retries: int = 8,
         minimum_dt: float | None = None,
         ignore_balances=None,
+        group: str | None = None,
     ):
         """Advance the network from its current time to ``t_final``."""
         return self._solve_once(
             dt=dt,
             t_final=t_final,
             filename=filename,
+            group_path=run_group_path("transient", group=group),
             history=history,
             verbose=verbose,
             statistics=statistics,
@@ -227,6 +233,18 @@ class Transient:
             force_steady=None,
             force_steady_exceptions=None,
             metadata={"solve_type": "transient"},
+        )
+
+    def save(self, filename: str, group: str | None = None) -> None:
+        """Save the latest completed solve without advancing the Network."""
+        if self._last_result is None or self._linearization_source is None:
+            raise RuntimeError("Complete a transient solve before saving results.")
+        self._linearization_source.validate()
+        path = self._output_path if group is None else run_group_path("transient", group=group)
+        step_rows = self._diagnostic_rows(self.step_diagnostics) if self.history.mode == "full" else []
+        self.history.save(
+            filename, self.network, step_rows,
+            group_path=path, metadata=self._run_metadata, result=self._last_result,
         )
 
     def _solve_once(
@@ -255,6 +273,7 @@ class Transient:
     ):
         """Advance the network from its current time to ``t_final``."""
         self._linearization_source = None
+        self._last_result = None
         self._linearization_issue = None
         self._ignore_balances = ignore_balances
         self._force_steady = force_steady
@@ -561,11 +580,11 @@ class Transient:
                 "abort": None if abort_record is None else dict(abort_record),
             },
         )
-        step_rows = self._diagnostic_rows(self.step_diagnostics) if history == "full" else []
-        self.history.save(
-            filename, self.network, step_rows,
-            group_path=group_path, metadata=run_metadata, result=result,
-        )
+        self._last_result = result
+        self._run_metadata = run_metadata
+        self._output_path = group_path
+        if filename is not None:
+            self.save(filename)
 
         if verbose:
             self.printer.print_summary(

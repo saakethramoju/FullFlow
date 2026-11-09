@@ -161,6 +161,15 @@ By default (`history="full"`), the solver retains the initial state and every ac
 /<network_name>/transient
 ```
 
+Pass `group="flight_01"` to store the result at
+`/<network_name>/flight_01/transient` in the same file. Nested group names are
+supported. Reusing a group replaces only that group's transient result.
+
+To save after computation, omit `filename` from `solve()` and call
+`transient.save("results")`. This retains the group selected in `solve()`.
+`transient.save("results", group="flight_02")` selects another destination.
+Save before modifying or restoring the Network.
+
 Full-history export includes time, component histories, tracked states, sensors, diagnostics, final values, and metadata. Existing FullPlot data access continues to use these physical values. Summary-mode export instead stores compact summary tables and final values; it does not fabricate a time series. Both modes return organized Python dictionaries with `tracked`, `components`, `balances`, `events`, and `solver`. Summary mode has no `time` or `values` arrays.
 
 In full mode, accepted operating-point checkpoints also preserve internal model state for `transient.linearize(...)`. In summary mode only the final accepted checkpoint is retained; `linearize(times=[...])` cannot retrieve earlier points. To limit memory growth, unchanged large NumPy arrays in these checkpoints can share stored snapshots; changed arrays are copied. Restoring a checkpoint still creates independent mutable values. An event or mode transition may prevent linearization at the affected point. See [LINEARIZATION.md](LINEARIZATION.md).
@@ -198,7 +207,8 @@ existing safety checks.
 For campaigns, `history="summary"` returns final values and tracked extrema
 without full time series. Use `history="full"` if historical plots or
 multi-time linearization are needed. Separate worker processes must each own
-their Network, solver, and snapshot; do not share an HDF5 output filename.
+their Network, solver, and snapshot. When sharing an HDF5 output file, serialize
+`transient.save(...)` calls with a shared process lock.
 See
 [`examples/transient/30monte_carlo.py`](../../../examples/transient/30monte_carlo.py).
 

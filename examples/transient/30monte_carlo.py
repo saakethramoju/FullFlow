@@ -20,10 +20,13 @@ The bottle and tank exchange gas, the tank feeds the engine, and the vehicle
 acceleration changes tank outlet head. Each worker restores its own Network
 between flights. This is a lumped, vertical-flight model with ideal gases,
 a simplified injector/nozzle, and no ground-contact or attitude dynamics.
+Each flight is saved to its own group in one HDF5 file. Workers solve in parallel
+and share a lock only while writing results.
 """
 
 import math
 from concurrent.futures import ProcessPoolExecutor
+from multiprocessing import Lock
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -40,6 +43,7 @@ workers = 4
 seed = 42
 dt = 0.15
 t_final = 55.0
+filename = "30monte_carlo"
 min_apogee = 4500.0
 max_dynamic_pressure = 25000.0
 
@@ -295,6 +299,12 @@ Flight.track("Thrust [N]", Engine.thrust)
 
 initial = Flight.snapshot()
 solver = Transient(Flight)
+output_lock = None
+
+
+def initialize_worker(lock):
+    global output_lock
+    output_lock = lock
 
 
 def run_case(case):
@@ -321,8 +331,10 @@ def run_case(case):
             dt=dt,
             t_final=t_final,
             history="summary",
-            filename=None,
+            group=f"run_{case['case']:03d}",
         )
+        with output_lock:
+            solver.save(filename)
         tracked = result["tracked"]
         return {
             "case": case["case"],
@@ -361,8 +373,9 @@ if __name__ == "__main__":
             }
         )
 
-    with ProcessPoolExecutor(max_workers=workers) as pool:
-        results = list(pool.map(run_case, cases, chunksize=4))
+    lock = Lock()
+    with ProcessPoolExecutor(max_workers=workers, initializer=initialize_worker, initargs=(lock,)) as pool:
+        results = list(pool.map(run_case, cases, chunksize=1))
 
     # -------------------------------------------------------------------------
     # Results and statistics

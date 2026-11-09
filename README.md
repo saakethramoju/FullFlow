@@ -1392,6 +1392,13 @@ for speed, drag in cases:
 `Flight`, `Rocket`, and the case inputs above are defined by the application.
 For a standalone example, run
 [`examples/transient/30monte_carlo.py`](examples/transient/30monte_carlo.py).
+
+Both solvers accept `group="flight_01"` with `filename="results"` to keep runs
+in one HDF5 file under `<Network>/flight_01/steady_state` or
+`<Network>/flight_01/transient`. Omitting `group` keeps the default layout.
+The Monte Carlo example solves flights in parallel and serializes only the
+HDF5 writes, saving each flight in its own group.
+
 The same snapshot pattern works for repeated steady-state solves:
 
 ```python

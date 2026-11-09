@@ -195,11 +195,21 @@ def run_group_path(
     solve_type: str,
     *,
     run_name: str = "base",
+    group: str | None = None,
 ) -> str:
     """Return the canonical network-relative HDF5 path for one solver run."""
     solve_type = safe_group_name(solve_type)
 
-    return solve_type if run_name == "base" else f"{solve_type}/{safe_group_name(run_name)}"
+    path = solve_type if run_name == "base" else f"{solve_type}/{safe_group_name(run_name)}"
+    if group is None:
+        return path
+    parts = [part.strip() for part in str(group).strip("/").split("/")]
+    if any(not part.strip() or part in (".", "..") for part in parts):
+        raise ValueError("group must contain non-empty HDF5 group names.")
+    parts = [safe_group_name(part) for part in parts]
+    if parts[0] in ("steady_state", "transient", "linearization"):
+        raise ValueError("group must not start with a reserved solver group name.")
+    return "/".join(parts + [path])
 
 
 def _solution_group_path(group_path: str, default: str) -> str:
@@ -758,11 +768,12 @@ def write_transient_solution(
         time_values = np.asarray(output_times, dtype=float)
 
     group_path = _solution_group_path(group_path, "transient")
-    if group_path.startswith("runs/"):
+    if group_path.startswith("runs/") and not group_path.endswith(("/transient", "/steady_state")):
         group_path = _solution_group_path(f"transient/{group_path}", "transient")
-    if group_path.split("/", 1)[0] not in ("transient", "steady_state"):
+    sections = [part for part in group_path.split("/") if part in ("transient", "steady_state")]
+    if not sections:
         group_path = f"transient/{group_path}"
-    solve_section = group_path.split("/", 1)[0]
+    solve_section = sections[-1] if sections else "transient"
 
     with h5py.File(path, "a") as h5:
         _initialize_file(h5)

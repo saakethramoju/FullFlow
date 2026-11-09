@@ -670,11 +670,15 @@ class SolverStatistics:
         write_tables(filename, tables, group_path="statistics/current")
 
 
-def statistics_path(filename: str, network_name: str | None = None, table_group: str = "statistics") -> HDF5Target:
+def statistics_path(
+    filename: str,
+    network_name: str | None = None,
+    table_group: str = "statistics",
+    *,
+    group: str | None = None,
+) -> HDF5Target:
     """Return the HDF5 target for solver statistics."""
-    if network_name is None:
-        return HDF5Target(filename, f"steady_state/{safe_group_name(table_group)}")
-    return HDF5Target(
-        filename,
-        f"{safe_group_name(network_name)}/{run_group_path('steady_state')}/{safe_group_name(table_group)}",
-    )
+    path = f"{run_group_path('steady_state', group=group)}/{safe_group_name(table_group)}"
+    if network_name is not None:
+        path = f"{safe_group_name(network_name)}/{path}"
+    return HDF5Target(filename, path)
