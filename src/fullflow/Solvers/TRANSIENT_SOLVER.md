@@ -49,7 +49,21 @@ The initial state is the state currently assigned in the network. The solver eva
 
 If a step fails, the solver restores the previous accepted state and halves the attempted timestep. By default it permits `max_step_retries=8` and uses a minimum retry timestep of `dt * 1e-9` unless `minimum_dt` is supplied. Exhausting the retry limit raises `TransientStepError` with diagnostic residuals. This is a **timestep integration safeguard**, not an alternative set of physical equations.
 
-Tabular breakpoints prevent stepping over known discontinuities. Sampled `Sequence` controllers use exact integer-indexed sample times and hold commands between accepted updates without event searches. An event-enabled Sequence can locate discontinuous switching using additional implicit trial solves. Sensor and mode events invalidate cached Jacobians and equation scales as needed. A Sequence may also request an abort, which ends the run and records the stop reason. For controller timing and memory semantics, see [SEQUENCE.md](../System/Components/SEQUENCE.md).
+Tabular breakpoints prevent stepping over known discontinuities. Sampled `Sequence` controllers use exact integer-indexed sample times and hold commands between accepted updates without event searches. An event-enabled Sequence can locate discontinuous switching using additional implicit trial solves. Sensor and mode events invalidate cached Jacobians and equation scales as needed. A Sequence may also request an abort, which ends the run and records the stop reason.
+
+### Function-based Sequence feedback
+
+Function-based `Sequence` controllers have three distinct feedback modes:
+
+| Mode | How inputs are evaluated | Typical use |
+| --- | --- | --- |
+| Default (`function=...`) | Uses the previous accepted State values; holds the command through each nonlinear solve | Existing on/off controllers and accepted-step feedback |
+| `event=True` | Holds the discrete command during implicit trial solves, then locates detected switching times with additional solves | More precise valve or bang-bang switching |
+| `continuous=True` | Uses current nonlinear trial State values so the controller and plant are solved together | Smooth, continuous implicit feedback |
+
+For example, `Sequence("Regulator", network, target=opening, function=control, inputs=[pressure], continuous=True)` makes the regulator part of the implicit equations. Leave `continuous` and `event` unset to retain accepted-step behavior, including for existing relief-valve Sequences. With `event=True`, the solver searches for a switch between accepted steps instead of changing the command during nonlinear iterations. `event=True` and `continuous=True` cannot be combined. Event localization adds solve work and does not guarantee detection of multiple switches inside one step. `sample_rate=...` separately defines a sampled digital controller that holds its command between sample times.
+
+For examples, switching details, and controller-memory semantics, see [SEQUENCE.md](../System/Components/SEQUENCE.md).
 
 ## Nonlinear solution
 

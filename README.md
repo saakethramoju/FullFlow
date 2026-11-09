@@ -2621,11 +2621,13 @@ Sequence(
 ```
 
 The sampling frequency is in **Hz**, and output remains held between samples.
-Use `event=True` for precise discrete switching, not for sampled controllers.
-Continuous feedback reads current nonlinear trial States; sampled feedback reads
-accepted States. High-rate samples and precise event localization can require
-additional network solves. Ordinary custom Components remain available for
-continuous controller differential equations.
+By default, function-based Sequences read the previous accepted State values,
+keeping threshold commands stable during nonlinear solves. Use `continuous=True`
+for smooth feedback coupled to the current nonlinear trial, or `event=True` for
+precise discrete switching. Sampled controllers read accepted States at sample
+boundaries and cannot combine with either mode. High-rate samples and precise
+event localization can require additional network solves. Ordinary custom
+Components remain available for continuous controller differential equations.
 
 For mathematical details, controller timing, memory guarantees, limitations,
 and example links, see **[SEQUENCE.md](src/fullflow/System/Components/SEQUENCE.md)**.

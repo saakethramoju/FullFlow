@@ -122,8 +122,12 @@ class Sequence(Component):
         event: bool = False,
         sample_rate: float | None = None,
         memory: Any = None,
+        continuous: bool = False,
     ):
         """Initialize the object and register any FullFlow state wiring."""
+        self._continuous_feedback = bool(continuous)
+        if continuous and (event or sample_rate is not None or function is None):
+            raise ValueError(f"{name}: continuous=True requires a function without event or sample_rate.")
         self._event_enabled = bool(event)
         self._event_command = None
         self._step_held = False
@@ -165,6 +169,7 @@ class Sequence(Component):
         del self.event
         del self.sample_rate
         del self.memory
+        del self.continuous
 
         self.evaluate_in_pre_evaluation = True
 
@@ -976,7 +981,10 @@ class Sequence(Component):
         t = self._network_time() if time_value is None else float(time_value)
 
         if self._function_sequence:
-            input_values = [self._feedback_input_value(item) for item in self._input_list]
+            if self._event_enabled or self._continuous_feedback:
+                input_values = [self._feedback_input_value(item) for item in self._input_list]
+            else:
+                input_values = [self._previous_input_value(item) for item in self._input_list]
             return self._read(self.function)(t, *input_values)
 
         return np.interp(t, self.times.value, self.values.value)

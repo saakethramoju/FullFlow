@@ -10,7 +10,8 @@ separate controller class.
 | Mode | Signature | Evaluation and timing |
 | --- | --- | --- |
 | Schedule | `times=..., values=...` | Interpolated at solver times; known breakpoints are respected |
-| Continuous | `function=..., inputs=...` | Uses current trial State values during implicit residual evaluations |
+| Accepted-step feedback | `function=..., inputs=...` | Reads previous accepted State values, preserving the existing default behavior |
+| Continuous | `function=..., continuous=True` | Uses current trial State values during implicit residual evaluations |
 | Step-driven switch | Function reads its own target as an input | Reads newly accepted measurements after a step; holds the previous command inside each solve |
 | Localized switch | `function=..., event=True` | Holds command through trial solves and locates detected changes between timesteps |
 | Sampled digital | `function=..., sample_rate=...` | Reads accepted plant States at exact sample boundaries; holds command between samples |
@@ -43,6 +44,7 @@ PressureFeedback = Sequence(
     target=command,
     function=pressure_control,
     inputs=[pressure, setpoint],
+    continuous=True,
 )
 ```
 
@@ -54,10 +56,12 @@ x_{n+1}=x_n+\Delta t\,f(x_{n+1},u_{n+1}),\qquad
 u_{n+1}=g(x_{n+1}).
 ```
 
-There is no imposed one-timestep measurement delay. The feedback function must
-be deterministic and side-effect-free because the nonlinear solver may call it
-multiple times at a proposed timestep. Hard discontinuities should use the
-switching mode instead.
+There is no imposed one-timestep measurement delay with `continuous=True`.
+By default, function-based Sequences instead read the previous accepted States,
+which prevents their feedback from changing within a nonlinear trial. Continuous
+feedback functions must be deterministic and side-effect-free because the solver
+may call them multiple times at a proposed timestep. Hard discontinuities should
+use accepted-step feedback or the event-driven switching mode instead.
 
 ## Bang-bang and localized switching
 
@@ -92,8 +96,9 @@ PressurantControl = Sequence(
 )
 ```
 
-Without `event=True`, the command updates only at accepted timestep boundaries.
-With `event=True`, FullFlow estimates a crossing using inexpensive guard-input
+With the default accepted-step feedback, the command reads the last accepted
+measurements and does not switch inside a nonlinear trial. With `event=True`,
+FullFlow estimates a crossing using inexpensive guard-input
 interpolation and checks candidate times using implicit solves. The command
 remains fixed during each nonlinear solve so the solver does not iterate across
 a discontinuous valve equation. Every localized trial is checked against the
@@ -181,8 +186,8 @@ thrust-vector plant with actuator limits.
   A high-rate controller can therefore make a large network more expensive.
 - Multiple digital controllers can run at different frequencies. At coincident
   sample times, they read the same accepted pre-update plant state.
-- A sampled Sequence cannot also have `event=True`, but distinct sampled and
-  event-enabled Sequences can coexist in one network.
+- A sampled Sequence cannot also have `event=True` or `continuous=True`, but
+  different controller modes can coexist in one network.
 - The command changes at a sample boundary without an additional instantaneous
   algebraic reconciliation solve. Dependent algebraic output datasets may still
   reflect the left limit at that precise time; they update on the next solve.

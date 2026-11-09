@@ -81,6 +81,7 @@ Sequence(
     target=heater_power,
     function=heater_control,
     inputs=[temperature],
+    continuous=True,
 )
 
 Battery(
