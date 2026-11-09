@@ -6,8 +6,7 @@
 * Improved nonlinear recovery and event handling, including precise Sequence switching, sampled digital controllers, and accepted-only controller memory updates.
 * Added structured dictionaries for steady-state and transient results and `history="summary"` for compact extrema, final values, HDF5 summaries, and final-point linearization; removed `return_type`.
 * Supported direct references between Components and improved identity preservation across retries, checkpoints, model options, and linearization.
-* Added `Network.snapshot()` and `Network.restore()` for repeated simulations.
-* Many new examples!
+* Added `Network.snapshot()` and `Network.restore()` for repeated simulations, with expanded examples.
 
 ## 4.0.1
 

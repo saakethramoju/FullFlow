@@ -27,14 +27,22 @@ class _NetworkSnapshot:
         self.options = tuple((model, model.active_option_name) for model in self.models)
         self.operating_point = OperatingCheckpoint(network)
         self.state_references = []
-        for obj, _ in self.operating_point.attributes:
-            for name in _field_names(obj):
+        self.runtime_attributes = []
+        for obj, captured in self.operating_point.attributes:
+            names = set(_field_names(obj))
+            if hasattr(obj, "__dict__"):
+                names.update(vars(obj))
+            references = {}
+            for name in names:
                 try:
                     value = getattr(obj, name)
                 except Exception:
                     continue
                 if is_state_like(value) and not isinstance(value, Component):
                     self.state_references.append((obj, name, value))
+                elif name not in captured and value is not network:
+                    references[name] = value
+            self.runtime_attributes.append((obj, frozenset(names), references))
         self.state_configuration = {
             state: (state._expr, state._lower_bound, state._upper_bound, state._keep_feasible)
             for state in self.operating_point.states.states if isinstance(state, State)
@@ -42,7 +50,7 @@ class _NetworkSnapshot:
         self.sensor_events = _copy(network.sensor_event_list)
 
     def restore(self, network):
-        from fullflow.Solvers.linearization.checkpoints import _copy
+        from fullflow.Solvers.linearization.checkpoints import _copy, _field_names
 
         if network is not self.network:
             raise ValueError("A Network snapshot can only restore its original Network.")
@@ -56,6 +64,21 @@ class _NetworkSnapshot:
                 or any(model.active_option_name != option for model, option in self.options)):
             raise ValueError("Cannot restore after changing Network structure or model options.")
         self.operating_point.restore()
+        for obj, names, references in reversed(self.runtime_attributes):
+            current = vars(obj) if hasattr(obj, "__dict__") else {}
+            current_names = set(_field_names(obj)) | set(current)
+            for name in current_names - names:
+                if name in current:
+                    del current[name]
+                else:
+                    delattr(obj, name)
+            frozen = bool(getattr(getattr(type(obj), "__dataclass_params__", None), "frozen", False))
+            for name, value in references.items():
+                if getattr(obj, name, None) is not value:
+                    if frozen:
+                        object.__setattr__(obj, name, value)
+                    else:
+                        setattr(obj, name, value)
         for owner, name, state in self.state_references:
             if getattr(owner, name, None) is not state:
                 setattr(owner, name, state)
