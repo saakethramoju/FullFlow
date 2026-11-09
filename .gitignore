@@ -21,6 +21,9 @@ test.py
 # Local/generated engineering files
 *.h5
 *.hdf5
+!/examples/maps/
+!/examples/maps/**/*.h5
+!/examples/maps/**/*.hdf5
 *.png
 *.jpg
 *.jpeg

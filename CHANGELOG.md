@@ -2,6 +2,10 @@
 
 ## 4.0.2
 
+* Added verified numerical Jacobian coloring, sparse linear solves, and improved nonlinear recovery for steady-state and transient simulations.
+* Reduced repeated Jacobian work in SciPy fallback and reused eligible Newton factorizations.
+* Moved precomputed example input maps under `examples/maps/` and separated them from generated solver results.
+* Added a full-example CI check that must pass before PyPI publication.
 * Added continuous Sequence feedback, precisely localized switching, and sampled digital control with accepted-only controller memory updates.
 * Improved event-trial prediction and preserved coupled nonlinear validation and rollback.
 * Reused verified numerical Jacobians between compatible event-localization trials, with safeguarded fallback and whole-solve nonlinear-work diagnostics.

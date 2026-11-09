@@ -52,7 +52,7 @@ The controller uses a single throttle coordinate, alpha:
     alpha = 0.0  -> low-power operating point
     alpha = 1.0  -> high-power operating point
 
-A precomputed throttle map is stored in the same HDF5 file as the solution:
+A precomputed throttle map is stored in `examples/maps/26pid_throttle.h5`:
 
     group="throttle"
 
@@ -113,6 +113,8 @@ Important modeling notes
    actuators, line inertia, manifolds, chamber, and nozzle evolve together.
 """
 
+from pathlib import Path
+
 import math
 
 import fullplot as fplt
@@ -126,11 +128,12 @@ from fullflow import *
 dt = 0.01
 t_final = 5.0
 filename = "26pid_throttle"
+map_filename = "maps/26pid_throttle"
 
 
 # ---- File / map generation switches ---- #
 
-# The combustion map, throttle map, and solver results share filename.
+# The precomputed maps are separate from the solver results.
 
 # Set this True only when the combustion-products map needs to be regenerated.
 # This can take longer than running the transient example.
@@ -142,6 +145,9 @@ generate_throttle_map = False
 
 
 # ---- Optional combustion-products map generation ---- #
+
+# Resolve the map path relative to the examples directory.
+map_filename = str(Path(__file__).resolve().parents[1] / map_filename)
 
 if generate_combustion_map:
     map_fuel = Propellant("rp-1", temperature=300)
@@ -172,7 +178,7 @@ if generate_combustion_map:
         }
 
     fplt.generate_map(
-        filename,
+        map_filename,
         group="products",
         axes=[
             fplt.Axis.linear(
@@ -291,7 +297,7 @@ if generate_throttle_map:
         ChamberGasMap = Map.from_hdf5(
             "Chamber Gas Map",
             EngineMap,
-            filename,
+            map_filename,
             group="products",
             inputs={
                 "chamber_pressure": chamber_pressure_map,
@@ -432,7 +438,7 @@ if generate_throttle_map:
 
 
     fplt.generate_map(
-        filename,
+        map_filename,
         group="throttle",
         axes=[
             fplt.Axis.linear(
@@ -500,7 +506,7 @@ mixture_ratio = State(2.0)
 ChamberGas = Map.from_hdf5(
     "Chamber Gas Map",
     Engine,
-    filename,
+    map_filename,
     group="products",
     inputs={
         "chamber_pressure": chamber_pressure,
@@ -583,7 +589,7 @@ PcController = Sequence(
 ThrottleMap = Map.from_hdf5(
     "Throttle Map",
     Engine,
-    filename,
+    map_filename,
     group="throttle",
     inputs={
         "alpha": alpha_cmd,

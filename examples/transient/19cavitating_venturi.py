@@ -93,6 +93,8 @@ also makes cavitation visible because it clips to vapor pressure once the
 venturi is cavitating.
 """
 
+from pathlib import Path
+
 import math
 from scipy.constants import *
 
@@ -114,7 +116,7 @@ t_final = 1.2
 # -----------------------------------------------------------------------------
 
 
-map_filename = "19cavitating_venturi"
+map_filename = "maps/19cavitating_venturi"
 results_filename = "19cavitating_venturi"
 
 ambient_pressure = 14.7 * psi
@@ -128,6 +130,9 @@ ambient_pressure = 14.7 * psi
 # existing HDF5 map instead of regenerating equilibrium chemistry every time.
 
 generate_combustion_map = False
+
+# Resolve the map path relative to the examples directory.
+map_filename = str(Path(__file__).resolve().parents[1] / map_filename)
 
 if generate_combustion_map:
     fuel = Propellant("rp-1", temperature=298.15)

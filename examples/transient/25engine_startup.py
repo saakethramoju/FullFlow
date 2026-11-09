@@ -100,10 +100,12 @@ one-state residence-time approximation suitable for a lumped transient example.
 
 Files
 -----
-The combustion map and solver results share `25engine_startup.h5`, using the
-configured `filename`.
+The precomputed combustion map is loaded from `examples/maps/25engine_startup.h5`.
+Solver results are saved separately under the configured `filename`.
 Regenerate the map only if its thermochemistry or range needs changing.
 """
+
+from pathlib import Path
 
 import numpy as np
 from scipy.constants import *
@@ -121,7 +123,7 @@ import fullplot as fplt
 dt = 0.001
 t_final = 0.35
 filename = '25engine_startup'
-# The combustion map and solver results share this file.
+map_filename = "maps/25engine_startup"
 
 # Set this to True only when the RP-1/LOX product-property map needs to be
 # regenerated. Normal example runs should leave it False so startup simulation
@@ -218,6 +220,9 @@ minimum_combustion_progress_time = 3.0e-3
 # solve does not need to call equilibrium chemistry every timestep. The map axes
 # are chamber pressure and mixture ratio. The map outputs are exactly the gas
 # properties needed by the chamber Volume and the IsentropicNozzle.
+# Resolve the map path relative to the examples directory.
+map_filename = str(Path(__file__).resolve().parents[1] / map_filename)
+
 if generate_combustion_map:
     map_fuel = Propellant("rp-1", temperature=fuel_temperature)
     map_ox = Propellant("lox", temperature=ox_temperature)
@@ -245,7 +250,7 @@ if generate_combustion_map:
         }
 
     fplt.generate_map(
-        filename,
+        map_filename,
         group="products",
         axes=[
             fplt.Axis.linear(
@@ -850,7 +855,7 @@ mixture_ratio = State(mixture_ratio_map_min)
 ChamberGasMap = Map.from_hdf5(
     "Chamber Gas Map",
     Priming,
-    filename,
+    map_filename,
     group="products",
     inputs={
         "chamber_pressure": chamber_pressure,

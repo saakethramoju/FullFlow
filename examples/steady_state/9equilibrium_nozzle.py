@@ -94,6 +94,8 @@ reliably on Windows and macOS, and it is also safe on Linux.
 """
 
 
+from pathlib import Path
+
 from concurrent.futures import ProcessPoolExecutor
 import os
 
@@ -112,6 +114,7 @@ from thermoprop import *
 
 # All generated map groups are stored in this one HDF5 file.
 filename = "9equilibrium_nozzle"
+map_filename = "maps/9equilibrium_nozzle"
 
 # Set to True only when the maps need to be regenerated.
 # Normal example runs should use the existing map file.
@@ -319,6 +322,9 @@ def rp1_lox_tp_map(pressure, temperature, mixture_ratio):
 # Main script
 # ---------------------------------------------------------------------------
 
+# Resolve the map path relative to the examples directory.
+map_filename = str(Path(__file__).resolve().parents[1] / map_filename)
+
 if __name__ == "__main__":
 
     # -----------------------------------------------------------------------
@@ -367,7 +373,7 @@ if __name__ == "__main__":
         # This map is intentionally narrow because the chamber correction is
         # small, so a broad coarse TP map can smear the enthalpy difference.
         map_generator(
-            filename=filename,
+            filename=map_filename,
             group="products_tp",
             axes=[
                 Axis.linear(
@@ -402,7 +408,7 @@ if __name__ == "__main__":
         # The entropy axis is centered around the injector-face entropy so that
         # the chamber entropy and nozzle isentrope remain within the map.
         map_generator(
-            filename=filename,
+            filename=map_filename,
             group="products_sp",
             axes=[
                 Axis.log(
@@ -481,7 +487,7 @@ if __name__ == "__main__":
     ChamberMap = Map.from_hdf5(
         "Chamber Map",
         EquilibriumNozzle,
-        filename=filename,
+        filename=map_filename,
         group="products_tp",
         inputs={
             "pressure": chamber_pressure,
@@ -502,7 +508,7 @@ if __name__ == "__main__":
     ThroatMap = Map.from_hdf5(
         "Throat Map",
         EquilibriumNozzle,
-        filename=filename,
+        filename=map_filename,
         group="products_sp",
         inputs={
             "pressure": throat_pressure,
@@ -514,7 +520,7 @@ if __name__ == "__main__":
     ExitMap = Map.from_hdf5(
         "Exit Map",
         EquilibriumNozzle,
-        filename=filename,
+        filename=map_filename,
         group="products_sp",
         inputs={
             "pressure": exit_pressure,

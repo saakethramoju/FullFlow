@@ -77,6 +77,8 @@ They are not calibrated SpaceX hardware data. The map shapes are synthetic and
 are intended to be smooth, finite, and startup-safe.
 """
 
+from pathlib import Path
+
 import numpy as np
 from scipy.constants import *
 
@@ -92,6 +94,7 @@ from thermoprop import *
 dt = 0.002
 t_final = 3.0
 filename = '20gas_turbine'
+map_filename = "maps/20gas_turbine"
 
 
 # -----------------------------------------------------------------------------
@@ -319,9 +322,12 @@ def oxygen_rich_turbine_map(
     }
 
 
+# Resolve the map path relative to the examples directory.
+map_filename = str(Path(__file__).resolve().parents[1] / map_filename)
+
 if generate_maps:
     generate_map(
-        filename,
+        map_filename,
         group="preburner_products",
         axes=[
             Axis.values(
@@ -358,7 +364,7 @@ if generate_maps:
     )
 
     generate_map(
-        filename,
+        map_filename,
         group="oxygen_rich_turbine",
         axes=[
             Axis.values(
@@ -505,7 +511,7 @@ PreburnerMixtureRatioCommand = Sequence(
 PreburnerMap = Map.from_hdf5(
     "Preburner Products Map",
     Turbopump,
-    filename=filename,
+    filename=map_filename,
     group="preburner_products",
     inputs={
         "preburner_pressure": PreburnerPressure,
@@ -530,7 +536,7 @@ PreburnerMap = Map.from_hdf5(
 TurbineMap = Map.from_hdf5(
     "Oxygen-Rich Turbine Map",
     Turbopump,
-    filename=filename,
+    filename=map_filename,
     group="oxygen_rich_turbine",
     inputs={
         "upstream_total_pressure": PreburnerPressure,

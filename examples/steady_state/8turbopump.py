@@ -115,6 +115,8 @@ components can be coupled together. The turbine and pump maps are smooth,
 user-generated performance maps rather than detailed hardware-calibrated maps.
 """
 
+from pathlib import Path
+
 import numpy as np
 from scipy.constants import *
 
@@ -251,7 +253,7 @@ OxRichTurbineDesignMassFlow = LOXPumpDesignShaftPower / (OxRichTurbineDesignEffi
 # Shared turbopump map file
 # -----------------------------------------------------------------------------
 
-turbopump_map_filename = "8turbopump"
+turbopump_map_filename = "maps/8turbopump"
 
 # Set this to True to generate both maps in 8turbopump.h5 before loading them.
 generate_maps = False
@@ -325,6 +327,9 @@ def turbine_map_point(
         "ideal_total_enthalpy_change": ideal_total_enthalpy_change,
     }
 
+
+# Resolve the map path relative to the examples directory.
+turbopump_map_filename = str(Path(__file__).resolve().parents[1] / turbopump_map_filename)
 
 generate_maps and generate_map(
     turbopump_map_filename,

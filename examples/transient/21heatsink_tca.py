@@ -110,6 +110,8 @@ reliably on Windows and macOS, and it is also safe on Linux.
 """
 
 
+from pathlib import Path
+
 from concurrent.futures import ProcessPoolExecutor
 import os
 import numpy as np
@@ -127,6 +129,7 @@ from thermoprop import *
 dt = 0.1
 t_final = 10.0
 filename = '21heatsink_tca'
+map_filename = "maps/21heatsink_tca"
 
 
 # ---------------------------------------------------------------------------
@@ -330,6 +333,9 @@ def rp1_lox_tp_map(pressure, temperature, mixture_ratio):
 # Main script
 # ---------------------------------------------------------------------------
 
+# Resolve the map path relative to the examples directory.
+map_filename = str(Path(__file__).resolve().parents[1] / map_filename)
+
 if __name__ == "__main__":
 
     # -----------------------------------------------------------------------
@@ -382,7 +388,7 @@ if __name__ == "__main__":
         # must cover the gas/wall mean temperatures that occur while the wall
         # heats up.
         map_generator(
-            filename=filename,
+            filename=map_filename,
             group="products_tp",
             axes=[
                 Axis.log(
@@ -418,7 +424,7 @@ if __name__ == "__main__":
         # The entropy axis is centered around the chamber entropy. The throat
         # and exit lookups use this entropy to represent an isentropic nozzle.
         map_generator(
-            filename=filename,
+            filename=map_filename,
             group="products_sp",
             axes=[
                 Axis.log(
@@ -512,7 +518,7 @@ if __name__ == "__main__":
     ThroatMap = Map.from_hdf5(
         "Throat Map",
         Heatsink,
-        filename=filename,
+        filename=map_filename,
         group="products_sp",
         inputs={
             "pressure": throat_pressure,
@@ -525,7 +531,7 @@ if __name__ == "__main__":
     ExitMap = Map.from_hdf5(
         "Exit Map",
         Heatsink,
-        filename=filename,
+        filename=map_filename,
         group="products_sp",
         inputs={
             "pressure": exit_pressure,
@@ -776,7 +782,7 @@ if __name__ == "__main__":
         WallTamLookup = Map.from_hdf5(
             f"{station_name} Mean Temp Lookup",
             Heatsink,
-            filename=filename,
+            filename=map_filename,
             group="products_tp",
             inputs={
                 "pressure": gas_pressure,
