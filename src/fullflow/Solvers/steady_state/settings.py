@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 
 @dataclass(slots=True)
@@ -16,8 +17,8 @@ class StateEvaluationSettings:
         """Raise ``ValueError`` if the state-evaluation settings are invalid."""
         if self.max_passes <= 0:
             raise ValueError(f"state_max_passes must be positive. Got {self.max_passes}")
-        if self.tolerance <= 0.0:
-            raise ValueError(f"state_tolerance must be positive. Got {self.tolerance}")
+        if not math.isfinite(self.tolerance) or self.tolerance <= 0.0:
+            raise ValueError(f"state_tolerance must be finite and positive. Got {self.tolerance}")
 
 
 @dataclass(slots=True)
@@ -48,5 +49,5 @@ class LeastSquaresSettings:
                 f"jacobian_method must be one of {valid_jacobians}. Got {self.jacobian_method!r}."
             )
 
-        if self.rtol <= 0.0:
-            raise ValueError(f"Residual tolerance (rtol) must be positive. Got {self.rtol}")
+        if not math.isfinite(self.rtol) or self.rtol <= 0.0:
+            raise ValueError(f"Residual tolerance (rtol) must be finite and positive. Got {self.rtol}")

@@ -398,7 +398,7 @@ class Transient:
                 sequence_breakpoints,
             )
             if dt_step <= 0.0:
-                break
+                raise ValueError(f"dt is too small to advance network.time at t={current_time:g}.")
 
             trial_dt = dt_step
             retries = 0
