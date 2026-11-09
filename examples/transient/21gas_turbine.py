@@ -93,8 +93,8 @@ from thermoprop import *
 
 dt = 0.002
 t_final = 3.0
-filename = '20gas_turbine'
-map_filename = "maps/20gas_turbine"
+filename = '21gas_turbine'
+map_filename = "maps/21gas_turbine"
 
 
 # -----------------------------------------------------------------------------

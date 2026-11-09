@@ -157,7 +157,7 @@ The sample callback receives a copy of memory and returns `(command, new_memory)
 FullFlow commits memory **once per accepted sample**, not during rejected steps,
 Jacobian evaluations, or event-search probes. Anti-windup, derivative filtering,
 limits, and feedforward belong in the user function. They are illustrated by
-`examples/transient/26pid_throttle.py`.
+`examples/transient/27pid_throttle.py`.
 
 A stateless sampled LQR simply returns its command (no memory is required). A
 discrete-time LQR for $x_{k+1}=A_d x_k+B_d u_k$ can obtain its gain from the
@@ -198,12 +198,12 @@ the sampled controller interface.
 
 ## Examples and compatibility
 
-- `examples/transient/26pid_throttle.py` — sampled chamber-pressure PID with a
+- `examples/transient/27pid_throttle.py` — sampled chamber-pressure PID with a
   throttle map, fuel/oxidizer actuators, and a transient engine network.
-- `examples/transient/23closed_loop_control.py` — continuous battery heater feedback.
-- `examples/transient/27reaction_control.py` — localized two-axis cold-gas spacecraft RCS switching.
+- `examples/transient/24closed_loop_control.py` — continuous battery heater feedback.
+- `examples/transient/28reaction_control.py` — localized two-axis cold-gas spacecraft RCS switching.
 - `examples/transient/29thrust_vectoring_lqr.py` — sampled rocket thrust-vector LQR.
-- `examples/transient/5bang_bang_control.py` — detailed fluid-system pressure regulation.
+- `examples/transient/6bang_bang_control.py` — detailed fluid-system pressure regulation.
 
 The dedicated `PID` Component was removed. Applications using its continuously
 integrated error State or public PID diagnostics must migrate explicitly;

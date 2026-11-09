@@ -75,4 +75,4 @@ error remain the user's responsibility. Avoid mixing inconsistent units or
 extrapolating into unphysical regimes.
 
 See `examples/general/8map_manual.py`, `examples/general/9map_hdf5.py`, and
-`examples/transient/25engine_startup.py`.
+`examples/transient/26engine_startup.py`.

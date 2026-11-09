@@ -100,7 +100,7 @@ one-state residence-time approximation suitable for a lumped transient example.
 
 Files
 -----
-The precomputed combustion map is loaded from `examples/maps/25engine_startup.h5`.
+The precomputed combustion map is loaded from `examples/maps/26engine_startup.h5`.
 Solver results are saved separately under the configured `filename`.
 Regenerate the map only if its thermochemistry or range needs changing.
 """
@@ -122,8 +122,8 @@ import fullplot as fplt
 
 dt = 0.001
 t_final = 0.35
-filename = '25engine_startup'
-map_filename = "maps/25engine_startup"
+filename = '26engine_startup'
+map_filename = "maps/26engine_startup"
 
 # Set this to True only when the RP-1/LOX product-property map needs to be
 # regenerated. Normal example runs should leave it False so startup simulation

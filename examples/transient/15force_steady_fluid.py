@@ -57,7 +57,7 @@ from fullflow import *
 dt = 0.01
 t_final = 2.0
 dynamic_filename = "force_steady_fully_dynamic"
-force_steady_filename = "14force_steady_fluid"
+force_steady_filename = "15force_steady_fluid"
 
 
 # -----------------------------------------------------------------------------

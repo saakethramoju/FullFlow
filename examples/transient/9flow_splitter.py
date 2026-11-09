@@ -87,7 +87,7 @@ from fullflow import *
 
 dt = 0.01
 t_final = 15.0
-filename = '8flow_splitter'
+filename = '9flow_splitter'
 
 
 # ---------------------------------------------------------------------------

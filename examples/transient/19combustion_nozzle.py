@@ -85,7 +85,7 @@ from thermoprop import *
 
 dt = 0.005
 t_final = 1.1
-filename = '18combustion_nozzle'
+filename = '19combustion_nozzle'
 
 
 # -----------------------------------------------------------------------------

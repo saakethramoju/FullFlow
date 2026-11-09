@@ -116,8 +116,8 @@ t_final = 1.2
 # -----------------------------------------------------------------------------
 
 
-map_filename = "maps/19cavitating_venturi"
-results_filename = "19cavitating_venturi"
+map_filename = "maps/20cavitating_venturi"
+results_filename = "20cavitating_venturi"
 
 ambient_pressure = 14.7 * psi
 

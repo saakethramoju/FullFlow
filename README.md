@@ -499,7 +499,7 @@ shared States or assign the reverse reference after constructing both objects;
 FullFlow preserves these identities through checkpoints and timestep retries.
 The physical coupling still comes from the Components' equations, not from the
 reference itself. See
-[`examples/transient/30component_coupling.py`](examples/transient/30component_coupling.py)
+[`examples/transient/5component_coupling.py`](examples/transient/5component_coupling.py)
 for a draining tank coupled to vertical vehicle motion.
 
 ### `evaluate_states()`

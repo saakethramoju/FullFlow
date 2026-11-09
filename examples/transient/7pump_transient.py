@@ -79,7 +79,7 @@ from thermoprop import *
 
 dt = 0.01
 t_final = 6.0
-filename = '6pump_transient'
+filename = '7pump_transient'
 
 
 # ---------------------------------------------------------------------------

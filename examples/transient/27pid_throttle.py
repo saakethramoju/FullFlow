@@ -52,7 +52,7 @@ The controller uses a single throttle coordinate, alpha:
     alpha = 0.0  -> low-power operating point
     alpha = 1.0  -> high-power operating point
 
-A precomputed throttle map is stored in `examples/maps/26pid_throttle.h5`:
+A precomputed throttle map is stored in `examples/maps/27pid_throttle.h5`:
 
     group="throttle"
 
@@ -127,8 +127,8 @@ from fullflow import *
 
 dt = 0.01
 t_final = 5.0
-filename = "26pid_throttle"
-map_filename = "maps/26pid_throttle"
+filename = "27pid_throttle"
+map_filename = "maps/27pid_throttle"
 
 
 # ---- File / map generation switches ---- #

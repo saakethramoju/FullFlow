@@ -29,7 +29,7 @@ from fullflow import *
 
 dt = 0.02
 t_final = 1.0
-filename = '30component_coupling'
+filename = '5component_coupling'
 
 
 # -----------------------------------------------------------------------------

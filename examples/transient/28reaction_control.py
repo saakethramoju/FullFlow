@@ -48,7 +48,7 @@ from fullflow import *
 
 dt = 0.25
 t_final = 18.0
-filename = '27reaction_control'
+filename = '28reaction_control'
 
 
 # -----------------------------------------------------------------------------

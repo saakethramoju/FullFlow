@@ -47,7 +47,7 @@ from thermoprop import *
 
 dt = 0.0001
 t_final = 0.1
-filename = '15piston_cylinder'
+filename = '16piston_cylinder'
 
 
 # -----------------------------------------------------------------------------

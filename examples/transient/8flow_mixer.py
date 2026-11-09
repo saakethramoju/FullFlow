@@ -108,7 +108,7 @@ from thermoprop import *
 
 dt = 0.01
 t_final = 20.0
-filename = '7flow_mixer'
+filename = '8flow_mixer'
 
 
 # ---------------------------------------------------------------------------

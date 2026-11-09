@@ -49,7 +49,7 @@ from fullflow import *
 
 dt = 0.01
 t_final = 25.0
-filename = '17relief_valve'
+filename = '18relief_valve'
 
 
 # -----------------------------------------------------------------------------

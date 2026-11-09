@@ -128,8 +128,8 @@ from thermoprop import *
 
 dt = 0.1
 t_final = 10.0
-filename = '21heatsink_tca'
-map_filename = "maps/21heatsink_tca"
+filename = '22heatsink_tca'
+map_filename = "maps/22heatsink_tca"
 
 
 # ---------------------------------------------------------------------------

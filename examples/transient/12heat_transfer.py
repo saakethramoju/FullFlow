@@ -66,7 +66,7 @@ from thermoprop import *
 
 dt = 1.0
 t_final = 900.0
-filename = '11heat_transfer'
+filename = '12heat_transfer'
 
 
 # ---------------------------------------------------------------------------

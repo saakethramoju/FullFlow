@@ -98,7 +98,7 @@ from thermoprop import *
 
 dt = 0.01
 t_final = 22.0
-filename = '9model_options'
+filename = '10model_options'
 
 
 # ---------------------------------------------------------------------------

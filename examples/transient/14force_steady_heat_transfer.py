@@ -53,7 +53,7 @@ from thermoprop import *
 dt = 0.1
 t_final = 20.0
 dynamic_filename = "dynamic_solid_example"
-force_steady_filename = "13force_steady_heat_transfer"
+force_steady_filename = "14force_steady_heat_transfer"
 
 
 # -----------------------------------------------------------------------------

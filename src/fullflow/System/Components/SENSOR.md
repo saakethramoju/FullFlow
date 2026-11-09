@@ -75,5 +75,5 @@ command after a named condition has triggered, and
 state-dependent bang-bang switching *between* timesteps, see the separate
 `Sequence(..., event=True)` mechanism documented in `SEQUENCE.md`.
 
-See `examples/transient/25engine_startup.py` and the sensor examples under
+See `examples/transient/26engine_startup.py` and the sensor examples under
 `examples/testing/`.

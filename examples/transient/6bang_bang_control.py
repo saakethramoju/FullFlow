@@ -74,7 +74,7 @@ from thermoprop import *
 
 dt = 0.01
 t_final = 22.5
-filename = '5bang_bang_control'
+filename = '6bang_bang_control'
 
 
 # ---------------------------------------------------------------------------

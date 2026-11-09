@@ -150,7 +150,7 @@ from thermoprop import *
 
 dt = 0.1
 t_final = 4.0
-filename = '12heat_exchanger'
+filename = '13heat_exchanger'
 
 
 # -----------------------------------------------------------------------------
