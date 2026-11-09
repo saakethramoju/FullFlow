@@ -2,13 +2,11 @@
 
 ## 4.0.2
 
-* New examples!
-* Improved steady-state and transient performance with verified Jacobian coloring, sparse linear solves, guarded Jacobian reuse, and more efficient state/checkpoint handling.
-* Improved nonlinear recovery and Sequence control, preserving accepted-step feedback, continuous and sampled control, and localized events; time-boundary switches now reconcile without tiny integration steps.
-* Added structured dictionaries for steady-state and transient results and `history="summary"` for compact extrema, final values, HDF5 summaries, and final-point linearization; removed `return_type`.
-* Supported direct references between Components and improved identity preservation across retries, checkpoints, and linearization.
-* Added `Network.snapshot()` and `Network.restore()` for repeated simulations.
-* Removed the Model/ModelOption API and related solver/export workflows.
+* Improved steady-state and transient performance with Jacobian coloring, sparse linear solves, guarded Jacobian reuse, and faster state/checkpoint handling.
+* Improved Sequence control with accepted-step, continuous, sampled, and event-driven feedback; fixed timestep-boundary switches by retaining the committed right-hand commands through floating-point time rounding and applying the per-timestep switch limit only within each requested timestep.
+* Added structured steady/transient result dictionaries and `history="summary"` for compact extrema, final values, HDF5 summaries, and final-point linearization; removed `return_type`.
+* Supported direct Component references and added `Network.snapshot()`/`Network.restore()` for repeatable simulations, with improved identity preservation through retries and linearization.
+* Removed the Model/ModelOption API and associated exports and sweeps, and added new examples.
 
 ## 4.0.1
 

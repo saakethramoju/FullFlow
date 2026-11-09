@@ -710,7 +710,7 @@ def write_solution(
         network_group = _require_object_group(h5, network_name, "network")
 
         section_group = network_group.require_group(section)
-        _delete_children(section_group, ["metadata", "components", "tracks", "sensors", "table", "model_configuration"])
+        _delete_children(section_group, ["metadata", "components", "tracks", "sensors", "table"])
         section_group.attrs["kind"] = section.rsplit("/", 1)[-1]
         section_group.attrs["updated_utc"] = _now()
 

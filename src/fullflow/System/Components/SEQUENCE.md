@@ -107,8 +107,11 @@ states without integrating over a nearly zero-duration step. For a switch
 bracketed extremely close to the accepted boundary, it first verifies the
 right-hand command change with the physical States held fixed. A genuine
 pressure-threshold crossing still uses implicit event localization; it is not
-moved to the boundary merely because its time is close. Failed reconciliation
-restores the accepted mode and States. Every localized trial is checked against
+moved to the boundary merely because its time is close. A time-driven event at an accepted boundary keeps its committed right-hand
+command even when the stored timestep time is rounded slightly below the
+exact discontinuity. This also supports strict (`>`) and inclusive (`>=`)
+time tests without repeatedly switching between the left and right limits.
+Failed reconciliation restores the accepted mode and States. Every localized trial is checked against
 the normal residual tolerance; event probes cost additional nonlinear work.
 
 An event search cannot guarantee detection of multiple switches whose endpoints

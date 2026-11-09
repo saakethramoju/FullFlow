@@ -22,6 +22,7 @@ class SequenceSwitches:
             if getattr(component, '_event_enabled', False)
         )
         self.records = []
+        self._right_limits = {}
         self.probes = 0
         self.reconciliation_residual_calls = 0
         self.reconciliation_scipy_solves = 0
@@ -36,14 +37,25 @@ class SequenceSwitches:
     def _changed(a, b):
         return not math.isclose(float(a), float(b), rel_tol=1e-12, abs_tol=1e-12)
 
+    @staticmethod
+    def _time_resolution(*values):
+        """Tolerance for representing one physical time with floating-point values."""
+        scale = max(1.0, *(abs(float(value)) for value in values))
+        return 64.0 * np.finfo(float).eps * scale
+
     def _requests(self, time_value):
-        return [
-            (sequence, requested)
-            for sequence in self.sequences
-            if self._changed(
-                requested := sequence.event_request(time_value), sequence._event_command
-            )
-        ]
+        requests = []
+        for sequence in self.sequences:
+            evaluation_time = time_value
+            right_limit = self._right_limits.get(sequence)
+            if right_limit is not None:
+                event_time, probe_time = right_limit
+                if abs(time_value - event_time) <= self._time_resolution(time_value, event_time):
+                    evaluation_time = max(time_value, probe_time)
+            requested = sequence.event_request(evaluation_time)
+            if self._changed(requested, sequence._event_command):
+                requests.append((sequence, requested))
+        return requests
 
     def _guards(self):
         return {sequence: sequence._event_probe_inputs() for sequence in self.sequences}
@@ -179,6 +191,7 @@ class SequenceSwitches:
             len(self.solver._cache().collect_residual_labels()),
         )
         for sequence, old_value, value in previous:
+            self._right_limits[sequence] = (float(event_time), float(evaluation_time))
             self.records.append({
                 'time': float(event_time), 'sequence': sequence.name,
                 'previous_value': old_value, 'value': float(value),
@@ -218,6 +231,7 @@ class SequenceSwitches:
         cache = self.solver._cache()
         original = OperatingCheckpoint(self.solver.network, cache)
         initial_record_count = len(self.records)
+        prior_right_limits = self._right_limits.copy()
         t_start = original.time
         try:
             # An already-due switch is a zero-time mode change, not a transient step.
@@ -250,9 +264,10 @@ class SequenceSwitches:
             low_x, high_x = start_x, end_x
             low_guards, high_guards = start_guards, end_guards
             tolerance = max(1e-10, abs(dt) * 1e-6)
+            boundary_resolution = self._time_resolution(t_start, t_new)
             # Probe the right limit at the frozen accepted plant state first.
             # A known-time setpoint jump must not enter the integration search.
-            boundary_time = min(t_new, t_start + tolerance)
+            boundary_time = min(t_new, t_start + boundary_resolution)
             if boundary_time > t_start and self._apply_boundary_switches(
                 original, t_start, boundary_time, settings, state_settings,
             ):
@@ -291,7 +306,7 @@ class SequenceSwitches:
             # A jump in external time-dependent commands can be bracketed right
             # beside an accepted step. Confirm it with frozen plant states before
             # treating it as a zero-duration event.
-            if high - t_start <= tolerance and self._apply_boundary_switches(
+            if high - t_start <= boundary_resolution and self._apply_boundary_switches(
                 original, t_start, high, settings, state_settings,
             ):
                 diagnostics, _ = self.run_step(
@@ -324,5 +339,6 @@ class SequenceSwitches:
             return diagnostics, True
         except Exception:
             del self.records[initial_record_count:]
+            self._right_limits = prior_right_limits
             self._restore(original)
             raise

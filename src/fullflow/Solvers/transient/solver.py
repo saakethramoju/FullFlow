@@ -346,7 +346,7 @@ class Transient:
 
         while float(self.network.time.value) < t_final:
             current_time = float(self.network.time.value)
-            if unfinished_endpoint is not None and current_time >= unfinished_endpoint - 1e-12 * max(1.0, abs(current_time)):
+            if unfinished_endpoint is None or current_time >= unfinished_endpoint - 1e-12 * max(1.0, abs(current_time)):
                 unfinished_endpoint = None
                 events_in_interval = 0
             pending_abort_time = self.network.next_sequence_abort_time(current_time)
