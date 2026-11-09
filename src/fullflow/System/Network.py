@@ -537,15 +537,13 @@ class Network:
 
         return records
 
-    def save(
+    def _save_records(
         self,
         filename: str | None = None,
-        return_type: str = "dict",
         group_path: str = "steady_state/runs/base",
         metadata: dict[str, Any] | None = None,
     ):
         """Write network, steady-state, or transient results to an HDF5 file."""
-        return_type = return_type.lower()
         records: list[dict[str, Any]] = []
 
         for component in self.component_list:
@@ -556,9 +554,6 @@ class Network:
             self._export_owner(balance, records, {"name", "network"})
 
         records.extend(self.tracked_records())
-
-        if return_type not in {"dict", "records"}:
-            raise ValueError("return_type must be 'dict' or 'records'.")
 
         if filename is not None:
             write_solution(
@@ -571,6 +566,22 @@ class Network:
             )
 
         return records
+
+    def save(
+        self,
+        filename: str | None = None,
+        group_path: str = "steady_state/runs/base",
+        metadata: dict[str, Any] | None = None,
+    ):
+        """Export the current network and return its organized values."""
+        from fullflow.Solvers.results import steady_result
+
+        records = self._save_records(filename=filename, group_path=group_path, metadata=metadata)
+        result = steady_result(records, network=self, metadata=metadata)
+        result["history"] = "snapshot"
+        result["solver"]["success"] = None
+        result["solver"]["message"] = "Current network values (no solve performed)"
+        return result
 
     def __str__(self) -> str:
         lines = [

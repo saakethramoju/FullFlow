@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+* Return consistently structured dictionaries from steady-state and transient
+  solves, with intuitive access to tracked values, Component attributes,
+  solver statistics, events, and model-option results; remove `return_type`.
+* Add `history="summary"` for streaming extrema and final values without
+  retaining accepted-step output records or historical checkpoints.
+* Keep full-history HDF5/FullPlot output unchanged and support compact summary
+  HDF5 exports and final-point linearization in summary mode.
+* Add a lightweight repeated-flight example using the summary results API.
+
 * Allow Components to reference other registered Components directly, including
   references inside containers, without wrapping or copying them as States.
 * Preserve Component identity through checkpoints, transient retries, model

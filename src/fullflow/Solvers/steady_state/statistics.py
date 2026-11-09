@@ -262,7 +262,7 @@ class SolverStatistics:
     def _record_network(self, evaluation: int, elapsed_time: float, cache) -> None:
         """Record network values for one solver evaluation."""
         try:
-            records = cache.network.save(filename=None, return_type="dict")
+            records = cache.network._save_records()
         except Exception as error:
             self.network_records.append(
                 {

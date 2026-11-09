@@ -280,7 +280,7 @@ Engine.time.value = 0.0
 Important network methods:
 
 - `network.track(name, value, ...)` registers variables for export.
-- `network.save(filename)` writes a solution record to HDF5.
+- `network.save(filename)` writes a current network snapshot to HDF5 and returns an organized dictionary.
 - `network.solve(...)` is a convenience wrapper around
   `SteadyState(network).solve(...)`.
 - `network.static_evaluate(...)` evaluates components without nonlinear solving.
@@ -1315,6 +1315,84 @@ When a solve fails:
    need more settling passes,
 9. change numerical settings only after checking equations and initial conditions.
 
+## Working with solve results
+
+`SteadyState.solve()`, `SteadyState.static_evaluate()`, and `Transient.solve()`
+return ordinary Python dictionaries. `return_type` is no longer needed.
+Providing `filename` additionally writes HDF5; omitting it does not change
+the returned dictionary.
+
+```python
+results = Transient(Flight).solve(
+    dt=0.01,
+    t_final=120.0,
+    history="full",            # default
+    filename="flight",         # optional HDF5 export
+)
+
+height = results["tracked"]["Altitude [m]"]
+apogee = height["max"]
+time_of_apogee = height["time_max"]
+altitudes = height["values"]   # NumPy array, full history only
+times = height["time"]         # NumPy array, full history only
+final_mass = results["components"]["Fuel Tank"]["mass"]["final"]
+```
+
+Each scalar tracked quantity provides `initial`, `final`, `min`, `max`,
+`time_min`, and `time_max`. Extrema are evaluated at **accepted timesteps**;
+their timestamps are not automatically precise event times. Full history adds
+`time` and `values` arrays to each exported variable and provides the global
+`results["time"]` array. Non-scalar values have initial/final snapshots but
+no scalar extrema. Steady-state solves return a final snapshot with the same
+`tracked` and `components` keys, without a time history.
+
+For repeated simulations, use streaming summary mode:
+
+```python
+rows = []
+for seed in range(1000):
+    Flight = build_flight(seed)  # user-defined network factory
+    results = Transient(Flight).solve(
+        dt=0.01, t_final=120.0,
+        history="summary", filename=None,
+    )
+    rows.append({
+        "run": seed,
+        "apogee": results["tracked"]["Altitude [m]"]["max"],
+        "final_mass": results["components"]["Fuel Tank"]["mass"]["final"],
+    })
+```
+
+Summary mode does not create full per-timestep snapshots or result arrays. If a
+filename is provided, FullFlow writes a compact `.h5` summary (not a complete
+FullPlot time history). Solver-required rollback checkpoints still operate.
+Final-point transient linearization remains available; multi-time linearization
+requires `history="full"`.
+
+Model selection does not change the shape of individual results:
+
+```python
+results = Transient(Engine).solve(
+    dt=0.01, t_final=10.0,
+    model="Pump Model", history="summary",
+)
+option = results["model"]["selected_option"]
+
+sweep = Transient(Engine).solve(
+    dt=0.01, t_final=10.0, model="Pump Model",
+    evaluate_all_model_options=True, history="summary",
+)
+for option_name, option_results in sweep["options"].items():
+    print(option_name, option_results["tracked"])
+print(sweep["failures"])
+```
+
+An option sweep returns an `options` dictionary keyed by option name and a
+separate `failures` list. Every successful option has the same `tracked`,
+`components`, `solver`, `events`, `model`, and `history` keys as a normal solve.
+For a single selected option, any failed earlier attempts appear directly in
+`results["failures"]`. HDF5 model-option run groups remain unchanged.
+
 ## Linearization and local state-space models
 
 FullFlow can **linearize a solved nonlinear network** to determine how small changes
@@ -1656,18 +1734,23 @@ accepted solver timesteps within a small floating-point tolerance. FullFlow
 does **not interpolate** between timesteps or reconstruct earlier operating
 points from an HDF5 output file.
 
-Transient results contain the initial operating point and every accepted step,
-including the internal state needed for `linearize(times=[...])`. Returned records
-support list indexing and iteration over output dictionaries. The solver reads
-operating points from those same in-memory results.
+With `history="full"` (the default), transient results retain the initial
+operating point and every accepted step, including checkpoints needed for
+`linearize(times=[...])`. Returned results are dictionaries organized by
+tracked quantity and Component, not raw export-record lists.
+
+With `history="summary"`, FullFlow retains only tracked initial/final values,
+accepted-step extrema and their sampled times, final Component values, solver
+statistics, events, and one final operating checkpoint. Earlier timesteps cannot
+be linearized in this mode. The numerical solver and event handling are unchanged.
 
 For example, `times=[0.1, 0.3]` can work after a `dt=0.1` solve, but
 `times=[0.15]` fails if `0.15` was not an accepted timestep.
 
-**Memory use:** results retain State values and history, supported component
-attributes, output records, and diagnostics. Memory grows with the number of
-accepted steps and the size of the model. A new solve replaces the solver's
-results; previously returned results remain available while referenced.
+**Memory use:** full history grows with the number of accepted steps. Summary
+history retains approximately constant storage per tracked quantity, plus event
+records and the model's current solver state. A new solve replaces the solver's
+history; previously returned result dictionaries remain independent snapshots.
 
 HDF5 files contain exported values and diagnostics. They do not serialize the
 live Python model or its restorable operating points. Historical linearization

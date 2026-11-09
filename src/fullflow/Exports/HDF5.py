@@ -918,3 +918,47 @@ def write_failures(
     ]
     write_tables(path, {"table": rows}, group_path=group_path)
     return path
+
+
+def write_summary_solution(
+    filename: str | Path,
+    *,
+    network_name: str,
+    result: dict[str, Any],
+    final_records: list[dict[str, Any]],
+    group_path: str = "transient/runs/base",
+    metadata: dict[str, Any] | None = None,
+    models: list[Any] | None = None,
+) -> Path:
+    """Store a compact result with no fabricated time-history datasets."""
+    path = hdf5_path(filename)
+    group_path = group_path.strip("/")
+    with h5py.File(path, "a") as h5:
+        _initialize_file(h5)
+        network_group = _require_object_group(h5, network_name, "network")
+        if group_path in network_group:
+            del network_group[group_path]
+        run = network_group.create_group(group_path)
+        run.attrs["kind"] = "summary"
+        run.attrs["history"] = "summary"
+        fields = dict(metadata or {})
+        fields.update(history="summary", solve_type="transient", run_path=group_path)
+        _write_metadata(run, fields)
+        summary_rows = [
+            {"name": name, **values}
+            for name, values in result.get("tracked", {}).items()
+        ]
+        _write_table(run, "summary", summary_rows)
+        _write_table(run, "diagnostics", [result.get("solver", {})])
+        _write_sensor_events(run, result.get("events", {}).get("sensor", []))
+        _write_table(run, "sequence_events", result.get("events", {}).get("sequence", []))
+        final = run.create_group("final")
+        final.attrs["kind"] = "final"
+        _write_component_values(final, final_records)
+        _write_static_tracks(final, final_records)
+        _write_static_sensors(final, final_records)
+        _write_table(final, "table", final_records)
+        model_rows = model_configuration(models)
+        if model_rows:
+            _write_table(run, "model_configuration", model_rows)
+    return path

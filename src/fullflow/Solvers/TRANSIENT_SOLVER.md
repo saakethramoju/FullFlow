@@ -133,15 +133,15 @@ A property calculation may fail at a temporary trial state. After a valid residu
 
 ## History, output, and linearization
 
-The solver retains the initial state and every accepted timestep in its history. When `filename=...` is specified, HDF5 results are written under:
+By default (`history="full"`), the solver retains the initial state and every accepted timestep. With `history="summary"`, it instead retains sampled extrema for registered tracks, final Component values, sparse events, aggregate diagnostics, and a final operating checkpoint without the trajectory history. Numerical retries and event rollback are unchanged. When `filename=...` is specified, HDF5 results are written under:
 
 ```text
 /<network_name>/transient/runs/base
 ```
 
-The export includes time, component histories, tracked states, sensors, diagnostics, final values, and metadata. Existing FullPlot data access continues to use these physical values.
+Full-history export includes time, component histories, tracked states, sensors, diagnostics, final values, and metadata. Existing FullPlot data access continues to use these physical values. Summary-mode export instead stores compact summary tables and final values; it does not fabricate a time series. Both modes return organized Python dictionaries with `tracked`, `components`, `events`, `solver`, and `model`. Summary mode has no `time` or `values` arrays.
 
-Accepted operating-point checkpoints also preserve internal model state for `transient.linearize(...)`. To limit memory growth, unchanged large NumPy arrays in these checkpoints can share stored snapshots; changed arrays are copied. Restoring a checkpoint still creates independent mutable values. An event or mode transition may prevent linearization at the affected point. See [LINEARIZATION.md](LINEARIZATION.md).
+In full mode, accepted operating-point checkpoints also preserve internal model state for `transient.linearize(...)`. In summary mode only the final accepted checkpoint is retained; `linearize(times=[...])` cannot retrieve earlier points. To limit memory growth, unchanged large NumPy arrays in these checkpoints can share stored snapshots; changed arrays are copied. Restoring a checkpoint still creates independent mutable values. An event or mode transition may prevent linearization at the affected point. See [LINEARIZATION.md](LINEARIZATION.md).
 
 `verbose=True` prints the final summary and network state. `statistics=True` prints accepted-step progress and solver diagnostics. Model-option runs start from restored initial conditions, so alternative options are evaluated independently.
 

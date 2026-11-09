@@ -15,7 +15,7 @@ from fullflow.Exceptions import SensorDataStop, TransientStepError
 from .diagnostics import TransientPrinter
 from .evaluation import TransientStateEvaluator
 from .operations import StepDiagnostics, TransientStepSolve
-from .results import TransientHistory, format_records
+from .results import TransientHistory, DiagnosticSummary
 from .runtime import TransientRuntimeCache
 from .models import TransientModelOptionRunner
 from .settings import TransientSettings
@@ -194,7 +194,7 @@ class Transient:
         model: str | Any | None = None,
         evaluate_all_model_options: bool = False,
         filename: str | None = None,
-        return_type: str = "dict",
+        history: str = "full",
         verbose: bool = False,
         statistics: bool = False,
         solver_method: str = "trf",
@@ -216,7 +216,6 @@ class Transient:
 
         def run_once(
             filename: str | None = None,
-            return_type: str = "dict",
             group_path: str = "transient/runs/base",
             metadata: dict[str, Any] | None = None,
             verbose_override: bool | None = None,
@@ -226,7 +225,7 @@ class Transient:
                 dt=dt,
                 t_final=t_final,
                 filename=filename,
-                return_type=return_type,
+                history=history,
                 verbose=verbose if verbose_override is None else bool(verbose_override),
                 statistics=statistics,
                 solver_method=solver_method,
@@ -255,7 +254,6 @@ class Transient:
             model=model,
             evaluate_all_model_options=evaluate_all_model_options,
             filename=filename,
-            return_type=return_type,
             verbose=verbose,
             run_once=run_once,
         )
@@ -265,7 +263,7 @@ class Transient:
         dt: float,
         t_final: float,
         filename: str | None = None,
-        return_type: str = "dict",
+        history: str = "full",
         verbose: bool = False,
         statistics: bool = False,
         solver_method: str = "trf",
@@ -327,8 +325,9 @@ class Transient:
         )
         state_settings.validate()
 
-        self.history = TransientHistory()
+        self.history = TransientHistory(history)
         self.step_diagnostics = []
+        summary_stats = DiagnosticSummary()
         cache = self._refresh_runtime_cache()
 
         run_metadata = dict(metadata or {})
@@ -470,7 +469,11 @@ class Transient:
             if diagnostics is None:
                 break
 
-            self.step_diagnostics.append(diagnostics)
+            summary_stats.append(diagnostics)
+            if history == "full":
+                self.step_diagnostics.append(diagnostics)
+            else:
+                self.step_diagnostics[:] = [diagnostics]
             self.event_probes = switches.probes
             if localized_event:
                 events_in_interval += 1
@@ -559,12 +562,34 @@ class Transient:
             if abort_record is None:
                 run_metadata["stopped_by_sensor"] = True
             run_metadata["stop_reason"] = stop_reason
-        step_rows = self._diagnostic_rows(self.step_diagnostics)
-        self.history.save(filename, self.network, step_rows, group_path=group_path, metadata=run_metadata)
+        final_time = float(self.network.time.value)
+        final_issue = self._linearization_issue
+        self._linearization_source = self.history.capture_final(self.network, self._cache(), final_issue)
+        stats = summary_stats.result(
+            final_time=final_time, elapsed=elapsed_time,
+            start_time=start_time_value, work=self.work_statistics,
+            stop_reason=stop_reason,
+        )
+        result = self.history.result(
+            self.network,
+            metadata=run_metadata,
+            solver=stats,
+            events={
+                "sensor": sensor_event_records,
+                "sequence": list(self.event_records),
+                "abort": None if abort_record is None else dict(abort_record),
+            },
+        )
+        step_rows = self._diagnostic_rows(self.step_diagnostics) if history == "full" else []
+        self.history.save(
+            filename, self.network, step_rows,
+            group_path=group_path, metadata=run_metadata, result=result,
+        )
 
         if verbose:
             self.printer.print_summary(
                 diagnostics_list=self.step_diagnostics,
+                summary_statistics=summary_stats if history == "summary" else None,
                 start_time=start_time_value,
                 final_time=float(self.network.time.value),
                 requested_dt=dt,
@@ -582,6 +607,4 @@ class Transient:
             self.printer.print_sensor_event_summary(self.network.sensor_event_list)
             self.printer.print_network_solution()
 
-        final_time = float(self.network.time.value)
-        self._linearization_source = self.history.records.operating_points[final_time][0]
-        return format_records(self.history.public_records, return_type)
+        return result

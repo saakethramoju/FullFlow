@@ -104,6 +104,7 @@ class TransientPrinter:
         self,
         *,
         diagnostics_list: list[Any],
+        summary_statistics=None,
         start_time: float,
         final_time: float,
         requested_dt: Any,
@@ -145,6 +146,14 @@ class TransientPrinter:
             last_message = str(getattr(sol, "message", ""))
             last_optimality = getattr(sol, "optimality", None)
 
+        if summary_statistics is not None:
+            total_retries = summary_statistics.retries
+            min_dt = summary_statistics.min_dt or 0.0
+            max_dt = summary_statistics.max_dt or 0.0
+            total_nfev = summary_statistics.function_evaluations
+            total_njev = summary_statistics.jacobian_evaluations
+            total_cost = summary_statistics.cost
+
         table = Table(
             title="Transient Solver Summary",
             box=box.SIMPLE_HEAVY,
@@ -173,7 +182,7 @@ class TransientPrinter:
         table.add_row(_plain("Start time"), _plain(f"{start_time:.9g}"))
         table.add_row(_plain("Final time"), _plain(f"{final_time:.9g}"))
         table.add_row(_plain("Requested dt"), _plain(requested_dt_text))
-        table.add_row(_plain("Accepted steps"), _plain(len(diagnostics_list)))
+        table.add_row(_plain("Accepted steps"), _plain(summary_statistics.steps if summary_statistics is not None else len(diagnostics_list)))
         table.add_row(_plain("Automatic retries"), _plain(total_retries))
         if diagnostics_list:
             table.add_row(_plain("Minimum dt used"), _plain(f"{min_dt:.9g}"))

@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from .results import format_records, save_model_option_results
+from fullflow.Solvers.results import failure_records
 from .statistics import model_option_statistics_path, statistics_path
 from fullflow.Exports.HDF5 import HDF5Target, run_group_path, safe_group_name, write_failures, write_solution
 from fullflow.Exceptions import SolverConvergenceError, SolverSetupError
@@ -119,7 +119,6 @@ class ModelOptionRunner:
         model: str | Any | None,
         evaluate_all_model_options: bool,
         filename: str | None,
-        return_type: str,
         verbose: bool,
         statistics: bool,
         run_once: Callable[..., Any],
@@ -130,7 +129,6 @@ class ModelOptionRunner:
         if selected_model is None:
             return self._run_without_selected_model(
                 filename=filename,
-                return_type=return_type,
                 verbose=verbose,
                 statistics=statistics,
                 run_once=run_once,
@@ -142,7 +140,6 @@ class ModelOptionRunner:
             return self._run_all_options(
                 selected_model,
                 filename=filename,
-                return_type=return_type,
                 verbose=verbose,
                 statistics=statistics,
                 run_once=run_once,
@@ -151,7 +148,6 @@ class ModelOptionRunner:
         return self._run_first_working_option(
             selected_model,
             filename=filename,
-            return_type=return_type,
             verbose=verbose,
             statistics=statistics,
             run_once=run_once,
@@ -161,7 +157,6 @@ class ModelOptionRunner:
         self,
         *,
         filename: str | None,
-        return_type: str,
         verbose: bool,
         statistics: bool,
         run_once: Callable[..., Any],
@@ -171,7 +166,6 @@ class ModelOptionRunner:
         group_path = run_group_path("steady_state")
         solution = run_once(
             filename=filename,
-            return_type=return_type,
             statistics_filename=(statistics_path(filename, self.network.name) if statistics and filename is not None else None),
             group_path=group_path,
             metadata=self._metadata(),
@@ -184,7 +178,6 @@ class ModelOptionRunner:
         selected_model,
         *,
         filename: str | None,
-        return_type: str,
         verbose: bool,
         statistics: bool,
         run_once: Callable[..., Any],
@@ -207,7 +200,6 @@ class ModelOptionRunner:
                 )
                 solution = run_once(
                     filename=filename,
-                    return_type=return_type,
                     statistics_filename=statistics_target,
                     group_path=group_path,
                     metadata=self._metadata(
@@ -232,6 +224,7 @@ class ModelOptionRunner:
 
             self.printer.print_model_failures(failures)
             self.success_printer(verbose)
+            solution["failures"] = failure_records(failures)
             return solution
 
         self.printer.print_model_failures(failures)
@@ -242,7 +235,6 @@ class ModelOptionRunner:
         selected_model,
         *,
         filename: str | None,
-        return_type: str,
         verbose: bool,
         statistics: bool,
         run_once: Callable[..., Any],
@@ -251,6 +243,7 @@ class ModelOptionRunner:
         results: dict[str, Any] = {}
         failures: list[ModelFailure] = []
         last_success_option = None
+        current_option_succeeded = False
 
         for option_name in selected_model.order:
             selected_model.replace(option_name)
@@ -262,7 +255,6 @@ class ModelOptionRunner:
             try:
                 records = run_once(
                     filename=filename,
-                    return_type="dict",
                     statistics_filename=(
                         model_option_statistics_path(filename, selected_model.name, option_name, self.network.name)
                         if statistics and filename is not None
@@ -276,20 +268,21 @@ class ModelOptionRunner:
                     ),
                 )
             except Exception as error:
+                current_option_succeeded = False
                 failures.append(ModelFailure.from_error(self.network, error, selected_model))
                 continue
 
-            results[option_name] = format_records(records, return_type)
+            results[option_name] = records
             last_success_option = option_name
+            current_option_succeeded = True
 
         if last_success_option is None:
             self.printer.print_model_failures(failures)
             raise SolverConvergenceError(f"All options failed for model {selected_model.name!r}.")
 
-        # Re-run the last successful option without exporting so the live network
-        # values match the option left active after this method returns.
-        selected_model.replace(last_success_option)
-        run_once(filename=None, return_type="dict", statistics_filename=None)
+        if verbose or not current_option_succeeded:
+            selected_model.replace(last_success_option)
+            run_once(filename=None, statistics_filename=None)
 
         if filename is not None and failures:
             write_failures(
@@ -303,4 +296,9 @@ class ModelOptionRunner:
 
         self.printer.print_model_failures(failures)
         self.success_printer(verbose)
-        return results
+        return {
+            "model": {"name": selected_model.name, "selected_option": last_success_option},
+            "options": results,
+            "failures": failure_records(failures),
+            "history": next(iter(results.values()))["history"],
+        }

@@ -7,16 +7,6 @@ from typing import Any
 from fullflow.Exports.HDF5 import write_model_option_results
 
 
-def format_records(records: list[dict[str, Any]], return_type: str):
-    """Convert raw network records to the requested return type."""
-    return_type = return_type.lower()
-
-    if return_type in {"dict", "records"}:
-        return records
-
-    raise ValueError("return_type must be 'dict' or 'records'.")
-
-
 def save_model_option_results(
     results: dict[str, list[dict[str, Any]]],
     filename: str,

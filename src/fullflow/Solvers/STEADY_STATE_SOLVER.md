@@ -130,7 +130,7 @@ The named components retain backward-Euler integration equations; all other dyna
 /<network_name>/steady_state/runs/base
 ```
 
-Model-option runs have their own run groups. Returned records and HDF5 contain physical component values and **raw** residuals; summary diagnostics also distinguish raw from scaled residual magnitudes. `verbose=True` prints the solve summary, variables, residuals, and network solution. `statistics=True` enables additional iteration diagnostics.
+Model-option runs have their own run groups. Returned dictionaries and HDF5 contain physical component values and **raw** residuals; summary diagnostics also distinguish raw from scaled residual magnitudes. `verbose=True` prints the solve summary, variables, residuals, and network solution. `statistics=True` enables additional iteration diagnostics.
 
 A successfully solved operating point can be linearized with `steady.linearize(...)`. Linearization independently checks the operating point's equations using scaled consistency criteria; it does not change the nonlinear solver's accepted state. See [LINEARIZATION.md](LINEARIZATION.md).
 

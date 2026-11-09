@@ -164,7 +164,7 @@ class SteadyStatePrinter:
 
     def print_network_solution(self) -> None:
         """Print the exported network state table."""
-        records = self.network.save(return_type="dict")
+        records = self.network._save_records()
         table = Table(
             title=_plain(f"{self.network.name} Solution"),
             box=box.SIMPLE_HEAVY,

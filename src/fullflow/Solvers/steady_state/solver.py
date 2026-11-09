@@ -13,7 +13,7 @@ from .models import ModelManager, ModelOptionRunner
 from .operations import NonlinearSolve, StaticDiagnostics, StaticEvaluation, SolveDiagnostics
 from .runtime import RuntimeCache
 from .settings import LeastSquaresSettings, StateEvaluationSettings
-from fullflow.Solvers.results import SolutionRecords
+from fullflow.Solvers.results import SolutionRecords, steady_result
 from .statistics import SolverStatistics
 from fullflow.Exceptions import SensorDataStop, SolverSetupError
 
@@ -249,7 +249,6 @@ class SteadyState:
     def _static_evaluate_once(
         self,
         filename: str | None = None,
-        return_type: str = "dict",
         state_settings: StateEvaluationSettings | None = None,
         group_path: str = "steady_state/runs/base",
         metadata: dict[str, Any] | None = None,
@@ -257,7 +256,6 @@ class SteadyState:
         """Run one static evaluation after model options have been selected."""
         solution, diagnostics = self.static_runner.run_once(
             filename=filename,
-            return_type=return_type,
             state_settings=state_settings,
             group_path=group_path,
             metadata=metadata,
@@ -265,12 +263,11 @@ class SteadyState:
         self._last_success_kind = "static"
         self._last_static_elapsed_time = diagnostics.elapsed_time
         self._last_solve_diagnostics = None
-        return solution
+        return steady_result(solution, network=self.network, diagnostics=diagnostics, metadata=metadata)
 
     def _solve_once(
         self,
         filename: str | None = None,
-        return_type: str = "dict",
         least_squares_settings: LeastSquaresSettings | None = None,
         state_settings: StateEvaluationSettings | None = None,
         statistics: bool = False,
@@ -283,7 +280,6 @@ class SteadyState:
         self.statistics.enabled = statistics
         solution, diagnostics = self.nonlinear_runner.run_once(
             filename=filename,
-            return_type=return_type,
             least_squares_settings=least_squares_settings,
             state_settings=self._active_state_settings,
             statistics=self.statistics,
@@ -303,7 +299,7 @@ class SteadyState:
 
         self._solution_records = SolutionRecords(solution)
         self._linearization_source = self._solution_records.capture(self.network, self._cache())
-        return self._solution_records
+        return steady_result(solution, network=self.network, diagnostics=diagnostics, metadata=metadata)
 
     def _solve_forced_steady_time_sweep_once(
         self,
@@ -311,7 +307,7 @@ class SteadyState:
         dt: float,
         t_final: float,
         filename: str | None = None,
-        return_type: str = "dict",
+        history: str = "full",
         verbose: bool = False,
         statistics: bool = False,
         solver_method: str = "trf",
@@ -341,7 +337,7 @@ class SteadyState:
             dt=dt,
             t_final=t_final,
             filename=filename,
-            return_type=return_type,
+            history=history,
             verbose=verbose,
             statistics=statistics,
             solver_method=solver_method,
@@ -364,7 +360,7 @@ class SteadyState:
         self._last_success_kind = "forced_steady_time_sweep"
         self._last_static_elapsed_time = None
         self._last_solve_diagnostics = None
-        self._solution_records = result
+        self._solution_records = transient_solver.history.records
         self._linearization_tolerance = rtol
         self._runtime_cache = None
         from fullflow.Solvers.linearization.checkpoints import OperatingCheckpoint
@@ -376,7 +372,6 @@ class SteadyState:
         model: str | None = None,
         evaluate_all_model_options: bool = False,
         filename: str | None = None,
-        return_type: str = "dict",
         verbose: bool = False,
         statistics: bool = False,
         state_max_passes: int = 20,
@@ -394,7 +389,6 @@ class SteadyState:
 
         def run_once(
             filename: str | None = None,
-            return_type: str = "dict",
             statistics_filename: str | None = None,
             group_path: str = "steady_state/runs/base",
             metadata: dict[str, Any] | None = None,
@@ -402,8 +396,7 @@ class SteadyState:
             """Run one solver attempt for the selected model."""
             return self._static_evaluate_once(
                 filename=filename,
-                return_type=return_type,
-                state_settings=state_settings,
+                    state_settings=state_settings,
                 group_path=group_path,
                 metadata=metadata,
             )
@@ -412,7 +405,6 @@ class SteadyState:
             model=model,
             evaluate_all_model_options=evaluate_all_model_options,
             filename=filename,
-            return_type=return_type,
             verbose=verbose,
             statistics=statistics,
             run_once=run_once,
@@ -423,7 +415,7 @@ class SteadyState:
         model: str | None = None,
         evaluate_all_model_options: bool = False,
         filename: str | None = None,
-        return_type: str = "dict",
+        history: str = "full",
         verbose: bool = False,
         statistics: bool = False,
         static: bool = False,
@@ -458,8 +450,7 @@ class SteadyState:
 
             def run_time_sweep_once(
                 filename: str | None = None,
-                return_type: str = "dict",
-                statistics_filename: str | None = None,
+            statistics_filename: str | None = None,
                 group_path: str = "transient/runs/base",
                 metadata: dict[str, Any] | None = None,
             ):
@@ -468,7 +459,7 @@ class SteadyState:
                     dt=float(dt),
                     t_final=float(t_final),
                     filename=filename,
-                    return_type=return_type,
+                    history=history,
                     verbose=verbose,
                     statistics=statistics,
                     solver_method=solver_method,
@@ -499,7 +490,6 @@ class SteadyState:
             )
             def run_time_sweep_model_once(
                 filename: str | None = None,
-                return_type: str = "dict",
                 group_path: str = "transient/runs/base",
                 metadata: dict[str, Any] | None = None,
                 verbose_override: bool | None = None,
@@ -509,7 +499,6 @@ class SteadyState:
                 metadata.setdefault("run_mode", "forced_steady_time_sweep")
                 return run_time_sweep_once(
                     filename=filename,
-                    return_type=return_type,
                     group_path=group_path,
                     metadata=metadata,
                 )
@@ -518,10 +507,12 @@ class SteadyState:
                 model=model,
                 evaluate_all_model_options=evaluate_all_model_options,
                 filename=filename,
-                return_type=return_type,
                 verbose=verbose,
                 run_once=run_time_sweep_model_once,
             )
+
+        if history != "full":
+            raise ValueError("history is only applicable to transient or time-sweep solves.")
 
         if exceptions is not None:
             raise ValueError("exceptions can only be used when dt and t_final are provided.")
@@ -531,7 +522,6 @@ class SteadyState:
                 model=model,
                 evaluate_all_model_options=evaluate_all_model_options,
                 filename=filename,
-                return_type=return_type,
                 verbose=verbose,
                 statistics=statistics,
                 state_max_passes=state_max_passes,
@@ -553,7 +543,6 @@ class SteadyState:
 
         def run_once(
             filename: str | None = None,
-            return_type: str = "dict",
             statistics_filename: str | None = None,
             group_path: str = "steady_state/runs/base",
             metadata: dict[str, Any] | None = None,
@@ -561,7 +550,6 @@ class SteadyState:
             """Run one solver attempt for the selected model."""
             return self._solve_once(
                 filename=filename,
-                return_type=return_type,
                 least_squares_settings=least_squares_settings,
                 state_settings=state_settings,
                 statistics=statistics,
@@ -574,7 +562,6 @@ class SteadyState:
             model=model,
             evaluate_all_model_options=evaluate_all_model_options,
             filename=filename,
-            return_type=return_type,
             verbose=verbose,
             statistics=statistics,
             run_once=run_once,

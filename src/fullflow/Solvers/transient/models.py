@@ -16,7 +16,7 @@ from fullflow.Exports.HDF5 import run_group_path, safe_group_name, write_failure
 from fullflow.Exceptions import SolverConvergenceError
 from fullflow.System.State import State
 from fullflow.Solvers.steady_state.models import ModelFailure, ModelManager
-from .results import format_records
+from fullflow.Solvers.results import failure_records
 
 
 class NetworkStateSnapshot:
@@ -163,7 +163,6 @@ class TransientModelOptionRunner:
         model: str | Any | None,
         evaluate_all_model_options: bool,
         filename: str | None,
-        return_type: str,
         verbose: bool,
         run_once: Callable[..., Any],
     ):
@@ -174,7 +173,6 @@ class TransientModelOptionRunner:
             self.model_manager.build_unbuilt()
             return run_once(
                 filename=filename,
-                return_type=return_type,
                 group_path=run_group_path(self.solve_type),
                 metadata=self._metadata(),
                 verbose_override=verbose,
@@ -188,7 +186,6 @@ class TransientModelOptionRunner:
                 selected_model,
                 snapshot,
                 filename=filename,
-                return_type=return_type,
                 verbose=verbose,
                 run_once=run_once,
             )
@@ -197,7 +194,6 @@ class TransientModelOptionRunner:
             selected_model,
             snapshot,
             filename=filename,
-            return_type=return_type,
             verbose=verbose,
             run_once=run_once,
         )
@@ -208,7 +204,6 @@ class TransientModelOptionRunner:
         snapshot: NetworkStateSnapshot,
         *,
         filename: str | None,
-        return_type: str,
         verbose: bool,
         run_once: Callable[..., Any],
     ):
@@ -221,7 +216,6 @@ class TransientModelOptionRunner:
             try:
                 records = run_once(
                     filename=filename,
-                    return_type=return_type,
                     group_path=run_group_path(self.solve_type, model_name=selected_model.name, option_name=option_name),
                     metadata=self._metadata(model_name=selected_model.name, option_name=option_name),
                     verbose_override=verbose,
@@ -241,6 +235,7 @@ class TransientModelOptionRunner:
                     ),
                 )
             self.printer.print_model_failures(failures)
+            records["failures"] = failure_records(failures)
             return records
 
         self.printer.print_model_failures(failures)
@@ -252,7 +247,6 @@ class TransientModelOptionRunner:
         snapshot: NetworkStateSnapshot,
         *,
         filename: str | None,
-        return_type: str,
         verbose: bool,
         run_once: Callable[..., Any],
     ):
@@ -260,6 +254,7 @@ class TransientModelOptionRunner:
         results: dict[str, Any] = {}
         failures: list[ModelFailure] = []
         last_success_option = None
+        current_option_succeeded = False
 
         for option_name in selected_model.order:
             selected_model.replace(option_name)
@@ -267,7 +262,6 @@ class TransientModelOptionRunner:
             try:
                 records = run_once(
                     filename=filename,
-                    return_type="dict",
                     group_path=run_group_path(self.solve_type, model_name=selected_model.name, option_name=option_name),
                     metadata=self._metadata(
                         model_name=selected_model.name,
@@ -277,20 +271,23 @@ class TransientModelOptionRunner:
                     verbose_override=False,
                 )
             except Exception as error:
+                current_option_succeeded = False
                 failures.append(ModelFailure.from_error(self.network, error, selected_model))
                 snapshot.restore()
                 continue
 
-            results[option_name] = format_records(records, return_type)
+            results[option_name] = records
             last_success_option = option_name
+            current_option_succeeded = True
 
         if last_success_option is None:
             self.printer.print_model_failures(failures)
             raise SolverConvergenceError(f"All options failed for model {selected_model.name!r}.")
 
-        selected_model.replace(last_success_option)
-        snapshot.restore()
-        run_once(filename=None, return_type="dict", verbose_override=verbose)
+        if verbose or not current_option_succeeded:
+            selected_model.replace(last_success_option)
+            snapshot.restore()
+            run_once(filename=None, verbose_override=verbose)
 
         if filename is not None and failures:
             write_failures(
@@ -303,4 +300,9 @@ class TransientModelOptionRunner:
             )
 
         self.printer.print_model_failures(failures)
-        return results
+        return {
+            "model": {"name": selected_model.name, "selected_option": last_success_option},
+            "options": results,
+            "failures": failure_records(failures),
+            "history": next(iter(results.values()))["history"],
+        }

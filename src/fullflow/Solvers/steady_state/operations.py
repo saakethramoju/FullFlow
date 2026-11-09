@@ -50,7 +50,6 @@ class StaticEvaluation:
     def run_once(
         self,
         filename: str | None = None,
-        return_type: str = "dict",
         state_settings: StateEvaluationSettings | None = None,
         group_path: str = "steady_state/runs/base",
         metadata: dict[str, Any] | None = None,
@@ -72,7 +71,7 @@ class StaticEvaluation:
         )
         elapsed_time = time.perf_counter() - start_time
 
-        records = self.network.save(filename=filename, return_type=return_type, group_path=group_path, metadata=metadata)
+        records = self.network._save_records(filename=filename, group_path=group_path, metadata=metadata)
 
         if filename is not None:
             write_tables(
@@ -111,7 +110,6 @@ class NonlinearSolve:
     def run_once(
         self,
         filename: str | None = None,
-        return_type: str = "dict",
         least_squares_settings: LeastSquaresSettings | None = None,
         state_settings: StateEvaluationSettings | None = None,
         statistics: SolverStatistics | None = None,
@@ -163,8 +161,7 @@ class NonlinearSolve:
             if len(x0) == 0 and len(r0) == 0:
                 return self.static_runner.run_once(
                     filename=filename,
-                    return_type=return_type,
-                    state_settings=state_settings,
+                            state_settings=state_settings,
                     group_path=group_path,
                     metadata=metadata,
                 )
@@ -280,7 +277,7 @@ class NonlinearSolve:
                 max_passes=state_settings.max_passes,
                 tolerance=state_settings.tolerance,
             )
-            records = self.network.save(filename=filename, return_type=return_type, group_path=group_path, metadata=metadata)
+            records = self.network._save_records(filename=filename, group_path=group_path, metadata=metadata)
 
             if filename is not None:
                 write_tables(
