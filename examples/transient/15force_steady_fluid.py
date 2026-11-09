@@ -44,7 +44,6 @@ this example focused only on forced-steady behavior.
 """
 
 import math
-import matplotlib.pyplot as plt
 from scipy.constants import *
 
 from fullflow import *

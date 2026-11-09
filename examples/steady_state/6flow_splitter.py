@@ -90,7 +90,6 @@ it solves only the independent non-H2O species. H2O conservation is implied by
 the total mass balance plus the exhaust sum-to-one closure.
 """
 
-import numpy as np
 
 from fullflow import *
 from thermoprop import *

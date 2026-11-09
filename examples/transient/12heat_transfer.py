@@ -54,7 +54,6 @@ just a derived State made by adding those two heat-rate states together.
 """
 
 
-import h5py
 
 from fullflow import *
 from thermoprop import *
@@ -73,7 +72,6 @@ filename = '12heat_transfer'
 # Network
 # ---------------------------------------------------------------------------
 HeatTransferNetwork = Network("Solid Heat Transfer Transient")
-
 
 
 # ---------------------------------------------------------------------------

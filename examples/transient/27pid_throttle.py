@@ -115,7 +115,6 @@ Important modeling notes
 
 from pathlib import Path
 
-import math
 
 import fullplot as fplt
 from scipy.constants import *

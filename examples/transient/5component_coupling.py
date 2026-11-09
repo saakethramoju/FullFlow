@@ -18,8 +18,6 @@ constant fluid density implicit in the head relation, and no drag or sloshing.
 """
 
 import math
-
-import fullplot as fplt
 from fullflow import *
 
 

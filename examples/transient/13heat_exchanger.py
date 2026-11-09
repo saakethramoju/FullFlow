@@ -133,10 +133,7 @@ Approximate cross section:
 
 """
 
-import re
 
-import h5py
-import matplotlib.pyplot as plt
 import numpy as np
 from scipy.constants import *
 
