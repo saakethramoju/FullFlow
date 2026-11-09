@@ -2624,9 +2624,11 @@ The sampling frequency is in **Hz**, and output remains held between samples.
 By default, function-based Sequences read the previous accepted State values,
 keeping threshold commands stable during nonlinear solves. Use `continuous=True`
 for smooth feedback coupled to the current nonlinear trial, or `event=True` for
-precise discrete switching. Sampled controllers read accepted States at sample
-boundaries and cannot combine with either mode. High-rate samples and precise
-event localization can require additional network solves. Ordinary custom
+precise discrete switching. Event-driven commands already due at an accepted
+time are applied together with algebraic reconciliation, without tiny
+integration steps. Sampled controllers read accepted States at sample boundaries 
+and cannot combine with either mode. High-rate samples and precise event 
+localization can require additional network solves. Ordinary custom
 Components remain available for continuous controller differential equations.
 
 For mathematical details, controller timing, memory guarantees, limitations,

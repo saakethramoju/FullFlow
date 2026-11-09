@@ -94,11 +94,19 @@ class SequenceSwitches:
             state for state in cache.iteration_variables
             if id(state) not in cache.transient_ids
         )
-        if not algebraic:
-            self.solver.step_solver.discard_trial()
-            return
         dynamic = tuple((state, float(state.value)) for state in cache.transient_variables)
         cache.set_transient_context(dt=0.0)
+        if not algebraic:
+            cache.apply_sequence_commands(t)
+            self.solver.evaluator.run(
+                max_passes=state_settings.max_passes,
+                tolerance=state_settings.tolerance, cache=cache,
+            )
+            if any(float(state.value) != old for state, old in dynamic):
+                raise TransientStepError('Sequence switch unexpectedly modified differential states.')
+            cache.store_previous_values()
+            self.solver.step_solver.discard_trial()
+            return
 
         def residual(values):
             self.reconciliation_residual_calls += 1
@@ -161,19 +169,72 @@ class SequenceSwitches:
         cache.store_previous_values()
         self.solver.step_solver.discard_trial()
 
-    def run_step(self, t_new, dt, settings, state_settings):
+    def _accept_switches(self, switches, event_time, evaluation_time, settings, state_settings):
+        """Commit simultaneous commands and reconcile at one physical instant."""
+        previous = [(sequence, float(sequence._event_command), value) for sequence, value in switches]
+        for sequence, _, value in previous:
+            sequence.accept_event(value)
+        self._reconcile(
+            self.solver._cache(), evaluation_time, settings, state_settings,
+            len(self.solver._cache().collect_residual_labels()),
+        )
+        for sequence, old_value, value in previous:
+            self.records.append({
+                'time': float(event_time), 'sequence': sequence.name,
+                'previous_value': old_value, 'value': float(value),
+            })
+        self.solver.step_solver.invalidate_equation_scales()
+
+    def _apply_boundary_switches(self, checkpoint, time_value, probe_time, settings, state_settings):
+        """Check a one-sided command change without integrating the plant."""
+        self._restore(checkpoint)
+        cache = self.solver._cache()
+        self.solver.network.time.value = probe_time
+        cache.set_transient_context(dt=0.0)
+        cache.apply_sequence_commands(probe_time)
+        self.solver.evaluator.run(
+            max_passes=state_settings.max_passes,
+            tolerance=state_settings.tolerance, cache=cache,
+        )
+        switches = self._requests(probe_time)
+        if not switches:
+            self._restore(checkpoint)
+            return False
+        self._accept_switches(switches, time_value, probe_time, settings, state_settings)
+        self.solver.network.time.value = time_value
+        return True
+
+    def run_step(self, t_new, dt, settings, state_settings, _boundary_passes=0):
         if not self.sequences:
             return self.solver.step_solver.run_once(
                 t_new=t_new, dt=dt,
                 least_squares_settings=settings, state_settings=state_settings,
             ), False
 
+        if _boundary_passes >= 32:
+            raise TransientStepError(
+                'More than 32 simultaneous or repeated Sequence switches at one timestep boundary.'
+            )
         cache = self.solver._cache()
-        checkpoint = OperatingCheckpoint(self.solver.network, cache)
-        t_start = checkpoint.time
-        start_x = cache.iteration_value_array()
-        start_guards = self._guards()
+        original = OperatingCheckpoint(self.solver.network, cache)
+        initial_record_count = len(self.records)
+        t_start = original.time
         try:
+            # An already-due switch is a zero-time mode change, not a transient step.
+            if self._requests(t_start):
+                if not self._apply_boundary_switches(
+                    original, t_start, t_start, settings, state_settings,
+                ):
+                    raise TransientStepError(
+                        f'Sequence command changed during the boundary check at t={t_start:.9g}.'
+                    )
+                diagnostics, _ = self.run_step(
+                    t_new, dt, settings, state_settings, _boundary_passes + 1,
+                )
+                return diagnostics, True
+
+            start_x = cache.iteration_value_array()
+            start_guards = self._guards()
             diagnostics = self.solver.step_solver.run_once(
                 t_new=t_new, dt=dt, least_squares_settings=settings,
                 state_settings=state_settings, commit=False,
@@ -184,11 +245,21 @@ class SequenceSwitches:
             end_guards = self._guards()
             end_x = cache.iteration_value_array()
             prior_jacobian = self.solver.step_solver.event_jacobian_seed()
-            self._restore(checkpoint)
+            self._restore(original)
             low, high = t_start, t_new
             low_x, high_x = start_x, end_x
             low_guards, high_guards = start_guards, end_guards
             tolerance = max(1e-10, abs(dt) * 1e-6)
+            # Probe the right limit at the frozen accepted plant state first.
+            # A known-time setpoint jump must not enter the integration search.
+            boundary_time = min(t_new, t_start + tolerance)
+            if boundary_time > t_start and self._apply_boundary_switches(
+                original, t_start, boundary_time, settings, state_settings,
+            ):
+                diagnostics, _ = self.run_step(
+                    t_new, dt, settings, state_settings, _boundary_passes + 1,
+                )
+                return diagnostics, True
             for iteration in range(40):
                 if high - low <= tolerance:
                     break
@@ -198,7 +269,7 @@ class SequenceSwitches:
                 )
                 if not low < candidate_time < high:
                     break
-                self._restore(checkpoint)
+                self._restore(original)
                 self.probes += 1
                 fraction = (candidate_time - low) / (high - low)
                 guess = low_x + fraction * (high_x - low_x)
@@ -216,7 +287,19 @@ class SequenceSwitches:
                     high, high_guards, high_x = candidate_time, guards, candidate_x
                 else:
                     low, low_guards, low_x = candidate_time, guards, candidate_x
-            self._restore(checkpoint)
+
+            # A jump in external time-dependent commands can be bracketed right
+            # beside an accepted step. Confirm it with frozen plant states before
+            # treating it as a zero-duration event.
+            if high - t_start <= tolerance and self._apply_boundary_switches(
+                original, t_start, high, settings, state_settings,
+            ):
+                diagnostics, _ = self.run_step(
+                    t_new, dt, settings, state_settings, _boundary_passes + 1,
+                )
+                return diagnostics, True
+
+            self._restore(original)
             diagnostics = self.solver.step_solver.run_once(
                 t_new=high, dt=high-t_start,
                 least_squares_settings=settings,
@@ -228,14 +311,18 @@ class SequenceSwitches:
             if not switches:
                 raise TransientStepError(f'Could not reproduce Sequence switch at t={high:.9g}.')
             self.solver.step_solver.accept_trial()
-            for sequence, value in switches:
-                self.records.append({
-                    'time': float(high), 'sequence': sequence.name,
-                    'previous_value': float(sequence._event_command), 'value': float(value),
-                })
+            previous = [(sequence, float(sequence._event_command), value) for sequence, value in switches]
+            for sequence, _, value in previous:
                 sequence.accept_event(value)
             self._reconcile(self.solver._cache(), high, settings, state_settings, len(diagnostics.residual))
+            for sequence, old_value, value in previous:
+                self.records.append({
+                    'time': float(high), 'sequence': sequence.name,
+                    'previous_value': old_value, 'value': float(value),
+                })
+            self.solver.step_solver.invalidate_equation_scales()
             return diagnostics, True
         except Exception:
-            self._restore(checkpoint)
+            del self.records[initial_record_count:]
+            self._restore(original)
             raise

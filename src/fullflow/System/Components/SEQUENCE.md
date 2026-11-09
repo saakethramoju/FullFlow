@@ -101,8 +101,15 @@ measurements and does not switch inside a nonlinear trial. With `event=True`,
 FullFlow estimates a crossing using inexpensive guard-input
 interpolation and checks candidate times using implicit solves. The command
 remains fixed during each nonlinear solve so the solver does not iterate across
-a discontinuous valve equation. Every localized trial is checked against the
-normal residual tolerance; event probes cost additional nonlinear work.
+a discontinuous valve equation. If a switch is already due at the accepted
+time, FullFlow applies all due commands together and reconciles the algebraic
+states without integrating over a nearly zero-duration step. For a switch
+bracketed extremely close to the accepted boundary, it first verifies the
+right-hand command change with the physical States held fixed. A genuine
+pressure-threshold crossing still uses implicit event localization; it is not
+moved to the boundary merely because its time is close. Failed reconciliation
+restores the accepted mode and States. Every localized trial is checked against
+the normal residual tolerance; event probes cost additional nonlinear work.
 
 An event search cannot guarantee detection of multiple switches whose endpoints
 appear identical within one proposed timestep. Use sufficient temporal
