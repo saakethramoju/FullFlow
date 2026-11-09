@@ -1351,11 +1351,13 @@ class Lookup(Component, Generic[T]):
 
                 raise
 
+            component_input = next(Component._component_references((args, kwargs)), None) is not None
             input_key = self._input_key(args, kwargs)
             structure_key = self._structure_key(args, kwargs)
 
             if (
                 self.cache
+                and not component_input
                 and not self.dirty
                 and self.output.is_assigned
                 and input_key == self._last_input_key
@@ -1366,7 +1368,7 @@ class Lookup(Component, Generic[T]):
                 self._seed_priority_inputs_from_output()
                 return
 
-            if self.cache:
+            if self.cache and not component_input:
                 memoized_result = self._get_memoized(structure_key, input_key)
                 if memoized_result is not _MISSING:
                     self.output.value = memoized_result
@@ -1400,7 +1402,8 @@ class Lookup(Component, Generic[T]):
                 self._build_count += 1
 
             self.output.value = result
-            self._remember_result(structure_key, input_key, result)
+            if not component_input:
+                self._remember_result(structure_key, input_key, result)
             self._last_input_key = input_key
             self._last_structure_key = structure_key
             self._evaluation_count += 1

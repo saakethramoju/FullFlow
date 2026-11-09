@@ -8,6 +8,7 @@ from dataclasses import fields, is_dataclass
 import numpy as np
 
 from fullflow.System.State import State, is_state_like
+from fullflow.System.Component import Component
 from fullflow.Solvers.transient.models import NetworkStateSnapshot
 
 
@@ -23,6 +24,8 @@ _DIAGNOSTIC_ATTRIBUTES = {
 
 def _copy(value, array_cache=None):
     """Return a checkpoint-safe copy, reusing unchanged array snapshots."""
+    if isinstance(value, Component):
+        return value
     if is_state_like(value):
         return value
     if isinstance(value, (str, int, float, bool, type(None), bytes)):
@@ -124,7 +127,7 @@ class OperatingCheckpoint:
             # Avoid inspecting them on every accepted timestep.
             if type(obj) in (str, int, float, bool, bytes, type(None), complex):
                 return
-            if depth > 4 or id(obj) in seen or is_state_like(obj) or obj is self.network:
+            if depth > 4 or id(obj) in seen or (is_state_like(obj) and not isinstance(obj, Component)) or obj is self.network:
                 return
             seen.add(id(obj))
             if isinstance(obj, (list, tuple, set, frozenset)):
@@ -146,9 +149,9 @@ class OperatingCheckpoint:
                     value = getattr(obj, name)
                 except Exception:
                     continue
-                if value is self.network or is_state_like(value):
+                if value is self.network or (is_state_like(value) and not isinstance(value, Component)):
                     continue
-                if isinstance(value, (str, int, float, bool, type(None), bytes, np.ndarray, list, tuple, dict, set, frozenset)):
+                if isinstance(value, (str, int, float, bool, type(None), bytes, np.ndarray, list, tuple, dict, set, frozenset, Component)):
                     attrs[name] = _copy(value, self._array_cache)
                 visit(value, depth + 1)
             self.attributes.append((obj, attrs))
@@ -165,7 +168,7 @@ class OperatingCheckpoint:
             raw = self.states.values[state][0]
             if isinstance(raw, (str, int, float, bool, type(None))):
                 values.append((state, raw, state._expr, state.bounds))
-            elif isinstance(raw, np.ndarray):
+            elif isinstance(raw, np.ndarray) or tuple(Component._component_references(raw)):
                 values.append((state, raw, state._expr, state.bounds))
         return values
 
@@ -195,6 +198,14 @@ class OperatingCheckpoint:
                     matched = isinstance(actual, np.ndarray) and np.array_equal(actual, expected, equal_nan=True)
                 except TypeError:
                     matched = isinstance(actual, np.ndarray) and np.array_equal(actual, expected)
+            elif isinstance(expected, Component):
+                matched = actual is expected
+            elif isinstance(expected, (list, tuple, dict, set, frozenset)):
+                expected_refs = tuple(Component._component_references(expected))
+                actual_refs = tuple(Component._component_references(actual))
+                matched = len(expected_refs) == len(actual_refs) and all(
+                    left is right for left, right in zip(expected_refs, actual_refs)
+                )
             elif isinstance(expected, float) and np.isnan(expected):
                 matched = isinstance(actual, (int, float)) and np.isnan(actual)
             else:
@@ -206,7 +217,18 @@ class OperatingCheckpoint:
             for name, expected in attributes.items():
                 if name in _DIAGNOSTIC_ATTRIBUTES:
                     continue
-                if isinstance(expected, (int, float, str, bool, type(None))):
+                if isinstance(expected, Component):
+                    if getattr(obj, name, None) is not expected:
+                        raise ValueError(f'{type(obj).__name__}.{name} changed since the successful solve. Solve again.')
+                elif isinstance(expected, (list, tuple, dict, set, frozenset)):
+                    expected_refs = tuple(Component._component_references(expected))
+                    if expected_refs:
+                        current_refs = tuple(Component._component_references(getattr(obj, name, None)))
+                        if len(expected_refs) != len(current_refs) or any(
+                            left is not right for left, right in zip(expected_refs, current_refs)
+                        ):
+                            raise ValueError(f'{type(obj).__name__}.{name} changed since the successful solve. Solve again.')
+                elif isinstance(expected, (int, float, str, bool, type(None))):
                     current = getattr(obj, name, None)
                     if isinstance(expected, float) and np.isnan(expected):
                         same = isinstance(current, (int, float)) and np.isnan(current)

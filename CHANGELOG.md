@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+* Allow Components to reference other registered Components directly, including
+  references inside containers, without wrapping or copying them as States.
+* Preserve Component identity through checkpoints, transient retries, model
+  options, and historical linearization; reject invalid cross-network or stale
+  references before solving.
+* Prevent stale Lookup caching when a callable receives a Component object.
+* Add a coupled tank-and-vehicle transient example demonstrating mass and
+  acceleration feedback between custom Components.
+
 ## 4.0.2
 
 * Added verified numerical Jacobian coloring, sparse linear solves, and improved nonlinear recovery for steady-state and transient simulations.

@@ -101,6 +101,28 @@ class MyComponent(Component):
 
 The call to `self.setup()` reads the constructor arguments, stores them on the component, converts simple values to `State` objects where appropriate, and registers the component with the network.
 
+An existing Component can be passed into another Component's constructor. It
+remains a direct reference to the registered object, not a State or a copy. Both
+Components must belong to the same Network. References can also be stored in
+lists and dictionaries. They do not create new equations or duplicate registration.
+
+```python
+class Vehicle(Component):
+    def __init__(self, name, network, fuel_tank, dry_mass, total_mass=None):
+        self.setup()
+
+    def evaluate_states(self):
+        self.total_mass.value = self.dry_mass.value + self.fuel_tank.mass.value
+```
+
+For bidirectional coupling, share States or assign a reference after construction.
+The solver checks Component references before solving; physical dependencies must
+still be expressed through States, dynamics, or balances. Checkpoint restoration
+preserves references to the original registered Components. A `Lookup` receiving
+a Component object directly reevaluates its callable instead of reusing a
+result keyed only by the Component's identity; passing the relevant State
+attributes separately remains more efficient when available.
+
 A component usually computes outputs in `evaluate_states()`:
 
 ```python

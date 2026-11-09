@@ -97,6 +97,7 @@ class TransientRuntimeCache:
 
     def refresh(self) -> None:
         """Rebuild transient items, algebraic items, callables, and bounds."""
+        self.network.validate_component_references()
         self.component_list = tuple(self.network.component_list)
         self.balance_list, self.ignored_balance_list = filter_user_balances(
             self.network.balance_list,
@@ -875,6 +876,8 @@ class TransientRuntimeCache:
     @staticmethod
     def _snapshot_value(value: Any) -> Any:
         """Copy a stored State value while preserving State object references."""
+        if isinstance(value, Component):
+            return value
         if is_state_like(value):
             return value
         if type(value) in (float, int, bool, str, bytes, type(None), complex):

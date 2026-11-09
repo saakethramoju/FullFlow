@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 from .State import State, is_state_like, label_state_refs
+from .Component import Component
 from fullflow.Exports.HDF5 import write_solution
 
 if TYPE_CHECKING:
@@ -46,6 +47,16 @@ class Network:
             )
         self.component_list.remove(component)
         self.mark_structure_changed()
+
+    def validate_component_references(self) -> None:
+        """Reject cross-network or stale Component references before solving."""
+        registered_ids = {id(component) for component in self.component_list}
+        for owner in self.component_list:
+            for name, value in tuple(owner.__dict__.items()):
+                if name in ("name", "network"):
+                    continue
+                for reference in Component._component_references(value):
+                    owner._validate_component_reference(reference, name, registered_ids)
 
     def add_balance(self, balance: Balance) -> None:
         self._add_unique(balance, self.balance_list)
@@ -298,6 +309,8 @@ class Network:
 
     @staticmethod
     def _safe_value(value: Any) -> Any:
+        if isinstance(value, Component):
+            return f"<{type(value).__name__}: {value.name}>"
         if is_state_like(value):
             if not value.is_assigned:
                 return "<uninitialized>"
@@ -393,25 +406,31 @@ class Network:
         return items
 
     def _tracked_value(self, tracked: dict[str, Any]) -> Any:
-        value = self._safe_value(tracked["value"])
-
+        source = tracked["value"]
+        value = self._safe_value(source)
         attributes = tracked["attributes"]
         items = tracked["items"]
 
         if attributes is None and items is None:
             return value
 
+        if is_state_like(source):
+            try:
+                source = source.value
+            except Exception:
+                pass
+        attribute_source = source if isinstance(source, Component) else value
         data: dict[str, Any] = {}
 
         for label, attribute in self._selection_map(attributes).items():
             try:
-                data[label] = self._safe_value(self._object_attribute(value, attribute))
+                data[label] = self._safe_value(self._object_attribute(attribute_source, attribute))
             except Exception:
                 data[label] = "<unavailable>"
 
         for label, attribute in self._selection_map(items).items():
             try:
-                item_values = self._object_attribute(value, attribute)
+                item_values = self._object_attribute(attribute_source, attribute)
                 data[label] = self._filtered_items(
                     item_values,
                     minimum=tracked["minimum"],

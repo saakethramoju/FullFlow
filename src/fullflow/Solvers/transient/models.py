@@ -9,6 +9,7 @@ from types import ModuleType, FunctionType, MethodType
 from typing import Any
 
 from fullflow.System.State import is_state_like
+from fullflow.System.Component import Component
 from fullflow.Solvers.state_copy import snapshot_triplet
 
 from fullflow.Exports.HDF5 import run_group_path, safe_group_name, write_failures
@@ -24,6 +25,8 @@ class NetworkStateSnapshot:
     @staticmethod
     def _snapshot_value(value: Any) -> Any:
         """Return a restorable copy of a network value."""
+        if isinstance(value, Component):
+            return value
         if is_state_like(value):
             return value
         if type(value) in (float, int, bool, str, bytes, type(None), complex):

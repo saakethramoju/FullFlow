@@ -10,6 +10,7 @@ from typing import Any
 
 import numpy as np
 
+from fullflow.System.Component import Component
 from fullflow.System.State import (
     State,
     is_assignable_state_like,
@@ -62,6 +63,7 @@ class RuntimeCache:
 
     def refresh(self) -> None:
         """Rebuild all cached lists, labels, and validation checks."""
+        self.network.validate_component_references()
         self.component_list = tuple(self.network.component_list)
         self.active_component_list = tuple(
             component
@@ -522,6 +524,8 @@ class RuntimeCache:
     @staticmethod
     def _copy_value(value):
         """Return a safe copy of a mutable state value."""
+        if isinstance(value, Component):
+            return value
         if is_state_like(value):
             return value
         if type(value) in (float, int, bool, str, bytes, type(None), complex):

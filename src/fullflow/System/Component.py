@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import sys
+from collections.abc import Mapping
 from functools import wraps
 from typing import TYPE_CHECKING, Any
 
@@ -100,20 +101,66 @@ class Component:
             label_state_refs(attribute, f"{self.name}:{attr_name}")
             setattr(self, attr_name, attribute)
 
+    @staticmethod
+    def _component_references(value: Any, seen: set[int] | None = None):
+        if isinstance(value, Component):
+            yield value
+            return
+        if seen is None:
+            seen = set()
+        if id(value) in seen:
+            return
+        seen.add(id(value))
+        if isinstance(value, State):
+            if value._expr is None:
+                yield from Component._component_references(value._value, seen)
+        elif isinstance(value, Mapping):
+            for key, item in tuple(value.items()):
+                yield from Component._component_references(key, seen)
+                yield from Component._component_references(item, seen)
+        elif isinstance(value, (list, tuple, set, frozenset)):
+            for item in tuple(value):
+                yield from Component._component_references(item, seen)
+
+    def _validate_component_reference(
+        self, reference: "Component", attribute: str, registered_ids: set[int] | None = None,
+    ) -> None:
+        if reference.network is not self.network:
+            raise ValueError(
+                f"{self.name}.{attribute} references {reference.name!r} from another Network. "
+                "Referenced Components must belong to the same Network."
+            )
+        registered = (
+            id(reference) in registered_ids
+            if registered_ids is not None
+            else any(item is reference for item in self.network.component_list)
+        )
+        if not registered:
+            raise ValueError(
+                f"{self.name}.{attribute} references {reference.name!r}, "
+                "which is no longer registered in this Network."
+            )
+
     def initialize_attribute(
         self,
-        value: State | float | int | str | bool | None = None,
+        value: Any = None,
         is_default_value: bool = False,
     ) -> Any:
-        """Convert one constructor argument into the stored component attribute."""
+        """Convert numerical inputs to States while retaining Component references."""
+        references = tuple(self._component_references(value))
+        for reference in references:
+            self._validate_component_reference(reference, "constructor input")
+
+        if isinstance(value, Component) or (
+            references and isinstance(value, (Mapping, list, tuple, set, frozenset))
+        ):
+            return value
         if isinstance(value, State):
             return value
 
         as_state = getattr(type(value), "as_state", None)
-
         if callable(as_state):
             return as_state(value)
-
         return State(value)
 
     def initialize_component(self, name: str, network: Network) -> None:
@@ -216,6 +263,8 @@ class Component:
 
     @staticmethod
     def _format_value(value: Any) -> Any:
+        if isinstance(value, Component):
+            return f"<{type(value).__name__}: {value.name}>"
         if isinstance(value, State):
             if not value.is_assigned:
                 return "<uninitialized>"

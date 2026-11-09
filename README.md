@@ -430,9 +430,11 @@ class MyComponent(Component):
 5. preserves existing `State` objects,
 6. converts state-like objects such as `LookupAttribute` into connected state
    views through `as_state()`,
-7. wraps other values, including strings, booleans, numeric constants, and
+7. preserves references to existing Components without copying or wrapping
+   them in a `State`,
+8. wraps other values, including strings, booleans, numeric constants, and
    `None`, in `State` objects,
-8. attaches diagnostic labels such as `Component Name:attribute`.
+9. attaches diagnostic labels such as `Component Name:attribute`.
 
 Therefore:
 
@@ -472,6 +474,33 @@ self.mass_flow.value = calculated_mass_flow
 # Usually wrong: replaces the object and breaks existing connections
 self.mass_flow = State(calculated_mass_flow)
 ```
+
+### Referencing other Components
+
+A custom Component can receive an existing Component directly through its
+constructor. `self.setup()` keeps the original object, so its live States and
+outputs can be used without duplicating the Component or its equations.
+For example, given an existing `FuelTank` registered in `network`:
+
+```python
+class Vehicle(Component):
+    def __init__(self, name, network, fuel_tank, dry_mass, total_mass=None):
+        self.setup()
+
+    def evaluate_states(self):
+        self.total_mass.value = self.dry_mass.value + self.fuel_tank.mass.value
+
+
+VehicleModel = Vehicle("Vehicle", network, fuel_tank=FuelTank, dry_mass=100.0)
+```
+
+Both Components must belong to the same Network. For two-way coupling, use
+shared States or assign the reverse reference after constructing both objects;
+FullFlow preserves these identities through checkpoints and timestep retries.
+The physical coupling still comes from the Components' equations, not from the
+reference itself. See
+[`examples/transient/30component_coupling.py`](examples/transient/30component_coupling.py)
+for a draining tank coupled to vertical vehicle motion.
 
 ### `evaluate_states()`
 
