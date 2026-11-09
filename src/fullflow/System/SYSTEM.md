@@ -12,7 +12,6 @@ Network
   │     ├── optional dynamics
   │     └── optional balances
   ├── Balance objects
-  ├── Model objects
   └── tracked States
 ```
 
@@ -173,7 +172,6 @@ This form is useful when the physical storage state is mass or energy, but the s
 ```text
 component_list
 balance_list
-model_list
 tracked_state_list
 time
 ```
@@ -194,26 +192,6 @@ MyNetwork.track("Pressure [Pa]", pressure)
 ```
 
 Tracked states are included in verbose output and HDF5 exports. Tracking is usually how a user chooses the values they want to plot later.
-
-## Model and ModelOption
-
-`Model` allows one part of a network to have switchable alternatives. This is useful when several modeling approaches can represent the same physical item.
-
-Examples:
-
-```text
-pump model:
-  option 1 -> constant-density pump
-  option 2 -> polytropic pump
-
-nozzle model:
-  option 1 -> shock-free nozzle
-  option 2 -> normal-shock nozzle
-```
-
-The solver can try the model options in order and use the first one that converges, or it can evaluate all options and save all results.
-
-The important idea is that model options are built only when selected. This keeps the network from containing every possible option at the same time.
 
 ## Components subfolder
 
@@ -243,7 +221,7 @@ The `System` folder does not directly own the nonlinear solve or the HDF5 export
 
 ```text
 System
-  Defines Networks, Components, States, Balances, and Models.
+  Defines Networks, Components, States, and Balances.
 
 Solvers
   Reads the Network and decides which States are variables and which residuals

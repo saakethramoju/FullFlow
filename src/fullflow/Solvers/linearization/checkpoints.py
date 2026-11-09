@@ -9,7 +9,7 @@ import numpy as np
 
 from fullflow.System.State import State, is_state_like
 from fullflow.System.Component import Component
-from fullflow.Solvers.transient.models import NetworkStateSnapshot
+from fullflow.Solvers.state_copy import NetworkStateSnapshot
 
 
 _DIAGNOSTIC_ATTRIBUTES = {
@@ -79,7 +79,6 @@ class OperatingCheckpoint:
         """Initialize the helper and its solver state."""
         self.network = network
         self.version = network.version
-        self.models = tuple((m.name, m.active_option_name) for m in network.model_list)
         self.time = float(network.time.value)
         # The runtime cache is tied to Network.version. Discover the State
         # graph once per network structure; snapshot its values at every step.
@@ -187,8 +186,8 @@ class OperatingCheckpoint:
 
     def validate(self):
         """Validate that the checkpoint still matches the network."""
-        if self.network.version != self.version or tuple((m.name, m.active_option_name) for m in self.network.model_list) != self.models:
-            raise ValueError('Network structure or model option changed since the successful solve.')
+        if self.network.version != self.version:
+            raise ValueError('Network structure changed since the successful solve.')
         if not np.isclose(float(self.network.time.value), self.time, rtol=0, atol=1e-12):
             raise ValueError('Network time changed since the successful solve.')
         for state, expected, expression, bounds in self.signature:

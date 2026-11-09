@@ -74,7 +74,6 @@ class RuntimeCache:
             self.network.balance_list,
             self.ignore_balances,
         )
-        self.model_list = tuple(self.network.model_list)
 
         # Evaluate once before collecting equations created during evaluation.
         evaluate_components_for_equation_discovery(

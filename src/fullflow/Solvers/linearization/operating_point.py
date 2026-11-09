@@ -13,7 +13,7 @@ from fullflow.Solvers.equations import (
     component_balances,
     balance_object_equations,
 )
-from fullflow.Solvers.transient.models import NetworkStateSnapshot
+from fullflow.Solvers.state_copy import NetworkStateSnapshot
 from fullflow.System.State import is_assignable_state_like, is_state_like
 
 
@@ -46,7 +46,6 @@ class OperatingPointResult:
     z: np.ndarray
     residuals: np.ndarray
     outputs: np.ndarray
-    model_options: tuple[tuple[str, str | None], ...]
 
 
 class OperatingPointEvaluator:
@@ -61,7 +60,6 @@ class OperatingPointEvaluator:
         self.cache = solver._cache()
         self.version = self.network.version
         self.components = tuple(self.cache.active_component_list if not self.transient else self.cache.component_list)
-        self.models = self._model_options()
         self.dynamic = tuple(
             eq for component in self.components for eq in component_dynamics(component)
         )
@@ -115,12 +113,6 @@ class OperatingPointEvaluator:
             ):
                 raise OperatingPointError("SteadyState requires a successful nonlinear solve before analysis.")
 
-    def _model_options(self):
-        """Return the active model-option selections."""
-        return tuple(
-            (model.name, model.active_option_name)
-            for model in self.network.model_list
-        )
 
     def _component_balances(self, component):
         """Return the balances owned by a component."""
@@ -142,8 +134,8 @@ class OperatingPointEvaluator:
 
     def _check_configuration(self):
         """Validate the solver configuration for linearization."""
-        if self.network.version != self.version or self._model_options() != self.models:
-            raise OperatingPointError("Network structure or model option changed. Solve again before analysis.")
+        if self.network.version != self.version:
+            raise OperatingPointError("Network structure changed. Solve again before analysis.")
         if tuple(self.cache.iteration_variables) != self.variables:
             raise OperatingPointError("Solver equation ordering changed. Solve again before analysis.")
 
@@ -271,7 +263,7 @@ class OperatingPointEvaluator:
             z = np.asarray([_number(eq.variable) for eq in balances], dtype=float)
             return OperatingPointResult(
                 self.time, self.state_labels, self.balance_labels,
-                target.copy(), derivatives, z, residuals.copy(), values, self.models,
+                target.copy(), derivatives, z, residuals.copy(), values,
             )
         except OperatingPointError:
             raise

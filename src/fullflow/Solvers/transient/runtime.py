@@ -103,7 +103,6 @@ class TransientRuntimeCache:
             self.network.balance_list,
             self.ignore_balances,
         )
-        self.model_list = tuple(self.network.model_list)
 
 
         self._transient_context_hooks = tuple(
@@ -1241,7 +1240,7 @@ class TransientRuntimeCache:
                 return
 
         collect(self.network.time)
-        for owner in self.component_list + self.balance_list + self.model_list:
+        for owner in self.component_list + self.balance_list:
             for value in tuple(getattr(owner, "__dict__", {}).values()):
                 collect(value)
 

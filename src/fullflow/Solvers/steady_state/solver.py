@@ -9,12 +9,11 @@ from rich.console import Console
 
 from .diagnostics import SteadyStatePrinter
 from .evaluation import StateEvaluator
-from .models import ModelManager, ModelOptionRunner
 from .operations import NonlinearSolve, StaticDiagnostics, StaticEvaluation, SolveDiagnostics
 from .runtime import RuntimeCache
 from .settings import LeastSquaresSettings, StateEvaluationSettings
 from fullflow.Solvers.results import SolutionRecords, steady_result
-from .statistics import SolverStatistics
+from .statistics import SolverStatistics, statistics_path
 from fullflow.Exceptions import SensorDataStop, SolverSetupError
 
 if TYPE_CHECKING:
@@ -22,7 +21,7 @@ if TYPE_CHECKING:
 
 
 class SteadyState:
-    """Steady-state, static-evaluation, model-option, and quasi-steady solver front end."""
+    """Steady-state, static-evaluation, and quasi-steady solver front end."""
 
     def __init__(self, network: Network) -> None:
         """Initialize the object and register any FullFlow state wiring."""
@@ -52,7 +51,6 @@ class SteadyState:
         self._last_solve_diagnostics: SolveDiagnostics | None = None
 
         self.evaluator = StateEvaluator(self._cache)
-        self.model_manager = ModelManager(network)
         self.printer = SteadyStatePrinter(network, self._cache, self.console)
         self.static_runner = StaticEvaluation(network, self._refresh_runtime_cache, self.evaluator)
         self.nonlinear_runner = NonlinearSolve(
@@ -62,13 +60,6 @@ class SteadyState:
             self.residual,
             self.static_runner,
         )
-        self.model_runner = ModelOptionRunner(
-            network,
-            self.model_manager,
-            self.printer,
-            self._print_last_success,
-        )
-
     def linearize(
         self, inputs=None, outputs=None, filename=None, *, times=None,
         verbose=False,
@@ -253,7 +244,7 @@ class SteadyState:
         group_path: str = "steady_state/runs/base",
         metadata: dict[str, Any] | None = None,
     ):
-        """Run one static evaluation after model options have been selected."""
+        """Run one static evaluation."""
         solution, diagnostics = self.static_runner.run_once(
             filename=filename,
             state_settings=state_settings,
@@ -275,7 +266,7 @@ class SteadyState:
         group_path: str = "steady_state/runs/base",
         metadata: dict[str, Any] | None = None,
     ):
-        """Run one nonlinear solve after model options have been selected."""
+        """Run one nonlinear solve."""
         self._active_state_settings = state_settings or StateEvaluationSettings(max_passes=5)
         self.statistics.enabled = statistics
         solution, diagnostics = self.nonlinear_runner.run_once(
@@ -333,7 +324,7 @@ class SteadyState:
         metadata.setdefault("run_mode", "forced_steady_time_sweep")
 
         transient_solver = Transient(self.network)
-        result = transient_solver._solve_no_model(
+        result = transient_solver._solve_once(
             dt=dt,
             t_final=t_final,
             filename=filename,
@@ -369,8 +360,6 @@ class SteadyState:
 
     def static_evaluate(
         self,
-        model: str | None = None,
-        evaluate_all_model_options: bool = False,
         filename: str | None = None,
         verbose: bool = False,
         statistics: bool = False,
@@ -381,39 +370,20 @@ class SteadyState:
         self._linearization_source = None
         self._ignore_balances = None
         self._runtime_cache = None
-
         state_settings = StateEvaluationSettings(
             max_passes=state_max_passes,
             tolerance=state_tolerance,
         )
-
-        def run_once(
-            filename: str | None = None,
-            statistics_filename: str | None = None,
-            group_path: str = "steady_state/runs/base",
-            metadata: dict[str, Any] | None = None,
-        ):
-            """Run one solver attempt for the selected model."""
-            return self._static_evaluate_once(
-                filename=filename,
-                    state_settings=state_settings,
-                group_path=group_path,
-                metadata=metadata,
-            )
-
-        return self.model_runner.run(
-            model=model,
-            evaluate_all_model_options=evaluate_all_model_options,
+        result = self._static_evaluate_once(
             filename=filename,
-            verbose=verbose,
-            statistics=statistics,
-            run_once=run_once,
+            state_settings=state_settings,
+            metadata={"solve_type": "steady_state"},
         )
+        self._print_last_success(verbose)
+        return result
 
     def solve(
         self,
-        model: str | None = None,
-        evaluate_all_model_options: bool = False,
         filename: str | None = None,
         history: str = "full",
         verbose: bool = False,
@@ -441,86 +411,41 @@ class SteadyState:
         self._ignore_balances = ignore_balances
         self._runtime_cache = None
 
-        time_sweep_requested = dt is not None or t_final is not None
-        if time_sweep_requested:
+        if dt is not None or t_final is not None:
             if dt is None or t_final is None:
                 raise ValueError("dt and t_final must be provided together for a SteadyState time sweep.")
             if static:
                 raise ValueError("static=True cannot be combined with dt/t_final in SteadyState.solve().")
-
-            def run_time_sweep_once(
-                filename: str | None = None,
-            statistics_filename: str | None = None,
-                group_path: str = "transient/runs/base",
-                metadata: dict[str, Any] | None = None,
-            ):
-                """Run one quasi-steady time-sweep attempt."""
-                return self._solve_forced_steady_time_sweep_once(
-                    dt=float(dt),
-                    t_final=float(t_final),
-                    filename=filename,
-                    history=history,
-                    verbose=verbose,
-                    statistics=statistics,
-                    solver_method=solver_method,
-                    jacobian_method=jacobian_method,
-                    ftol=ftol,
-                    xtol=xtol,
-                    gtol=gtol,
-                    rtol=rtol,
-                    state_max_passes=state_max_passes,
-                    state_tolerance=state_tolerance,
-                    max_step_retries=max_step_retries,
-                    minimum_dt=minimum_dt,
-                    ignore_balances=ignore_balances,
-                    exceptions=exceptions,
-                    group_path=group_path,
-                    metadata=metadata,
-                )
-
-            from fullflow.Solvers.transient.models import TransientModelOptionRunner
-
-            runner = TransientModelOptionRunner(
-                self.network,
-                ModelManager(self.network),
-                self.printer,
-                solve_type="transient",
-                metadata_solve_type="transient",
-                metadata_extra={"run_mode": "forced_steady_time_sweep"},
-            )
-            def run_time_sweep_model_once(
-                filename: str | None = None,
-                group_path: str = "transient/runs/base",
-                metadata: dict[str, Any] | None = None,
-                verbose_override: bool | None = None,
-            ):
-                """Run one time sweep for a selected model option."""
-                metadata = {} if metadata is None else dict(metadata)
-                metadata.setdefault("run_mode", "forced_steady_time_sweep")
-                return run_time_sweep_once(
-                    filename=filename,
-                    group_path=group_path,
-                    metadata=metadata,
-                )
-
-            return runner.run(
-                model=model,
-                evaluate_all_model_options=evaluate_all_model_options,
+            result = self._solve_forced_steady_time_sweep_once(
+                dt=float(dt),
+                t_final=float(t_final),
                 filename=filename,
+                history=history,
                 verbose=verbose,
-                run_once=run_time_sweep_model_once,
+                statistics=statistics,
+                solver_method=solver_method,
+                jacobian_method=jacobian_method,
+                ftol=ftol,
+                xtol=xtol,
+                gtol=gtol,
+                rtol=rtol,
+                state_max_passes=state_max_passes,
+                state_tolerance=state_tolerance,
+                max_step_retries=max_step_retries,
+                minimum_dt=minimum_dt,
+                ignore_balances=ignore_balances,
+                exceptions=exceptions,
+                metadata={"solve_type": "transient", "run_mode": "forced_steady_time_sweep"},
             )
+            self._print_last_success(verbose)
+            return result
 
         if history != "full":
             raise ValueError("history is only applicable to transient or time-sweep solves.")
-
         if exceptions is not None:
             raise ValueError("exceptions can only be used when dt and t_final are provided.")
-
         if static:
             return self.static_evaluate(
-                model=model,
-                evaluate_all_model_options=evaluate_all_model_options,
                 filename=filename,
                 verbose=verbose,
                 statistics=statistics,
@@ -540,32 +465,19 @@ class SteadyState:
             max_passes=state_max_passes,
             tolerance=state_tolerance,
         )
-
-        def run_once(
-            filename: str | None = None,
-            statistics_filename: str | None = None,
-            group_path: str = "steady_state/runs/base",
-            metadata: dict[str, Any] | None = None,
-        ):
-            """Run one solver attempt for the selected model."""
-            return self._solve_once(
-                filename=filename,
-                least_squares_settings=least_squares_settings,
-                state_settings=state_settings,
-                statistics=statistics,
-                statistics_filename=statistics_filename,
-                group_path=group_path,
-                metadata=metadata,
-            )
-
-        return self.model_runner.run(
-            model=model,
-            evaluate_all_model_options=evaluate_all_model_options,
+        result = self._solve_once(
             filename=filename,
-            verbose=verbose,
+            least_squares_settings=least_squares_settings,
+            state_settings=state_settings,
             statistics=statistics,
-            run_once=run_once,
+            statistics_filename=(
+                statistics_path(filename, self.network.name)
+                if statistics and filename is not None else None
+            ),
+            metadata={"solve_type": "steady_state"},
         )
+        self._print_last_success(verbose)
+        return result
 
     def _print_last_success(self, verbose: bool) -> None:
         """Print final summaries requested by the caller after a success."""

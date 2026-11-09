@@ -11,7 +11,6 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-from .models import ModelFailure
 
 
 def _plain(value: Any) -> Text:
@@ -197,33 +196,6 @@ class SteadyStatePrinter:
         self.console.print(table)
         self.console.print()
 
-    def print_model_failures(self, failures: list[ModelFailure]) -> None:
-        """Print model options skipped after evaluation failures."""
-        if not failures:
-            return
-
-        table = Table(
-            title="Skipped Model Options",
-            box=box.SIMPLE_HEAVY,
-            show_header=True,
-            header_style="bold",
-        )
-        table.add_column("Model", style="#D84135", no_wrap=True)
-        table.add_column("Option", style="#fdf0d5", no_wrap=True)
-        table.add_column("Error Type", style="#3B629E", no_wrap=True)
-        table.add_column("Error")
-
-        for failure in failures:
-            table.add_row(
-                _plain(failure.model),
-                _plain(failure.option),
-                _plain(failure.error_type),
-                _plain(failure.error),
-            )
-
-        self.console.print()
-        self.console.print(table)
-        self.console.print()
 
     def print_static(self, elapsed_time: float) -> None:
         """Print summary information for a static evaluation."""

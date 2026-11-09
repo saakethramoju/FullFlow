@@ -153,11 +153,11 @@ By default (`history="full"`), the solver retains the initial state and every ac
 /<network_name>/transient/runs/base
 ```
 
-Full-history export includes time, component histories, tracked states, sensors, diagnostics, final values, and metadata. Existing FullPlot data access continues to use these physical values. Summary-mode export instead stores compact summary tables and final values; it does not fabricate a time series. Both modes return organized Python dictionaries with `tracked`, `components`, `events`, `solver`, and `model`. Summary mode has no `time` or `values` arrays.
+Full-history export includes time, component histories, tracked states, sensors, diagnostics, final values, and metadata. Existing FullPlot data access continues to use these physical values. Summary-mode export instead stores compact summary tables and final values; it does not fabricate a time series. Both modes return organized Python dictionaries with `tracked`, `components`, `balances`, `events`, and `solver`. Summary mode has no `time` or `values` arrays.
 
 In full mode, accepted operating-point checkpoints also preserve internal model state for `transient.linearize(...)`. In summary mode only the final accepted checkpoint is retained; `linearize(times=[...])` cannot retrieve earlier points. To limit memory growth, unchanged large NumPy arrays in these checkpoints can share stored snapshots; changed arrays are copied. Restoring a checkpoint still creates independent mutable values. An event or mode transition may prevent linearization at the affected point. See [LINEARIZATION.md](LINEARIZATION.md).
 
-`verbose=True` prints the final summary and network state. `statistics=True` prints accepted-step progress and solver diagnostics. Model-option runs start from restored initial conditions, so alternative options are evaluated independently.
+`verbose=True` prints the final summary and network state. `statistics=True` prints accepted-step progress and solver diagnostics.
 
 ## Reusing a transient Network
 
@@ -180,8 +180,7 @@ for pressure in starting_pressures:
 
 A snapshot restores State values and integration history, Component runtime
 fields, controller memory, and Sensor events without replacing registered
-objects. It is valid only for the same Network and selected Model option, with
-unchanged structure. When reusing a `Transient` instance, FullFlow checks
+objects. It is valid only for the same Network with unchanged structure. When reusing a `Transient` instance, FullFlow checks
 equation ownership and reachable State references before reusing prepared
 runtime metadata. It rebuilds that metadata when validation fails. Numerical
 Jacobians and nonlinear iteration/prediction history are not carried over to
@@ -211,6 +210,7 @@ Use `exceptions=[...]` to retain genuine transient integration for selected comp
 - `transient/runtime.py`, `evaluation.py`: equation discovery, residual assembly, and component evaluation
 - `transient/operations.py`: timestep solve, numerical scaling, prediction, and acceptance
 - `transient/newton.py`: safeguarded Newton/Broyden algorithm
-- `transient/models.py`, `results.py`: model-option state and history
+- `transient/results.py`: transient results and history
+- `state_copy.py`: restorable State snapshots
 - `transient/settings.py`, `diagnostics.py`: step controls and reporting
 - `equation_scaling.py`: shared numerical row-scaling implementation

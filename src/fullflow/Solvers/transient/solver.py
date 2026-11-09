@@ -8,7 +8,6 @@ import time
 
 from rich.console import Console
 
-from fullflow.Solvers.steady_state.models import ModelManager
 from fullflow.Solvers.steady_state.settings import LeastSquaresSettings, StateEvaluationSettings
 from fullflow.Exceptions import SensorDataStop, TransientStepError
 
@@ -17,7 +16,6 @@ from .evaluation import TransientStateEvaluator
 from .operations import StepDiagnostics, TransientStepSolve
 from .results import TransientHistory, DiagnosticSummary
 from .runtime import TransientRuntimeCache
-from .models import TransientModelOptionRunner
 from .settings import TransientSettings
 from .events import SequenceSwitches
 
@@ -191,8 +189,6 @@ class Transient:
         self,
         dt: float,
         t_final: float,
-        model: str | Any | None = None,
-        evaluate_all_model_options: bool = False,
         filename: str | None = None,
         history: str = "full",
         verbose: bool = False,
@@ -209,56 +205,31 @@ class Transient:
         minimum_dt: float | None = None,
         ignore_balances=None,
     ):
-        """Advance the network with optional model-option selection."""
-
-        self._linearization_source = None
-        self._linearization_issue = None
-
-        def run_once(
-            filename: str | None = None,
-            group_path: str = "transient/runs/base",
-            metadata: dict[str, Any] | None = None,
-            verbose_override: bool | None = None,
-        ):
-            """Run one solver attempt for the selected model."""
-            return self._solve_no_model(
-                dt=dt,
-                t_final=t_final,
-                filename=filename,
-                history=history,
-                verbose=verbose if verbose_override is None else bool(verbose_override),
-                statistics=statistics,
-                solver_method=solver_method,
-                jacobian_method=jacobian_method,
-                ftol=ftol,
-                xtol=xtol,
-                gtol=gtol,
-                rtol=rtol,
-                state_max_passes=state_max_passes,
-                state_tolerance=state_tolerance,
-                max_step_retries=max_step_retries,
-                minimum_dt=minimum_dt,
-                ignore_balances=ignore_balances,
-                force_steady=None,
-                force_steady_exceptions=None,
-                group_path=group_path,
-                metadata=metadata,
-            )
-
-        runner = TransientModelOptionRunner(
-            self.network,
-            ModelManager(self.network),
-            self.printer,
-        )
-        return runner.run(
-            model=model,
-            evaluate_all_model_options=evaluate_all_model_options,
+        """Advance the network from its current time to ``t_final``."""
+        return self._solve_once(
+            dt=dt,
+            t_final=t_final,
             filename=filename,
+            history=history,
             verbose=verbose,
-            run_once=run_once,
+            statistics=statistics,
+            solver_method=solver_method,
+            jacobian_method=jacobian_method,
+            ftol=ftol,
+            xtol=xtol,
+            gtol=gtol,
+            rtol=rtol,
+            state_max_passes=state_max_passes,
+            state_tolerance=state_tolerance,
+            max_step_retries=max_step_retries,
+            minimum_dt=minimum_dt,
+            ignore_balances=ignore_balances,
+            force_steady=None,
+            force_steady_exceptions=None,
+            metadata={"solve_type": "transient"},
         )
 
-    def _solve_no_model(
+    def _solve_once(
         self,
         dt: float,
         t_final: float,

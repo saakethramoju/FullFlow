@@ -23,8 +23,6 @@ class _NetworkSnapshot:
         self.version = network.version
         self.components = tuple(network.component_list)
         self.balances = tuple(network.balance_list)
-        self.models = tuple(network.model_list)
-        self.options = tuple((model, model.active_option_name) for model in self.models)
         self.operating_point = OperatingCheckpoint(network)
         self.state_references = []
         self.runtime_attributes = []
@@ -59,10 +57,8 @@ class _NetworkSnapshot:
                 or len(network.component_list) != len(self.components)
                 or any(a is not b for a, b in zip(network.balance_list, self.balances))
                 or len(network.balance_list) != len(self.balances)
-                or any(a is not b for a, b in zip(network.model_list, self.models))
-                or len(network.model_list) != len(self.models)
-                or any(model.active_option_name != option for model, option in self.options)):
-            raise ValueError("Cannot restore after changing Network structure or model options.")
+):
+            raise ValueError("Cannot restore after changing Network structure.")
         self.operating_point.restore()
         for obj, names, references in reversed(self.runtime_attributes):
             current = vars(obj) if hasattr(obj, "__dict__") else {}
@@ -100,7 +96,6 @@ class Network:
         self.time.add_label(f"{self.name}:time")
         self.component_list: list[Component] = []
         self.balance_list: list[Balance] = []
-        self.model_list: list[Any] = []
         self.tracked_state_list: list[dict[str, Any]] = []
         self.sensor_event_list: list[Any] = []
         self._version = 0
@@ -151,8 +146,6 @@ class Network:
     def add_balance(self, balance: Balance) -> None:
         self._add_unique(balance, self.balance_list)
 
-    def add_model(self, model: Any) -> None:
-        self._add_unique(model, self.model_list)
 
 
     def sensor_components(self) -> list[Any]:
@@ -348,9 +341,6 @@ class Network:
         """Return algebraic equations contributed by this component."""
         return [balance.name for balance in self.balance_list]
 
-    @property
-    def models(self) -> list[str]:
-        return [model.name for model in self.model_list]
 
 
     @staticmethod
@@ -650,7 +640,6 @@ class Network:
                 filename,
                 records,
                 network_name=self.name,
-                models=self.model_list,
                 group_path=group_path,
                 metadata=metadata,
             )

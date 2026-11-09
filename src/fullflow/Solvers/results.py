@@ -131,18 +131,13 @@ def organized_records(records, *, full: bool = False, steady: bool = False) -> d
 
 def steady_result(records, *, network, diagnostics=None, metadata=None, elapsed=None):
     data = organized_records(records, steady=True)
-    detail = dict(metadata or {})
-    model_name = detail.get("model_name") or None
-    option_name = detail.get("option_name") or None
     sol = getattr(diagnostics, "sol", None)
     raw_residual = None if sol is None else getattr(sol, "fun", None)
     residual_values = None if raw_residual is None else np.asarray(raw_residual, dtype=float)
     data.update(
         time=float(network.time.value),
         history="steady",
-        model={"name": model_name, "selected_option": option_name},
         events={"sensor": network.sensor_event_records(), "sequence": []},
-        failures=[],
         solver={
             "success": True,
             "final_time": float(network.time.value),
@@ -161,18 +156,6 @@ def steady_result(records, *, network, diagnostics=None, metadata=None, elapsed=
         },
     )
     return data
-
-
-def failure_records(failures) -> list[dict[str, Any]]:
-    return [
-        {
-            "model": item.model,
-            "option": item.option,
-            "error_type": item.error_type,
-            "error": item.error,
-        }
-        for item in failures
-    ]
 
 
 class SummaryAccumulator:

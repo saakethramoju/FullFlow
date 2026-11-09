@@ -365,9 +365,6 @@ class TransientPrinter:
         self.console.print(details)
         self.console.print()
 
-    def print_model_failures(self, failures: list[Any]) -> None:
-        """Print model-option failures using the steady-state table format."""
-        self._steady_printer.print_model_failures(failures)
 
     def print_network_solution(self) -> None:
         """Print the final network state using the steady-state table format."""

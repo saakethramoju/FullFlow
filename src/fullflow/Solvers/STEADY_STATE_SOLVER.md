@@ -120,9 +120,7 @@ SteadyState(network).solve(
 
 The named components retain backward-Euler integration equations; all other dynamic components use zero-derivative equations. Time-sweep output is stored in the transient HDF5 run layout, with metadata indicating forced-steady operation.
 
-## Models, results, and linearization
-
-`solve(model=...)` selects a model option. With `evaluate_all_model_options=True`, FullFlow evaluates available alternatives independently and records their results and failures. This is model-option selection, not a different numerical algorithm.
+## Results and linearization
 
 `filename=...` saves a static steady-state result under:
 
@@ -130,7 +128,7 @@ The named components retain backward-Euler integration equations; all other dyna
 /<network_name>/steady_state/runs/base
 ```
 
-Model-option runs have their own run groups. Returned dictionaries and HDF5 contain physical component values and **raw** residuals; summary diagnostics also distinguish raw from scaled residual magnitudes. `verbose=True` prints the solve summary, variables, residuals, and network solution. `statistics=True` enables additional iteration diagnostics.
+Returned dictionaries and HDF5 contain physical component values and **raw** residuals; summary diagnostics also distinguish raw from scaled residual magnitudes. `verbose=True` prints the solve summary, variables, residuals, and network solution. `statistics=True` enables additional iteration diagnostics.
 
 A successfully solved operating point can be linearized with `steady.linearize(...)`. Linearization independently checks the operating point's equations using scaled consistency criteria; it does not change the nonlinear solver's accepted state. See [LINEARIZATION.md](LINEARIZATION.md).
 
@@ -149,10 +147,10 @@ for pressure in inlet_pressures:
     result = steady.solve(filename=None)
 ```
 
-Capture a snapshot after constructing the model and selecting its active option.
+Capture a snapshot after constructing the network.
 The snapshot restores numerical and runtime state while preserving the identity
 of each Component and State. It cannot be transferred to another Network or
-restored after the Network structure or selected Model option changes. Custom
+restored after the Network structure changes. Custom
 Components with state outside the Network may need a separate reset.
 
 This reuse pattern avoids reconstructing the model, but does not guarantee
@@ -166,6 +164,5 @@ and [`examples/transient/30monte_carlo.py`](../../../examples/transient/30monte_
 - `steady_state/solver.py`: public API and time-sweep dispatch
 - `steady_state/runtime.py`, `evaluation.py`: equation discovery, caching, and component evaluation
 - `steady_state/operations.py`: nonlinear solve, equation scaling, and final acceptance
-- `steady_state/models.py`: model-option management
 - `steady_state/settings.py`, `statistics.py`, `diagnostics.py`, `results.py`: settings and reporting
 - `equation_scaling.py`: shared numerical row-scaling implementation

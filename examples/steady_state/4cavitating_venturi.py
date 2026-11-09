@@ -3,91 +3,22 @@
 Cavitating Venturi Injector Network
 ===================================
 
-This example demonstrates a steady-state RP-1/LOX injector, chamber, and nozzle
-network with switchable inlet models on the fuel and oxidizer sides.
+    RP-1 Source -> Fuel Cavitating Venturi -> Fuel Injector Manifold
+                                                    |
+                                              Fuel Injector
+                                                    |
+                                                    v
+                                           Combustion Chamber -> Nozzle
+                                                    ^
+                                                    |
+                                               LOX Injector
+                                                    |
+    LOX Source -> Churchill + Darcy Line -> Ox Injector Manifold
 
-The model is intentionally organized like a small engine feed system. The fuel
-and oxidizer begin at source conditions, flow through selectable inlet-line
-models, enter injector manifolds, pass through injector orifices, mix in a
-combustion chamber, and discharge through an isentropic nozzle.
-
-Physical Layout
----------------
-
-Fuel side:
-
-    RP-1 Source
-        |
-        v
-    Fuel Inlet Model
-        |\
-        | +-- Venturi option
-        | +-- Darcy + Churchill option
-        v
-    Fuel Injector Manifold
-        |
-        v
-    Fuel Injector Orifices
-        |
-        v
-
-                         Combustion Chamber  --->  Isentropic Nozzle
-        ^
-        |
-    Ox Injector Orifices
-        ^
-        |
-    Ox Injector Manifold
-        ^
-        | +-- Darcy + Churchill option
-        | +-- Venturi option
-        |/
-    Ox Inlet Model
-        ^
-        |
-    LOX Source
-
-Modeling Approach
------------------
-
-The inlet models are wrapped in FullFlow Model objects. This allows the same
-network to solve with different physical assumptions without rebuilding the rest
-of the system. In this example, each inlet can be represented either by:
-
-    1. A cavitating venturi, or
-    2. A Darcy-Weisbach line with a Churchill friction-factor update.
-
-The injector manifolds are Volume components. They enforce mass balance and make
-manifold pressures iteration variables.
-
-The injector orifices use discharge-coefficient relations to compute fuel and
-oxidizer mass flow from manifold pressure, chamber pressure, liquid density, Cd,
-and total injector area.
-
-Combustion gas properties are read from a precomputed RP-1/LOX map instead of
-calling equilibrium chemistry during every solver evaluation. The map relates:
-
-    chamber_pressure, mixture_ratio -> chamber_temperature, gamma, gas_constant
-
-The mixture-ratio State is created before the orifices so the map can be wired
-early. Later, the same State is made derived using:
-
-    mixture_ratio <<= OxOrf.mass_flow / FuelOrf.mass_flow
-
-This is useful because ChamberMap already holds a reference to mixture_ratio. By
-mutating that State instead of replacing it, the map sees the solved live mixture
-ratio while still having a startup guess.
-
-Demonstrates
-------------
-- Switchable model options with Model
-- Cavitating and noncavitating venturi behavior
-- Darcy-Weisbach pressure loss with Churchill friction updates
-- Injector manifold mass balances
-- Discharge-coefficient injector orifices
-- HDF5 combustion-products maps
-- Derived States using the <<= shorthand
-- Coupling a chamber mass balance to a nozzle mass-flow relation
+The fuel supply uses a cavitating venturi. The oxidizer supply uses a Darcy-
+Weisbach line with its Churchill friction factor. Injector manifolds provide
+mass conservation; injector orifices feed a chamber/nozzle with a precomputed
+combustion gas property map.
 """
 
 import numpy as np
@@ -238,11 +169,8 @@ ChamberMap = Map.from_hdf5(
 # -----------------------------------------------------------------------------
 # Shared inlet interface states
 # -----------------------------------------------------------------------------
-# These states connect whichever inlet model option is active to the rest of the
-# network. For example, the fuel Darcy option and fuel venturi option both write
-# to fuel_inlet_mass_flow.
+# Shared mass-flow States connect the inlet components to the injector manifolds.
 fuel_inlet_mass_flow = State(1.5)
-fuel_inlet_friction_factor = State(0.02)
 
 ox_inlet_mass_flow = State(3.0)
 ox_inlet_friction_factor = State(0.02)
@@ -263,113 +191,47 @@ inlet_line_length = 1.0
 
 
 # -----------------------------------------------------------------------------
-# Fuel inlet model
+# Fuel inlet venturi
 # -----------------------------------------------------------------------------
-# The fuel inlet can be solved with either a cavitating venturi or a Darcy line.
-# The order list sets the preferred option order when model options are swept.
-FuelInletModel = Model(
-    "Fuel Inlet",
+FuelInlet = CavitatingVenturi(
+    "Fuel Inlet Venturi",
     CavNetwork,
-    order=[
-        "Venturi",
-        "Darcy",
-    ],
-)
-
-# Darcy option. Churchill calculates friction factor from Reynolds number, and
-# DarcyWeisbach uses that friction factor to calculate line pressure drop.
-FuelInletModel.option(
-    "Darcy",
-    Churchill.template(
-        "Fuel Inlet Line Friction",
-        mass_flow=fuel_inlet_mass_flow,
-        friction_factor=fuel_inlet_friction_factor,
-        hydraulic_diameter=fuel_inlet_hydraulic_diameter,
-        dynamic_viscosity=FuelSource.dynamic_viscosity,
-        cross_sectional_area=fuel_inlet_cross_sectional_area,
-    ),
-    DarcyWeisbach.template(
-        "Fuel Inlet Line",
-        mass_flow=fuel_inlet_mass_flow,
-        upstream_pressure=FuelSource.pressure,
-        downstream_pressure=FuelManifoldFluid.pressure,
-        length=inlet_line_length,
-        cross_sectional_area=fuel_inlet_cross_sectional_area,
-        hydraulic_diameter=fuel_inlet_hydraulic_diameter,
-        density=FuelSource.density,
-        friction_factor=fuel_inlet_friction_factor,
-    ),
-)
-
-# Venturi option. CavitatingVenturi switches between cavitating and
-# noncavitating behavior based on throat pressure relative to vapor pressure.
-FuelInletModel.option(
-    "Venturi",
-    CavitatingVenturi.template(
-        upstream_pressure=FuelSource.pressure,
-        downstream_pressure=FuelManifoldFluid.pressure,
-        density=FuelSource.density,
-        throat_area=(np.pi / 4) * (1.0 / 39.37)**2,
-        vapor_pressure=FuelSource.saturation_pressure,
-        pressure_recovery_factor=0.85,
-        cavitating_discharge_coefficient=0.94,
-        noncavitating_discharge_coefficient=0.6,
-        mass_flow=fuel_inlet_mass_flow,
-    ),
+    upstream_pressure=FuelSource.pressure,
+    downstream_pressure=FuelManifoldFluid.pressure,
+    density=FuelSource.density,
+    throat_area=(np.pi / 4) * (1.0 / 39.37)**2,
+    vapor_pressure=FuelSource.saturation_pressure,
+    pressure_recovery_factor=0.85,
+    cavitating_discharge_coefficient=0.94,
+    noncavitating_discharge_coefficient=0.6,
+    mass_flow=fuel_inlet_mass_flow,
 )
 
 
 # -----------------------------------------------------------------------------
-# Oxidizer inlet model
+# Oxidizer inlet line
 # -----------------------------------------------------------------------------
-# The oxidizer side has the same two-option structure as the fuel side. The
-# default order is different here to demonstrate that each Model can have its own
-# priority order.
-OxInletModel = Model(
-    "Ox Inlet",
+OxInletFriction = Churchill(
+    "Ox Inlet Line Friction",
     CavNetwork,
-    order=[
-        "Darcy",
-        "Venturi",
-    ],
+    mass_flow=ox_inlet_mass_flow,
+    friction_factor=ox_inlet_friction_factor,
+    hydraulic_diameter=ox_inlet_hydraulic_diameter,
+    dynamic_viscosity=LOXSource.dynamic_viscosity,
+    cross_sectional_area=ox_inlet_cross_sectional_area,
 )
 
-OxInletModel.option(
-    "Darcy",
-    Churchill.template(
-        "Ox Inlet Line Friction",
-        mass_flow=ox_inlet_mass_flow,
-        friction_factor=ox_inlet_friction_factor,
-        hydraulic_diameter=ox_inlet_hydraulic_diameter,
-        dynamic_viscosity=LOXSource.dynamic_viscosity,
-        cross_sectional_area=ox_inlet_cross_sectional_area,
-    ),
-    DarcyWeisbach.template(
-        "Ox Inlet Line",
-        mass_flow=ox_inlet_mass_flow,
-        upstream_pressure=LOXSource.pressure,
-        downstream_pressure=OxManifoldFluid.pressure,
-        length=inlet_line_length,
-        cross_sectional_area=ox_inlet_cross_sectional_area,
-        hydraulic_diameter=ox_inlet_hydraulic_diameter,
-        density=LOXSource.density,
-        friction_factor=ox_inlet_friction_factor,
-    ),
-)
-
-OxInletModel.option(
-    "Venturi",
-    CavitatingVenturi.template(
-        upstream_pressure=LOXSource.pressure,
-        downstream_pressure=OxManifoldFluid.pressure,
-        density=LOXSource.density,
-        throat_area=(np.pi / 4) * (1.0 / 39.37)**2,
-        vapor_pressure=LOXSource.saturation_pressure,
-        pressure_recovery_factor=0.85,
-        cavitating_discharge_coefficient=0.94,
-        noncavitating_discharge_coefficient=0.6,
-        mass_flow=ox_inlet_mass_flow,
-    ),
+OxInletLine = DarcyWeisbach(
+    "Ox Inlet Line",
+    CavNetwork,
+    mass_flow=ox_inlet_mass_flow,
+    upstream_pressure=LOXSource.pressure,
+    downstream_pressure=OxManifoldFluid.pressure,
+    length=inlet_line_length,
+    cross_sectional_area=ox_inlet_cross_sectional_area,
+    hydraulic_diameter=ox_inlet_hydraulic_diameter,
+    density=LOXSource.density,
+    friction_factor=ox_inlet_friction_factor,
 )
 
 
@@ -503,16 +365,9 @@ CavNetwork.track("Mixture Ratio", mixture_ratio)
 # -----------------------------------------------------------------------------
 # Solve
 # -----------------------------------------------------------------------------
-# This solve call sweeps all options for OxInletModel only. FuelInletModel still
-# follows its configured active/default option behavior.
-#
-# To sweep both fuel and oxidizer combinations, run a multi-model sweep or solve
-# the individual model combinations manually.
 SteadyState(CavNetwork).solve(
     verbose=True,
     jacobian_method="2-point",
     statistics=True,
-    model=OxInletModel,
-    evaluate_all_model_options=True,
     filename=filename,
 )

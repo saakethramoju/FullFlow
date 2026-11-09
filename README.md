@@ -67,7 +67,7 @@ The built-in component catalog is only a starting point. Any user can create a
 custom component by subclassing `Component`, declaring normal Python constructor
 arguments, calling `self.setup()`, and exposing equations through
 `evaluate_states()`, `balances`, and `dynamics`. Custom components participate in
-the same steady-state, transient, model-option, export, and diagnostic workflows
+the same steady-state, transient, export, and diagnostic workflows
 as built-in components.
 
 The API is intentionally direct.  A user can build a model in normal Python:
@@ -269,7 +269,7 @@ acceptance check.
 
 ### Network
 
-`Network` stores components, balances, model options, tracked variables, sensor
+`Network` stores components, balances, tracked variables, sensor
 events, sequence state, and the simulation time state.
 
 ```python
@@ -325,23 +325,6 @@ AreaBalance = Balance(
 The solver varies `area` until the residual is zero. The variable must be an
 assignable, non-derived state-like object. Do not use a `Balance` variable that
 is already owned by a component `dynamics` or `balances` equation.
-
-### Model options
-
-`Model` lets one network contain multiple mutually exclusive component
-configurations. This is useful for comparing correlations, pump maps, nozzle
-models, heat-transfer models, or property backends.
-
-```python
-PumpModel = Model("Pump Model", Engine)
-PumpModel.add_option("constant density", ConstantDensityPump.model(...))
-PumpModel.add_option("polytropic", PolytropicPump.model(...))
-
-SteadyState(Engine).solve(
-    model="Pump Model",
-    evaluate_all_model_options=True,
-)
-```
 
 ## Writing custom components
 
@@ -1038,13 +1021,13 @@ solution = SteadyState(network).solve(
 )
 ```
 
-For a more detailed explanation of steady-state solving, model options,
+For a more detailed explanation of steady-state solving,
 residual evaluation, diagnostics, and solver settings, see
 **[STEADY_STATE_SOLVER.md](src/fullflow/Solvers/STEADY_STATE_SOLVER.md)**.
 
 The steady solver sequence is:
 
-1. build the selected model configuration,
+1. prepare the network,
 2. run pre-evaluation and discover equations,
 3. collect unknowns, initial values, and bounds,
 4. evaluate the initial residual,
@@ -1371,30 +1354,6 @@ FullPlot time history). Solver-required rollback checkpoints still operate.
 Final-point transient linearization remains available; multi-time linearization
 requires `history="full"`.
 
-Model selection does not change the shape of individual results:
-
-```python
-results = Transient(Engine).solve(
-    dt=0.01, t_final=10.0,
-    model="Pump Model", history="summary",
-)
-option = results["model"]["selected_option"]
-
-sweep = Transient(Engine).solve(
-    dt=0.01, t_final=10.0, model="Pump Model",
-    evaluate_all_model_options=True, history="summary",
-)
-for option_name, option_results in sweep["options"].items():
-    print(option_name, option_results["tracked"])
-print(sweep["failures"])
-```
-
-An option sweep returns an `options` dictionary keyed by option name and a
-separate `failures` list. Every successful option has the same `tracked`,
-`components`, `solver`, `events`, `model`, and `history` keys as a normal solve.
-For a single selected option, any failed earlier attempts appear directly in
-`results["failures"]`. HDF5 model-option run groups remain unchanged.
-
 ## Reusing Networks for repeated simulations
 
 `Network.snapshot()` captures the current operating point so the same `Network`
@@ -1403,7 +1362,7 @@ its numerical States, prior-step values, Component runtime fields, controller
 memory, Sensor records, State expressions, and bounds. Registered `State` and
 `Component` objects retain their identities, so existing connections stay valid.
 
-Create the Network and its selected model configuration first, then save its
+Create the Network first, then save its
 initial conditions. Restore before *each* case, including the first, and change
 only the inputs for that case:
 
@@ -1446,9 +1405,9 @@ for pressure in pressures:
     # Read the relevant entries from result["tracked"] or result["components"].
 ```
 
-Snapshots are bound to the original Network and selected `Model` option. They
-cannot be restored to a different Network or after topology/model-option
-changes; capture a new snapshot for a different configuration. Numerical values
+Snapshots are bound to the original Network. They cannot be restored to a
+different Network or after topology changes; capture a new snapshot for a
+different configuration. Numerical values
 can be changed freely between runs. Arbitrary external state, including module
 globals, external random generators, or open resource handles, is not
 necessarily rewound and must be managed by the application.
@@ -1829,7 +1788,7 @@ HDF5 files contain exported values and diagnostics. They do not serialize the
 live Python model or its restorable operating points. Historical linearization
 uses the original solver and its in-memory results.
 
-### Quasi-steady sweeps and model options
+### Quasi-steady sweeps
 
 `SteadyState.solve(dt=..., t_final=...)` can carry out a quasi-steady time
 sweep that trims the system repeatedly rather than integrating all dynamics.
@@ -1852,11 +1811,6 @@ Time sweeps that leave selected components integrating dynamically are not
 necessarily true equilibria at each time and may be rejected if their
 dynamic derivatives are nonzero. A normal `Transient` solve should be used
 when accumulation and inertia are important.
-
-With `Model` options, the active model configuration is part of the operating
-point. The result records the selected options; a model-option change after
-solving invalidates the saved point. Linearization does not automatically
-analyze every model option or sweep every parameter combination.
 
 ### Choosing inputs and outputs
 
@@ -1917,7 +1871,6 @@ A single call returns a `LinearizationResult` with NumPy arrays and labels:
 | `states` | Labels identifying the state order |
 | `inputs`, `outputs` | Labels identifying the input/output order |
 | `time` | Solved operating time in seconds |
-| `model_options` | Active model-option names |
 | `network_name`, `solver_type` | Output metadata |
 | `diagnostics` | Residual and numerical conditioning information |
 | `jacobian` | Alias for `D`, the instantaneous input/output Jacobian |
@@ -2034,7 +1987,7 @@ A solved nonlinear point is **necessary but not sufficient** for a reliable
 linearization. The local equations must also be smooth and sufficiently
 well-conditioned.
 
-FullFlow checks for stale operating points, changed active model options,
+FullFlow checks for stale operating points,
 invalid or overwritten inputs, inconsistent physical states, invalid
 perturbations, and singular or poorly conditioned sensitivity systems.
 Finite-difference columns are checked against estimates made with a smaller
@@ -2079,7 +2032,7 @@ units, and check that the operating point is not close to a mode transition.
 ### HDF5 linearization results
 
 Setting `filename="Linearization.h5"` saves matrices, baseline vectors,
-variable labels, active model options, operating time, and numerical
+variable labels, operating time, and numerical
 diagnostics. An individual steady-state result uses a hierarchy similar to:
 
 ```text
@@ -2087,15 +2040,12 @@ diagnostics. An individual steady-state result uses a hierarchy similar to:
     A, B, C, D
     x0, xdot0, u0, y0
     states, inputs, outputs, time
-    model_options/
     diagnostics/
 ```
 
 Transient results use `transient` instead of `steady_state`. Multiple-time
 results are stored under numbered `points/0`, `points/1`, and so on, each with
-its own `time` dataset. Active model options are represented by nested
-model/option segments in the run path, so different option combinations remain
-distinct. Saving a single result replaces the base matrices while preserving
+its own `time` dataset. Saving a single result replaces the base matrices while preserving
 saved `points/` at the same run path. Saving multiple times replaces only the
 corresponding `points/` group. Use different filenames to retain independent
 analyses of the same operating points.
@@ -2108,7 +2058,7 @@ details of the result format and
 ## HDF5 output
 
 Passing `filename="results.h5"` to a solver writes records to HDF5.  FullFlow
-stores component names, component types, attributes, values, model metadata,
+stores component names, component types, attributes, values,
 solver metadata, and transient history when available.  HDF5 output is designed
 to be inspected with FullPlot or with ordinary `h5py` workflows.
 

@@ -194,20 +194,12 @@ def _delete_children(group: h5py.Group, names: list[str]) -> None:
 def run_group_path(
     solve_type: str,
     *,
-    model_name: str | None = None,
-    option_name: str | None = None,
     run_name: str = "base",
 ) -> str:
     """Return the canonical network-relative HDF5 path for one solver run."""
     solve_type = safe_group_name(solve_type)
 
-    if model_name is None and option_name is None:
-        return f"{solve_type}/runs/{safe_group_name(run_name)}"
-
-    if model_name is None or option_name is None:
-        raise ValueError("model_name and option_name must be provided together.")
-
-    return f"{solve_type}/runs/{safe_group_name(model_name)}/{safe_group_name(option_name)}"
+    return f"{solve_type}/runs/{safe_group_name(run_name)}"
 
 
 def _metadata_rows(metadata: dict[str, Any]) -> list[dict[str, Any]]:
@@ -293,22 +285,6 @@ def solution_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
         normalized.append(row)
 
     return normalized
-
-
-def model_configuration(models: list[Any] | None) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-
-    for model in models or []:
-        rows.append(
-            {
-                "model": getattr(model, "name", "<unknown>"),
-                "active_option": getattr(model, "active_option_name", None),
-                "available_options": list(getattr(model, "available_options", [])),
-                "order": list(getattr(model, "order", [])),
-            }
-        )
-
-    return rows
 
 
 def _records_without_tracks(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -705,8 +681,6 @@ def _section_from_group_path(group_path: str) -> str:
         return "transient/final"
     if text.endswith("final"):
         return "transient/final"
-    if "model" in text:
-        return text
     return "steady_state"
 
 
@@ -715,7 +689,6 @@ def write_solution(
     records: list[dict[str, Any]],
     *,
     network_name: str | None = None,
-    models: list[Any] | None = None,
     group_path: str = "steady_state/runs/base",
     metadata: dict[str, Any] | None = None,
 ) -> Path:
@@ -751,9 +724,6 @@ def write_solution(
         _write_static_sensors(section_group, rows)
         _write_table(section_group, "table", rows)
 
-        model_rows = model_configuration(models)
-        if model_rows:
-            _write_table(section_group, "model_configuration", model_rows)
 
     return path
 
@@ -765,7 +735,6 @@ def write_transient_solution(
     track_records: list[dict[str, Any]],
     step_rows: list[dict[str, Any]],
     final_records: list[dict[str, Any]],
-    models: list[Any] | None = None,
     output_times: list[float] | None = None,
     sensor_event_rows: list[dict[str, Any]] | None = None,
     sensor_condition_trace_rows: list[dict[str, Any]] | None = None,
@@ -840,10 +809,6 @@ def write_transient_solution(
         _write_static_sensors(final_group, final_rows)
         _write_table(final_group, "table", final_rows)
 
-        model_rows = model_configuration(models)
-        if model_rows:
-            _write_table(run_group, "model_configuration", model_rows)
-            _write_table(final_group, "model_configuration", model_rows)
 
     return path
 
@@ -872,54 +837,6 @@ def write_tables(
     return path
 
 
-def write_model_option_results(
-    filename: str | Path,
-    results: dict[str, list[dict[str, Any]]],
-    *,
-    model_name: str,
-    network_name: str | None = None,
-) -> Path:
-    """Write steady-state model-option results using the canonical run layout."""
-    path = hdf5_path(filename)
-    network_name = network_name or "network"
-
-    for option_name, records in results.items():
-        write_solution(
-            path,
-            records,
-            network_name=network_name,
-            group_path=run_group_path("steady_state", model_name=model_name, option_name=option_name),
-            metadata={
-                "solve_type": "steady_state",
-                "run_type": "model_option",
-                "model_name": model_name,
-                "option_name": option_name,
-                "evaluate_all_model_options": True,
-            },
-        )
-
-    return path
-
-def write_failures(
-    filename: str | Path,
-    failures: list[Any],
-    *,
-    group_path: str = "failures",
-) -> Path:
-    path = hdf5_path(filename)
-    rows = [
-        {
-            "model": getattr(failure, "model", ""),
-            "option": getattr(failure, "option", ""),
-            "error_type": getattr(failure, "error_type", ""),
-            "error": getattr(failure, "error", ""),
-        }
-        for failure in failures
-    ]
-    write_tables(path, {"table": rows}, group_path=group_path)
-    return path
-
-
 def write_summary_solution(
     filename: str | Path,
     *,
@@ -928,7 +845,6 @@ def write_summary_solution(
     final_records: list[dict[str, Any]],
     group_path: str = "transient/runs/base",
     metadata: dict[str, Any] | None = None,
-    models: list[Any] | None = None,
 ) -> Path:
     """Store a compact result with no fabricated time-history datasets."""
     path = hdf5_path(filename)
@@ -958,7 +874,4 @@ def write_summary_solution(
         _write_static_tracks(final, final_records)
         _write_static_sensors(final, final_records)
         _write_table(final, "table", final_records)
-        model_rows = model_configuration(models)
-        if model_rows:
-            _write_table(run, "model_configuration", model_rows)
     return path

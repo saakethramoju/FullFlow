@@ -678,11 +678,3 @@ def statistics_path(filename: str, network_name: str | None = None, table_group:
         filename,
         f"{safe_group_name(network_name)}/{run_group_path('steady_state')}/{safe_group_name(table_group)}",
     )
-
-
-def model_option_statistics_path(filename: str, model_name: str, option_name: str, network_name: str | None = None) -> HDF5Target:
-    """Return the HDF5 target for model-option statistics."""
-    path = f"{run_group_path('steady_state', model_name=model_name, option_name=option_name)}/statistics"
-    if network_name is None:
-        return HDF5Target(filename, path)
-    return HDF5Target(filename, f"{safe_group_name(network_name)}/{path}")

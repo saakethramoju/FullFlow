@@ -6,7 +6,6 @@ from collections.abc import Mapping
 from functools import wraps
 from typing import TYPE_CHECKING, Any
 
-from .Model import ModelOption
 from .State import State, label_state_refs
 
 if TYPE_CHECKING:
@@ -170,58 +169,9 @@ class Component:
         self._transient_dt = 0.0
         self.network.add_component(self)
 
-    @staticmethod
-    def _looks_like_network(value: Any) -> bool:
-        return (
-            value is not None
-            and not isinstance(value, str)
-            and callable(getattr(value, "add_component", None))
-            and callable(getattr(value, "add_model", None))
-        )
 
-    @classmethod
-    def _validate_template_arguments(
-        cls,
-        method_name: str,
-        name: str | None,
-        kwargs: dict[str, Any],
-    ) -> None:
-        if name is not None and not isinstance(name, str):
-            if cls._looks_like_network(name):
-                raise TypeError(
-                    f"{cls.__name__}.{method_name}(...) does not accept a Network "
-                    "object. Put the network on Model(...), then call "
-                    f"{cls.__name__}.{method_name}(...) without the network."
-                )
 
-            raise TypeError(
-                f"{cls.__name__}.{method_name}(...) first positional argument "
-                f"must be a component name string or omitted. Got {type(name).__name__}."
-            )
 
-        if "network" in kwargs:
-            raise TypeError(
-                f"{cls.__name__}.{method_name}(...) does not accept network=.... "
-                "Put the network on Model(...)."
-            )
-
-    @classmethod
-    def model(cls, name: str | None = None, **kwargs: Any) -> ModelOption:
-        """Create a reusable model-option template for this component class."""
-        cls._validate_template_arguments("model", name, kwargs)
-
-        return ModelOption(
-            name or cls.__name__,
-            component_class=cls,
-            kwargs=kwargs,
-            component_name=name,
-        )
-
-    @classmethod
-    def template(cls, name: str | None = None, **kwargs: Any) -> ModelOption:
-        """Alias for :meth:`model` kept for readable model-option declarations."""
-        cls._validate_template_arguments("template", name, kwargs)
-        return cls.model(name, **kwargs)
 
     def active_in_solver(self, solve_mode: str) -> bool:
         """Return whether this component should run in the requested solver."""

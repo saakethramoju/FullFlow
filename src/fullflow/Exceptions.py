@@ -22,8 +22,7 @@ class FullFlowConfigurationError(FullFlowError, ValueError):
     """Raised when a network, component, balance, or solver setup is structurally invalid.
 
         Typical causes include missing required states, invalid argument
-        combinations, impossible model-option selections, or residual systems that
-        cannot be assembled."""
+        combinations, or residual systems that cannot be assembled."""
 
 
 class FullFlowStateError(FullFlowError, ValueError):

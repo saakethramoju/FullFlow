@@ -11,15 +11,7 @@ from fullflow.Exports.HDF5 import _initialize_file, hdf5_path, safe_group_name
 def _path(result, network_name, solver_type):
     """Return the HDF5 path for a linearization result."""
     base = f"{safe_group_name(network_name)}/linearization/{solver_type}/runs"
-    selected = [(name, option) for name, option in result.model_options if option is not None]
-    if not selected:
-        return f"{base}/base"
-    option_path = "/".join(
-        segment
-        for name, option in selected
-        for segment in (safe_group_name(name), safe_group_name(option))
-    )
-    return f"{base}/{option_path}"
+    return f"{base}/base"
 
 
 def _write(group, result):
@@ -30,11 +22,6 @@ def _write(group, result):
     for name in ("states", "inputs", "outputs"):
         group.create_dataset(name, data=np.asarray(getattr(result, name), dtype=strings))
     group.create_dataset("time", data=float(result.time))
-    options = group.create_group("model_options")
-    for index, (name, option) in enumerate(result.model_options):
-        item = options.create_group(str(index))
-        item.attrs["name"] = name
-        item.attrs["option"] = option if option is not None else ""
     diagnostics = group.create_group("diagnostics")
     for name, value in result.diagnostics.items():
         diagnostics.attrs[name] = value

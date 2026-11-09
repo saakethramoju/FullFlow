@@ -53,13 +53,8 @@ class TransientHistory:
 
         data.update(
             history=self.mode,
-            model={
-                "name": metadata.get("model_name") or None,
-                "selected_option": metadata.get("option_name") or None,
-            },
             solver=solver,
             events=events,
-            failures=[],
         )
         return data
 
@@ -86,7 +81,6 @@ class TransientHistory:
                 final_records=network._save_records(),
                 group_path=group_path,
                 metadata=metadata,
-                models=network.model_list,
             )
             return
 
@@ -97,7 +91,6 @@ class TransientHistory:
             track_records=self.track_records,
             step_rows=step_rows,
             final_records=network._save_records(),
-            models=network.model_list,
             output_times=self.output_times,
             sensor_event_rows=network.sensor_event_records(),
             sensor_condition_trace_rows=network.sensor_condition_trace_records(),

@@ -21,7 +21,6 @@ component attributes
 tracked values
 time histories
 diagnostics
-model-option results
 map axes
 map outputs
 map status arrays
@@ -58,11 +57,6 @@ write_transient_solution()
 write_tables()
     Write simple diagnostic tables.
 
-write_model_option_results()
-    Write model-option comparison results.
-
-write_failures()
-    Write model-option failure information.
 ```
 
 Most users do not call these functions directly. They are called when a solver is run with `filename=...`:
@@ -106,15 +100,6 @@ The standard transient layout is:
                 /final/tracks/<tracked_name>
                 /final/table/<column>
 ```
-
-Model-option runs use deeper paths:
-
-```text
-/<network_name>/steady_state/runs/<model_name>/<option_name>
-/<network_name>/transient/runs/<model_name>/<option_name>
-```
-
-This lets a single file store a base run, several model-option runs, diagnostics, and failure information without overwriting unrelated data.
 
 ## HDF5 map files
 

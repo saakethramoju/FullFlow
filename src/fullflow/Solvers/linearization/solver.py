@@ -33,7 +33,6 @@ class LinearizationResult:
     inputs: tuple[str, ...]
     outputs: tuple[str, ...]
     time: float
-    model_options: tuple[tuple[str, str | None], ...]
     network_name: str
     solver_type: str
     diagnostics: dict
@@ -269,7 +268,6 @@ def linearize(
             inputs=tuple(label(state) for state in inputs),
             outputs=tuple(label(state) for state in outputs),
             time=point.time,
-            model_options=point.models,
             network_name=solver.network.name,
             solver_type="transient" if point.transient else "steady_state",
             diagnostics={

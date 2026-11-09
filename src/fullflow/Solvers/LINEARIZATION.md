@@ -120,7 +120,6 @@ An individual `LinearizationResult` exposes:
 | `x0`, `xdot0`, `u0`, `y0` | NumPy operating-point vectors |
 | `states`, `inputs`, `outputs` | Ordered variable labels for matrix rows/columns |
 | `time` | Operating-point time in seconds |
-| `model_options` | Active model-option names |
 | `network_name`, `solver_type` | Metadata for saving |
 | `diagnostics` | Residual and numerical conditioning information |
 | `jacobian` | Alias for `D`, i.e. the input/output Jacobian at fixed physical states |
@@ -190,13 +189,10 @@ An individual result is stored at a path resembling:
     A, B, C, D
     x0, xdot0, u0, y0
     states, inputs, outputs, time
-    model_options/
     diagnostics/
 ```
 
 For a transient run the path uses `transient` instead of `steady_state`.
-When one or more named model options are selected, the run path contains a
-nested model/option segment for each selection instead of `base`.
 
 For multiple operating points, results are written under numbered `points/0`, `points/1`, and so on, with each point's own `time` dataset.
 
