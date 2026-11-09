@@ -20,6 +20,8 @@ from fullflow.System.State import (
 from fullflow.Solvers.balance_filtering import filter_user_balances
 from fullflow.Exceptions import SensorDataStop, SolverSetupError
 from fullflow.Solvers.equations import (
+    _balance_entries,
+    _dynamic_entries,
     balance_object_equations,
     component_balances,
     component_dynamics,
@@ -194,15 +196,15 @@ class RuntimeCache:
         self._direct_sensor_balance_owner_ids = direct_ids
         self._rebuild_iteration_metadata()
 
-    def _component_balance_equations(self, component: Any):
+    def _component_balance_equations(self, component: Any, normalize=component_balances):
         """Return algebraic balances active for the current solve."""
         if not self._is_sensor_anchor_owner(component):
-            return component_balances(component)
+            return normalize(component)
         component_id = id(component)
         if component_id in self._direct_sensor_balance_owner_ids:
             return []
         if component_id in self._active_sensor_balance_owner_ids:
-            return component_balances(component)
+            return normalize(component)
         return []
 
     def _rebuild_iteration_metadata(self) -> None:
@@ -561,6 +563,9 @@ class RuntimeCache:
     @staticmethod
     def _append_residuals(residual_source: Any, append) -> None:
         """Append normalized residual values from a source."""
+        if type(residual_source) is float:
+            append(residual_source)
+            return
         if callable(residual_source):
             residual_source = residual_source()
         if residual_source is None:
@@ -614,16 +619,17 @@ class RuntimeCache:
         """Evaluate and flatten all component and balance residuals."""
         residuals: list[float] = []
         append = residuals.append
+        append_residuals = self._append_residuals
 
         for component in self.active_component_list:
             try:
                 # Steady state drives dynamic derivatives to zero.
-                for equation in component_dynamics(component):
-                    self._append_residuals(equation.derivative, append)
+                for entry in _dynamic_entries(component):
+                    append_residuals(entry[-1], append)
 
                 # Algebraic balances are non-storage equations.
-                for equation in self._component_balance_equations(component):
-                    self._append_residuals(equation.residual, append)
+                for _, residual in self._component_balance_equations(component, _balance_entries):
+                    append_residuals(residual, append)
             except Exception as error:
                 original = str(error).splitlines()[0]
                 raise SolverSetupError(
@@ -639,7 +645,8 @@ class RuntimeCache:
                 ) from None
 
         for balance in self.balance_list:
-            for equation in balance_object_equations(balance):
-                self._append_residuals(equation.residual, append)
+            # Retain the normalizer's variable read before retrieving the residual.
+            _variable, residual = balance.variable, balance._residual
+            append_residuals(residual, append)
 
         return np.array(residuals, dtype=float)

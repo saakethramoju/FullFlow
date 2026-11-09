@@ -135,11 +135,18 @@ def evaluate_components_for_equation_discovery(
         raise FullFlowConfigurationError("\n".join(lines)) from None
 
 
-def component_dynamics(owner: Any) -> list[DynamicEquation]:
-    """Return normalized dynamic equations for a component."""
+def _is_assignable_variable(variable: Any) -> bool:
+    """Check exact States directly; retain the generic proxy validation path."""
+    if type(variable) is State:
+        return not variable.is_derived
+    return is_assignable_state_like(variable)
+
+
+def _dynamic_entries(owner: Any) -> list[tuple]:
+    """Validate current dynamic entries without allocating equation wrappers."""
     raw_equations = _as_list(owner.dynamics, property_name="dynamics") if _custom_component_property(owner, "dynamics") else []
 
-    equations: list[DynamicEquation] = []
+    entries = []
     for index, entry in enumerate(raw_equations):
         if not isinstance(entry, tuple):
             raise FullFlowConfigurationError(f"{owner.name}: dynamics[{index}] must be a tuple.")
@@ -155,32 +162,48 @@ def component_dynamics(owner: Any) -> list[DynamicEquation]:
                 "(variable, derivative) or (variable, state, derivative)."
             )
 
-        if not is_assignable_state_like(variable):
+        if not _is_assignable_variable(variable):
             raise FullFlowConfigurationError(f"{owner.name}: dynamics[{index}] variable must be an assignable State.")
-        if not is_state_like(state):
+        if type(state) is not State and not is_state_like(state):
             raise FullFlowConfigurationError(f"{owner.name}: dynamics[{index}] integrated state must be a State.")
 
-        equations.append(DynamicEquation(owner=owner, variable=variable, state=state, derivative=derivative, index=index))
+        entries.append((variable, state, derivative))
 
-    return equations
+    return entries
 
 
-def component_balances(owner: Any) -> list[BalanceEquation]:
-    """Return normalized algebraic balances for a component."""
+def component_dynamics(owner: Any) -> list[DynamicEquation]:
+    """Return normalized dynamic equations for a component."""
+    return [
+        DynamicEquation(owner, variable, state, derivative, index)
+        for index, (variable, state, derivative) in enumerate(_dynamic_entries(owner))
+    ]
+
+
+def _balance_entries(owner: Any) -> list[tuple]:
+    """Validate current balance entries without allocating equation wrappers."""
     raw_equations = _as_list(owner.balances, property_name="balances") if _custom_component_property(owner, "balances") else []
 
-    equations: list[BalanceEquation] = []
+    entries = []
     for index, entry in enumerate(raw_equations):
         if not isinstance(entry, tuple) or len(entry) != 2:
             raise FullFlowConfigurationError(f"{owner.name}: balances[{index}] must be (variable, residual).")
 
         variable, residual = entry
-        if not is_assignable_state_like(variable):
+        if not _is_assignable_variable(variable):
             raise FullFlowConfigurationError(f"{owner.name}: balances[{index}] variable must be an assignable State.")
 
-        equations.append(BalanceEquation(owner=owner, variable=variable, residual=residual, index=index))
+        entries.append((variable, residual))
 
-    return equations
+    return entries
+
+
+def component_balances(owner: Any) -> list[BalanceEquation]:
+    """Return normalized algebraic balances for a component."""
+    return [
+        BalanceEquation(owner, variable, residual, index)
+        for index, (variable, residual) in enumerate(_balance_entries(owner))
+    ]
 
 
 def balance_object_equations(owner: Any) -> list[BalanceEquation]:

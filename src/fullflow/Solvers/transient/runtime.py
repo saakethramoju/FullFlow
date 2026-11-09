@@ -22,6 +22,7 @@ from fullflow.System.State import (
 from fullflow.Solvers.balance_filtering import filter_user_balances
 from fullflow.Exceptions import SensorDataStop, SolverSetupError
 from fullflow.Solvers.equations import (
+    _balance_entries,
     balance_object_equations,
     component_balances,
     component_dynamics,
@@ -329,16 +330,16 @@ class TransientRuntimeCache:
         if membership_changed:
             self._rebuild_iteration_metadata()
 
-    def _component_balance_equations(self, component: Any):
+    def _component_balance_equations(self, component: Any, normalize=component_balances):
         """Return algebraic balances active for the current solve."""
         if not self._is_sensor_anchor_owner(component):
-            return component_balances(component)
+            return normalize(component)
 
         component_id = id(component)
         if component_id in self._direct_sensor_balance_owner_ids:
             return []
         if component_id in self._active_sensor_balance_owner_ids:
-            return component_balances(component)
+            return normalize(component)
         return []
 
     def _rebuild_iteration_metadata(self) -> None:
@@ -554,6 +555,8 @@ class TransientRuntimeCache:
     @staticmethod
     def _is_valid_derivative(value: Any) -> bool:
         """Return True for supported derivative objects."""
+        if type(value) is float or type(value) is int:
+            return True
         if is_state_like(value):
             return True
         if isinstance(value, bool):
@@ -793,16 +796,11 @@ class TransientRuntimeCache:
     def _current_derivative(
         self,
         item: TransientItem,
-        derivatives_by_owner: dict[int, list[Any]] | None = None,
+        derivatives: list[Any] | None = None,
     ) -> Any:
-        """Read a derivative, optionally reusing this residual call's component list."""
-        if derivatives_by_owner is None:
+        """Read and validate a current derivative from its owner's equation list."""
+        if derivatives is None:
             derivatives = self._component_transient_derivatives(item.owner)
-        else:
-            owner_id = id(item.owner)
-            if owner_id not in derivatives_by_owner:
-                derivatives_by_owner[owner_id] = self._component_transient_derivatives(item.owner)
-            derivatives = derivatives_by_owner[owner_id]
 
         if len(derivatives) <= item.derivative_index:
             raise SolverSetupError(
@@ -1120,14 +1118,18 @@ class TransientRuntimeCache:
     def _derivative_value(
         self,
         item: TransientItem,
-        derivatives_by_owner: dict[int, list[Any]] | None = None,
+        derivatives: list[Any] | None = None,
     ) -> float:
         """Return a derivative evaluated at the current nonlinear trial state."""
-        return resolve_numeric(self._current_derivative(item, derivatives_by_owner))
+        derivative = self._current_derivative(item, derivatives)
+        return derivative if type(derivative) is float else resolve_numeric(derivative)
 
     @staticmethod
     def _append_residuals(residual_source: Any, append) -> None:
         """Append normalized residual values from a source."""
+        if type(residual_source) is float:
+            append(residual_source)
+            return
         if callable(residual_source):
             residual_source = residual_source()
         if residual_source is None:
@@ -1169,10 +1171,15 @@ class TransientRuntimeCache:
         residuals: list[float] = []
         append = residuals.append
         append_residuals = self._append_residuals
-        derivatives_by_owner: dict[int, list[Any]] = {}
+        owner = None
+        derivatives = None
 
+        # Discovery collects each owner's equations consecutively in network order.
         for item in self.transient_items:
-            derivative = self._derivative_value(item, derivatives_by_owner)
+            if item.owner is not owner:
+                owner = item.owner
+                derivatives = self._component_transient_derivatives(owner)
+            derivative = self._derivative_value(item, derivatives)
             if item.force_steady:
                 append(derivative)
                 continue
@@ -1184,8 +1191,8 @@ class TransientRuntimeCache:
             append(((state - previous - flux) / scale) / dt)
 
         for component in self.algebraic_residual_owners:
-            for equation in self._component_balance_equations(component):
-                append_residuals(equation.residual, append)
+            for _, residual in self._component_balance_equations(component, _balance_entries):
+                append_residuals(residual, append)
 
         for balance in self.balance_residual_owners:
             append_residuals(balance._residual, append)
