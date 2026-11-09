@@ -22,6 +22,25 @@ def snapshot_triplet(value, previous, second_previous, copy_value):
     return current, prior, older
 
 
+def field_names(obj):
+    """Return instance fields, including inherited slots and dataclass fields."""
+    names = list(vars(obj)) if hasattr(obj, "__dict__") else []
+    if is_dataclass(obj):
+        names.extend(field.name for field in fields(obj) if field.name not in names)
+    for cls in type(obj).__mro__:
+        slots = cls.__dict__.get("__slots__", ())
+        if isinstance(slots, str):
+            slots = (slots,)
+        for name in slots:
+            if name in ("__dict__", "__weakref__"):
+                continue
+            if name.startswith("__") and not name.endswith("__"):
+                name = f"_{cls.__name__.lstrip('_')}{name}"
+            if name not in names and hasattr(obj, name):
+                names.append(name)
+    return tuple(names)
+
+
 class NetworkStateSnapshot:
     """Capture and restore State values before independent transient runs."""
 
@@ -107,16 +126,12 @@ class NetworkStateSnapshot:
                     visit(item)
                 return
 
-            if hasattr(value, "__dict__"):
-                for item in tuple(vars(value).values()):
-                    visit(item)
-            if is_dataclass(value):
-                for entry in fields(value):
-                    try:
-                        item = getattr(value, entry.name)
-                    except (AttributeError, TypeError):
-                        continue
-                    visit(item)
+            for name in field_names(value):
+                try:
+                    item = getattr(value, name)
+                except (AttributeError, TypeError):
+                    continue
+                visit(item)
 
         visit(network)
         return cls(states)

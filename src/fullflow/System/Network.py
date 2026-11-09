@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 from .State import State, is_state_like, label_state_refs
 from .Component import Component
-from fullflow.Exports.HDF5 import write_solution
+from fullflow.Exports.HDF5 import safe_group_name, write_solution
 
 if TYPE_CHECKING:
     from fullflow.System import Balance, Component, State
@@ -77,7 +77,7 @@ class _NetworkSnapshot:
                         setattr(obj, name, value)
         for owner, name, state in self.state_references:
             if getattr(owner, name, None) is not state:
-                setattr(owner, name, state)
+                object.__setattr__(owner, name, state)
         for state, (expression, lower, upper, feasible) in self.state_configuration.items():
             state._expr = expression
             state._lower_bound = lower
@@ -119,6 +119,9 @@ class Network:
 
     def _add_unique(self, item: Any, item_list: list[Any]) -> None:
         if item not in item_list:
+            owners = self.component_list + self.balance_list
+            if any(safe_group_name(existing.name) == safe_group_name(item.name) for existing in owners):
+                raise ValueError(f"{self.name}: duplicate {type(item).__name__} name {item.name!r}.")
             item_list.append(item)
             self.mark_structure_changed()
 
@@ -133,8 +136,21 @@ class Network:
         self.component_list.remove(component)
         self.mark_structure_changed()
 
+    def _validate_export_names(self) -> None:
+        for names in (
+            [owner.name for owner in self.component_list + self.balance_list],
+            [track["name"] for track in self.tracked_state_list],
+        ):
+            seen = set()
+            for name in names:
+                key = safe_group_name(name)
+                if key in seen:
+                    raise ValueError(f"{self.name}: duplicate export name {name!r}.")
+                seen.add(key)
+
     def validate_component_references(self) -> None:
         """Reject cross-network or stale Component references before solving."""
+        self._validate_export_names()
         registered_ids = {id(component) for component in self.component_list}
         for owner in self.component_list:
             for name, value in tuple(owner.__dict__.items()):
@@ -315,6 +331,8 @@ class Network:
         flatten: bool = True,
     ) -> Any:
         """Register a state-like object for named export and plotting."""
+        if any(safe_group_name(track["name"]) == safe_group_name(name) for track in self.tracked_state_list):
+            raise ValueError(f"{self.name}: duplicate track name {name!r}.")
         label_state_refs(value, f"track:{name}")
 
         self.tracked_state_list.append(
@@ -624,6 +642,7 @@ class Network:
         metadata: dict[str, Any] | None = None,
     ):
         """Write network, steady-state, or transient results to an HDF5 file."""
+        self._validate_export_names()
         records: list[dict[str, Any]] = []
 
         for component in self.component_list:

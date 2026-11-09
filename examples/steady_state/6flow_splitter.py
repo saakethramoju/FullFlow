@@ -121,7 +121,7 @@ SplitterNetwork = Network("Splitter Network")
 # These outputs behave like FullFlow state-like objects, so they can be connected
 # directly into components and derived states.
 ChamberEquilibrium = Lookup(
-    "Combustion Chamber",
+    "Chamber Equilibrium",
     SplitterNetwork,
     Equilibrium,
     reactants={"h2": 0.5, "o2": 0.5},

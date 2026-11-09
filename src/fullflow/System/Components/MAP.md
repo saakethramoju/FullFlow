@@ -74,5 +74,11 @@ model's physical or numerical accuracy: the grid density and interpolation
 error remain the user's responsibility. Avoid mixing inconsistent units or
 extrapolating into unphysical regimes.
 
+Check interpolation against the original property calculation at points between
+grid nodes, including the operating-range edges. Repeat with a finer grid and
+compare the resulting network outputs. Refine map spacing and transient timesteps
+separately: a small nonlinear residual measures neither interpolation error nor
+time-integration error.
+
 See `examples/general/8map_manual.py`, `examples/general/9map_hdf5.py`, and
 `examples/transient/26engine_startup.py`.

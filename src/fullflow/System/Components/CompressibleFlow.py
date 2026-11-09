@@ -198,12 +198,12 @@ class IsentropicNozzle(Component):
             T_static = self.upstream_static_temperature.value
             self.total_enthalpy.value = h_static + cp * (To - T_static)
 
-        PR = Po / Pamb
+        PR = Po / Pamb if Pamb != 0.0 else math.inf
         PR_choked = ((g + 1.0) / 2.0) ** (g / (g - 1.0))
         choked_check1 = PR > PR_choked
 
         FP_choked = self._flow_parameter_from_mach(1.0, g)
-        FP_exit = self._flow_parameter_from_pressure_ratio(PR, g)
+        FP_exit = self._flow_parameter_from_pressure_ratio(PR, g) if math.isfinite(PR) else 0.0
         FP_throat = FP_exit * eps
         choked_check2 = FP_throat > FP_choked
 

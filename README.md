@@ -2648,6 +2648,10 @@ The repository includes examples for:
 
 Examples that import ThermoProp require `fullflow[thermo]` or `fullflow[examples]`.
 
+The [examples/maps](examples/maps/) folder contains the precomputed HDF5 maps
+needed by the examples. Use the included maps for normal runs; regenerate them
+only when changing their property models, input ranges, or grid settings.
+
 ## Documentation
 
 Detailed reference guides:

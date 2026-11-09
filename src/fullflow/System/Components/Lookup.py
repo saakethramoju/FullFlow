@@ -180,7 +180,7 @@ class LookupAttribute:
             return x.value
 
         if isinstance(x, Lookup):
-            if (not x.output.is_assigned or x.dirty) and not x._is_evaluating:
+            if not x._is_evaluating:
                 x.evaluate_states()
             return x.value
 
@@ -510,7 +510,7 @@ class Lookup(Component, Generic[T]):
             return x.value
 
         if isinstance(x, Lookup):
-            if (not x.output.is_assigned or x.dirty) and not x._is_evaluating:
+            if not x._is_evaluating:
                 x.evaluate_states()
             return x.value
 
@@ -1036,6 +1036,8 @@ class Lookup(Component, Generic[T]):
         return bool(state is not None and state.is_assigned)
 
     def get_output(self, name: str) -> Any:
+        if not self._is_evaluating:
+            self.evaluate_states()
         try:
             obj = self.output.value
             value = self._extract_output_value(obj, name)
@@ -1095,7 +1097,30 @@ class Lookup(Component, Generic[T]):
             self.evaluate_states()
 
     def _input_key(self, args: list[Any], kwargs: dict[str, Any]) -> Any:
+        dependencies = []
+        seen = set()
+
+        def visit(value):
+            if id(value) in seen:
+                return
+            seen.add(id(value))
+            if isinstance(value, LookupAttribute):
+                value = value.lookup
+            if isinstance(value, Lookup):
+                dependencies.append((id(value), value.evaluation_count))
+            elif isinstance(value, State) and value._expr is None:
+                visit(value._value)
+            elif isinstance(value, dict):
+                for item in value.values():
+                    visit(item)
+            elif isinstance(value, (list, tuple)):
+                for item in value:
+                    visit(item)
+
+        visit(self.args)
+        visit(self.kwargs)
         return (
+            tuple(dependencies),
             tuple(self._fingerprint_value(arg) for arg in args),
             tuple(
                 (key, self._fingerprint_value(value))
@@ -1263,7 +1288,7 @@ class Lookup(Component, Generic[T]):
 
     def mark_dirty(self) -> None:
         """Mark cached data as stale after an external mutation."""
-        self.dirty = True
+        self.clear_cache()
 
     @property
     def evaluation_count(self) -> int:

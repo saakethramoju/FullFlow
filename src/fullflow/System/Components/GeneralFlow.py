@@ -52,11 +52,9 @@ class FlowTube(Component):
         L = self.length.value
         D = self.hydraulic_diameter.value
 
-        if self.cross_sectional_area.is_assigned:
-            A = self.cross_sectional_area.value
-        else:
-            A = (math.pi / 4.0) * D**2
-            self.cross_sectional_area.value = A
+        if not self.cross_sectional_area.is_assigned:
+            self.cross_sectional_area.derive_from((math.pi / 4.0) * self.hydraulic_diameter**2)
+        A = self.cross_sectional_area.value
 
         pressure = (p1 - p2) * A
         friction = 0.0
@@ -86,7 +84,7 @@ class FlowTube(Component):
             if self.downstream_density.is_assigned:
                 rho2 = self.downstream_density.value
                 u2 = mdot / (rho2 * A)
-                inertia = max(mdot, 0.0) * (u2 - u1) - max(-mdot, 0.0) * (u1 - u2)
+                inertia = mdot * (u2 - u1)
 
                 if (
                     friction == 0.0
@@ -273,11 +271,9 @@ class DarcyWeisbach(Component):
         D = self.hydraulic_diameter.value
         rho = self.density.value
         
-        if self.cross_sectional_area.is_assigned:
-            A = self.cross_sectional_area.value
-        else:
-            A = (math.pi / 4.0) * D**2
-            self.cross_sectional_area.value = A
+        if not self.cross_sectional_area.is_assigned:
+            self.cross_sectional_area.derive_from((math.pi / 4.0) * self.hydraulic_diameter**2)
+        A = self.cross_sectional_area.value
 
         if self.friction_factor.is_assigned:
             f = self.friction_factor.value
@@ -420,6 +416,7 @@ class CavitatingVenturi(Component):
         self.critical_downstream_pressure = P2_critical
 
         is_cavitating = dP > 0.0 and P2 <= P2_critical
+        self.is_cavitating.value = is_cavitating
 
         if is_cavitating:
             self.throat_pressure = Pvap

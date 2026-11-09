@@ -65,7 +65,7 @@ class Gnielinski(Component):
         self.convection_coefficient.value = Nu * k / Dh
 
         self.nusselt_number.value = Nu
-        self.stanton_number.value = Nu / (Re*Pr)
+        self.stanton_number.value = Nu / (Re * Pr) if Re * Pr != 0.0 else 0.0
 
 
 

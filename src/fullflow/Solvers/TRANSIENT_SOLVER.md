@@ -11,6 +11,14 @@ result = transient.solve(dt=0.01, t_final=1.0)
 
 The user chooses the nominal timestep. FullFlow can shorten steps at known schedule times or after a failed step; it does not automatically increase the nominal step.
 
+## Accuracy
+
+`rtol` controls nonlinear residual acceptance; it does not estimate integration
+error. Backward Euler is first order in time. Repeat a run from the same initial
+snapshot with `dt` halved and compare the outputs, extrema, and event times that
+matter for the model. Continue refining until those changes are acceptable.
+Reducing `rtol` alone cannot remove timestep error.
+
 ## Equations
 
 `Component.dynamics` describes physical storage or inertia, while `Component.balances` and user `Balance` objects describe algebraic constraints. All active equations are closed together at the new time.

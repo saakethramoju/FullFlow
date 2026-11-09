@@ -218,23 +218,15 @@ class PolytropicPump(Component):
         # ROCETS polytropic headrise uses specific work units.
         H_specific = g * H
 
-        pressure_ratio = p_out / p_in
-        density_ratio = rho2 / rho1
+        log_pressure_ratio = math.log1p((p_out - p_in) / p_in)
+        log_density_ratio = math.log1p((rho2 - rho1) / rho1)
 
-        log_pressure_ratio = math.log(pressure_ratio)
-        log_density_ratio = math.log(density_ratio)
+        exponent = log_pressure_ratio - log_density_ratio
+        density_factor = math.expm1(exponent) / exponent if exponent != 0.0 else 1.0
+        required_work = p_in / rho1 * log_pressure_ratio * density_factor
 
-        if log_pressure_ratio != 0.0:
-            density_pressure_slope = log_density_ratio / log_pressure_ratio
-        elif log_density_ratio == 0.0:
-            density_pressure_slope = math.nan
-        else:
-            density_pressure_slope = math.copysign(math.inf, log_density_ratio)
-
-        beta = 1.0 / (1.0 - density_pressure_slope)
-
-        self.predicted_discharge_pressure = rho2 * (H_specific / beta + p_in / rho1)
-        self.discharge_pressure_error = self.predicted_discharge_pressure - self.discharge_pressure.value
+        self.discharge_pressure_error = rho1 * (H_specific - required_work)
+        self.predicted_discharge_pressure = p_out + self.discharge_pressure_error
 
         if self.torque.is_assigned:
             N = self.rotor_speed.value

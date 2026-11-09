@@ -165,6 +165,10 @@ def dynamics(self):
 
 This form is useful when the physical storage state is mass or energy, but the solver variable is pressure or temperature.
 
+Component and Balance names must be unique within a Network. Track names must
+also be unique. Names that differ only by spaces, slashes, or underscores can
+map to the same HDF5 name and are rejected to prevent overwriting results.
+
 ## Network
 
 `Network` is the container for one model. It stores:

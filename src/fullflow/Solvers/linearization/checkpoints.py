@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 from collections import OrderedDict
-from dataclasses import fields, is_dataclass
 
 import numpy as np
 
 from fullflow.System.State import State, is_state_like
 from fullflow.System.Component import Component
-from fullflow.Solvers.state_copy import NetworkStateSnapshot
+from fullflow.Solvers.state_copy import NetworkStateSnapshot, field_names as _field_names
 
 
 _DIAGNOSTIC_ATTRIBUTES = {
+    "_attribute_cache",
+    "_output_states",
     "_build_count",
     "_cache_hits",
     "_defer_count",
@@ -57,19 +58,32 @@ def _copy(value, array_cache=None):
     return value
 
 
-def _field_names(obj):
-    """Return instance fields, including declared slots on custom helpers."""
-    if is_dataclass(obj):
-        return tuple(f.name for f in fields(obj))
-    names = list(vars(obj)) if hasattr(obj, '__dict__') else []
-    for cls in type(obj).__mro__:
-        slots = cls.__dict__.get('__slots__', ())
-        if isinstance(slots, str):
-            slots = (slots,)
-        for name in slots:
-            if name not in ('__dict__', '__weakref__') and name not in names and hasattr(obj, name):
-                names.append(name)
-    return tuple(names)
+def _same(actual, expected):
+    """Compare numerical contents while preserving State and Component identity."""
+    if is_state_like(expected) or isinstance(expected, Component):
+        return actual is expected
+    if isinstance(expected, np.ndarray):
+        if not isinstance(actual, np.ndarray) or actual.dtype != expected.dtype:
+            return False
+        try:
+            return np.array_equal(actual, expected, equal_nan=True)
+        except TypeError:
+            return np.array_equal(actual, expected)
+    if isinstance(expected, dict):
+        return isinstance(actual, dict) and actual.keys() == expected.keys() and all(
+            _same(actual[key], value) for key, value in expected.items()
+        )
+    if isinstance(expected, (list, tuple)):
+        return type(actual) is type(expected) and len(actual) == len(expected) and all(
+            _same(left, right) for left, right in zip(actual, expected)
+        )
+    if isinstance(expected, (set, frozenset)):
+        return type(actual) is type(expected) and actual == expected
+    if isinstance(expected, (float, complex, np.number)) and np.isnan(expected):
+        return isinstance(actual, (int, float, complex, np.number)) and bool(np.isnan(actual))
+    if isinstance(expected, (str, int, float, bool, type(None), bytes, complex, np.number)):
+        return actual == expected
+    return actual is expected
 
 
 class OperatingCheckpoint:
@@ -165,9 +179,8 @@ class OperatingCheckpoint:
         values = []
         for state in self.states.states:
             raw = self.states.values[state][0]
-            if isinstance(raw, (str, int, float, bool, type(None))):
-                values.append((state, raw, state._expr, state.bounds))
-            elif isinstance(raw, np.ndarray) or tuple(Component._component_references(raw)):
+            if isinstance(raw, (str, int, float, bool, type(None), bytes, complex, np.number,
+                                np.ndarray, list, tuple, dict, set, frozenset)):
                 values.append((state, raw, state._expr, state.bounds))
         return values
 
@@ -191,50 +204,15 @@ class OperatingCheckpoint:
         if not np.isclose(float(self.network.time.value), self.time, rtol=0, atol=1e-12):
             raise ValueError('Network time changed since the successful solve.')
         for state, expected, expression, bounds in self.signature:
-            actual = state._value
-            if isinstance(expected, np.ndarray):
-                try:
-                    matched = isinstance(actual, np.ndarray) and np.array_equal(actual, expected, equal_nan=True)
-                except TypeError:
-                    matched = isinstance(actual, np.ndarray) and np.array_equal(actual, expected)
-            elif isinstance(expected, Component):
-                matched = actual is expected
-            elif isinstance(expected, (list, tuple, dict, set, frozenset)):
-                expected_refs = tuple(Component._component_references(expected))
-                actual_refs = tuple(Component._component_references(actual))
-                matched = len(expected_refs) == len(actual_refs) and all(
-                    left is right for left, right in zip(expected_refs, actual_refs)
-                )
-            elif isinstance(expected, float) and np.isnan(expected):
-                matched = isinstance(actual, (int, float)) and np.isnan(actual)
-            else:
-                matched = actual == expected
-            if not matched or state._expr is not expression or state.bounds != bounds:
+            if not _same(state._value, expected) or state._expr is not expression or state.bounds != bounds:
                 label = getattr(state, 'label', 'State')
                 raise ValueError(f'{label} changed since the successful solve. Solve again.')
         for obj, attributes in self.attributes:
             for name, expected in attributes.items():
                 if name in _DIAGNOSTIC_ATTRIBUTES:
                     continue
-                if isinstance(expected, Component):
-                    if getattr(obj, name, None) is not expected:
-                        raise ValueError(f'{type(obj).__name__}.{name} changed since the successful solve. Solve again.')
-                elif isinstance(expected, (list, tuple, dict, set, frozenset)):
-                    expected_refs = tuple(Component._component_references(expected))
-                    if expected_refs:
-                        current_refs = tuple(Component._component_references(getattr(obj, name, None)))
-                        if len(expected_refs) != len(current_refs) or any(
-                            left is not right for left, right in zip(expected_refs, current_refs)
-                        ):
-                            raise ValueError(f'{type(obj).__name__}.{name} changed since the successful solve. Solve again.')
-                elif isinstance(expected, (int, float, str, bool, type(None))):
-                    current = getattr(obj, name, None)
-                    if isinstance(expected, float) and np.isnan(expected):
-                        same = isinstance(current, (int, float)) and np.isnan(current)
-                    else:
-                        same = current == expected
-                    if not same:
-                        raise ValueError(f'{type(obj).__name__}.{name} changed since the successful solve. Solve again.')
+                if not _same(getattr(obj, name, None), expected):
+                    raise ValueError(f'{type(obj).__name__}.{name} changed since the successful solve. Solve again.')
         if self.mode_signature() != self.modes:
             raise ValueError('A component operating mode changed since the successful solve.')
 
