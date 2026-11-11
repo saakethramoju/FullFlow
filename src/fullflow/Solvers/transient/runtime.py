@@ -12,7 +12,8 @@ from typing import Any
 import numpy as np
 
 from fullflow.System.Component import Component
-from fullflow.Solvers.state_copy import snapshot_triplet
+from fullflow.System.StateArray import StateArray
+from fullflow.Solvers.state_copy import snapshot_triplet, array_state_change
 from fullflow.System.State import (
     State,
     is_assignable_state_like,
@@ -23,10 +24,12 @@ from fullflow.Solvers.balance_filtering import filter_user_balances
 from fullflow.Exceptions import SensorDataStop, SolverSetupError
 from fullflow.Solvers.equations import (
     _balance_entries,
+    _dynamic_entries,
     balance_object_equations,
     component_balances,
     component_dynamics,
     evaluate_components_for_equation_discovery,
+    validate_group_ownership,
 )
 
 
@@ -123,6 +126,8 @@ class TransientRuntimeCache:
             solve_mode="transient",
         )
 
+        validate_group_ownership(self.component_list + self.balance_list)
+
         self._cache_component_transient_lists()
 
         self.transient_items = tuple(self._collect_transient_items())
@@ -188,6 +193,7 @@ class TransientRuntimeCache:
         self.set_transient_context(dt=0.0)
         self.apply_sequence_commands(float(self.network.time.value))
         evaluate_components_for_equation_discovery(self.component_list, solve_mode="transient")
+        validate_group_ownership(self.component_list + self.balance_list)
 
         for component in self.component_list:
             equations = component_dynamics(component)
@@ -546,7 +552,7 @@ class TransientRuntimeCache:
             else:
                 return derivatives
         # Preserve the general validator for dynamically altered/malformed equations.
-        return [equation.derivative for equation in component_dynamics(component)]
+        return [entry[-1] for entry in _dynamic_entries(component)]
 
     def _component_is_dynamic(self, component: Any) -> bool:
         """Return whether a component contributes transient dynamics."""
@@ -746,6 +752,11 @@ class TransientRuntimeCache:
                 paths.append(path)
                 return
 
+            if isinstance(item, StateArray):
+                for index in np.ndindex(item.shape):
+                    suffix = ",".join(map(str, index))
+                    collect(item.at(index), f"{path}[{suffix}]")
+                return
             if is_state_like(item):
                 try:
                     collect(item.value, path)
@@ -1130,6 +1141,9 @@ class TransientRuntimeCache:
         if type(residual_source) is float:
             append(residual_source)
             return
+        if is_state_like(residual_source):
+            append(resolve_numeric(residual_source))
+            return
         if callable(residual_source):
             residual_source = residual_source()
         if residual_source is None:
@@ -1195,7 +1209,11 @@ class TransientRuntimeCache:
                 append_residuals(residual, append)
 
         for balance in self.balance_residual_owners:
-            append_residuals(balance._residual, append)
+            if isinstance(balance.variable, StateArray):
+                for equation in balance_object_equations(balance):
+                    append_residuals(equation.residual, append)
+            else:
+                append_residuals(balance._residual, append)
 
         return np.asarray(residuals, dtype=float)
 
@@ -1227,6 +1245,10 @@ class TransientRuntimeCache:
 
         def collect(value: Any) -> None:
             """Collect matching states or paths from nested values."""
+            if isinstance(value, StateArray):
+                for member in value._members.flat:
+                    collect(member)
+                return
             if is_state_like(value):
                 add_state(value)
                 try:
@@ -1268,6 +1290,10 @@ class TransientRuntimeCache:
 
         def collect(value: Any) -> None:
             """Collect matching states or paths from nested values."""
+            if isinstance(value, StateArray):
+                for member in value._members.flat:
+                    collect(member)
+                return
             if is_state_like(value):
                 add_state(value)
                 try:
@@ -1312,8 +1338,11 @@ class TransientRuntimeCache:
         try:
             if type(state) is State and state._expr is None:
                 value = state._value
-                return float(value) if value is not None else None
-            return float(state.value) if state.is_assigned else None
+            else:
+                value = state.value if state.is_assigned else None
+            if isinstance(value, np.ndarray):
+                return value.copy()
+            return float(value) if value is not None else None
         except Exception:
             return None
 
@@ -1337,6 +1366,9 @@ class TransientRuntimeCache:
                 continue
 
             previous = previous_values[index]
+            if isinstance(value, np.ndarray):
+                max_change = max(max_change, array_state_change(previous, value))
+                continue
             if previous is None:
                 change = abs(value)
             else:

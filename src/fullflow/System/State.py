@@ -6,6 +6,8 @@ from numbers import Real
 from typing import Any, Callable, Protocol, runtime_checkable
 from collections.abc import Iterable, Mapping
 
+import numpy as np
+
 from fullflow.Exceptions import UnassignedStateError
 
 
@@ -95,12 +97,14 @@ def is_assignable_state_like(value: Any) -> bool:
 
 
 class State:
-    """Primary scalar value container used by FullFlow networks."""
+    """Scalar or fixed-shape numeric array container used by FullFlow networks."""
 
     _fullflow_state_like = True
+    __array_priority__ = 1000
 
     __slots__ = (
         "_value",
+        "_array_shape",
         "_expr",
         "_previous",
         "_second_previous",
@@ -119,7 +123,8 @@ class State:
         bounds: tuple[float | None, float | None] | None = None,
         keep_feasible: bool = False,
     ) -> None:
-        """Create a scalar state with an optional initial value and solver bounds."""
+        """Create a state with an optional initial value and solver bounds."""
+        self._array_shape = None
         self._value: Any = None
         self._expr: Callable[[], Any] | None = None
         self._previous: Any = None
@@ -144,7 +149,7 @@ class State:
         """Recursively convert values inside an iterable/container into States."""
 
         def is_container(item: Any) -> bool:
-            if isinstance(item, (str, bytes, bytearray)):
+            if isinstance(item, (str, bytes, bytearray, np.ndarray)):
                 return False
 
             if isinstance(item, Mapping):
@@ -165,6 +170,9 @@ class State:
                 return cls.from_iterable(resolved)
 
             return value
+
+        if isinstance(value, np.ndarray):
+            return cls(value)
 
         if isinstance(value, Mapping):
             return {
@@ -295,11 +303,34 @@ class State:
 
         return numeric_value
 
+    def _validate_array(self, value: Any) -> Any:
+        if isinstance(value, np.ndarray):
+            if value.dtype.kind not in "biufc":
+                raise TypeError("State arrays must have a numeric dtype.")
+            if self._array_shape is None:
+                self._array_shape = value.shape
+            elif value.shape != self._array_shape:
+                raise ValueError(f"State array shape must remain {self._array_shape}; got {value.shape}.")
+        elif self._array_shape is not None:
+            raise ValueError(f"State array shape must remain {self._array_shape}; assign a numeric ndarray.")
+        return value
+
+    def _math_value(self):
+        value = self.value
+        if isinstance(value, np.ndarray):
+            return value
+        if (type(value) is float and self._lower_bound == -math.inf
+                and self._upper_bound == math.inf and not self._keep_feasible):
+            return value
+        numeric = self._as_numeric(value)
+        self._validate_bounds(numeric)
+        return numeric
+
     @property
     def value(self) -> Any:
         if self._expr is not None:
             try:
-                return self._expr()
+                return self._validate_array(self._expr())
             except UnassignedStateError:
                 if self._value is not None:
                     return self._value
@@ -308,6 +339,8 @@ class State:
         if self._value is None:
             raise UnassignedStateError(f"State {self._diagnostic_name()} has no assigned value.")
 
+        if self._array_shape is not None:
+            self._validate_array(self._value)
         return self._value
 
     @value.setter
@@ -315,6 +348,12 @@ class State:
         if self._expr is not None:
             raise AttributeError("Cannot assign to a derived State.")
 
+        if isinstance(value, np.ndarray):
+            if self._requires_numeric_value():
+                raise TypeError("Array-valued States do not support scalar bounds.")
+            self._validate_array(value)
+        elif self._array_shape is not None:
+            self._validate_array(value)
         if isinstance(value, bool):
             pass
         elif isinstance(value, (int, float)):
@@ -383,7 +422,8 @@ class State:
         """Store the current value as transient history."""
         if self.is_assigned:
             self._second_previous = self._previous
-            self._previous = self.value
+            value = self.value
+            self._previous = value.copy() if isinstance(value, np.ndarray) else value
 
     def clear_previous(self) -> None:
         """Clear stored transient history."""
@@ -393,6 +433,8 @@ class State:
     @property
     def numeric_value(self) -> float:
         value = self.value
+        if isinstance(value, np.ndarray) and value.ndim > 0:
+            raise TypeError("Array-valued State cannot be a scalar solver unknown; use StateArray of scalar States.")
         if (type(value) is float and self._lower_bound == -math.inf
                 and self._upper_bound == math.inf and not self._keep_feasible):
             return value
@@ -451,6 +493,8 @@ class State:
         keep_feasible: bool | None = None,
     ) -> "State":
         """Update bounds in place and return ``self`` for chaining."""
+        if isinstance(self._value, np.ndarray) and (bounds is not None or keep_feasible):
+            raise TypeError("Array-valued States do not support scalar bounds.")
         lower, upper = self._normalize_bounds(bounds)
         feasible = self._keep_feasible if keep_feasible is None else bool(keep_feasible)
         if self._value is not None and isinstance(self._value, Real):
@@ -500,7 +544,11 @@ class State:
         return self.value[key]
 
     def __setitem__(self, key: Any, value: Any) -> None:
+        if self.is_derived:
+            raise AttributeError("Cannot assign to a derived State.")
         current = self.value
+        if isinstance(current, np.ndarray):
+            current = current.copy()
         current[key] = value
         self.value = current
 
@@ -538,15 +586,15 @@ class State:
 
     @staticmethod
     def _coerce(other: Any) -> "State":
-        return other if isinstance(other, State) else State(other)
+        return other if isinstance(other, State) or getattr(type(other), "_fullflow_state_array", False) else State(other)
 
     def _binary(self, other: Any, op: Callable[[float, float], float]) -> "State":
         other = self._coerce(other)
-        return State._derived(lambda: op(self.numeric_value, other.numeric_value))
+        return State._derived(lambda: op(self._math_value(), other._math_value()))
 
     def _rbinary(self, other: Any, op: Callable[[float, float], float]) -> "State":
         other = self._coerce(other)
-        return State._derived(lambda: op(other.numeric_value, self.numeric_value))
+        return State._derived(lambda: op(other._math_value(), self._math_value()))
 
     def __add__(self, other: Any) -> "State":
         return self._binary(other, lambda a, b: a + b)
@@ -577,6 +625,23 @@ class State:
     def __rtruediv__(self, other: Any) -> "State":
         return self._rbinary(other, lambda a, b: a / b)
 
+    def sum(self, axis=None) -> "State":
+        """Return a live sum over the selected axes."""
+        return State._derived(lambda: np.sum(self._math_value(), axis=axis))
+
+    def mean(self, axis=None) -> "State":
+        """Return a live mean over the selected axes."""
+        return State._derived(lambda: np.mean(self._math_value(), axis=axis))
+
+    def at(self, index) -> "State":
+        """Return a live selection without exposing mutable source storage."""
+        def selected():
+            value = self.value[index]
+            return value.copy() if isinstance(value, np.ndarray) else value
+        result = State._derived(selected)
+        result.value
+        return result
+
     def __pow__(self, other: Any) -> "State":
         return self._binary(other, lambda a, b: a**b)
 
@@ -584,10 +649,10 @@ class State:
         return self._rbinary(other, lambda a, b: a**b)
 
     def __neg__(self) -> "State":
-        return State._derived(lambda: -self.numeric_value)
+        return State._derived(lambda: -self._math_value())
 
     def __abs__(self) -> "State":
-        return State._derived(lambda: abs(self.numeric_value))
+        return State._derived(lambda: abs(self._math_value()))
 
     def _compare(self, other: Any, op: Callable[[float, float], bool]) -> bool:
         return op(self.numeric_value, resolve_numeric(other))
@@ -702,6 +767,12 @@ def label_state_refs(value: Any, label: str, seen: set[int] | None = None) -> No
         return
 
     seen.add(value_id)
+
+    if getattr(type(value), "_fullflow_state_array", False):
+        for index in np.ndindex(value.shape):
+            suffix = ",".join(map(str, index))
+            label_state_refs(value.at(index), f"{label}[{suffix}]", seen)
+        return
 
     if isinstance(value, State):
         value.add_label(label)

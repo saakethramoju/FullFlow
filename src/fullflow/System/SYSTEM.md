@@ -58,6 +58,72 @@ pressure = State(300000.0, bounds=(0.0, None), keep_feasible=True)
 
 Bounds are collected by the solvers and passed to the nonlinear least-squares routine.
 
+## Numerical arrays and `StateArray`
+
+A `State` can contain one scalar or one fixed-shape numerical array. This is
+useful for **calculated fields** such as a tank's mass per cell, aerodynamic
+forces per station, or temperature-dependent stiffness:
+
+```python
+import numpy as np
+from fullflow import State
+
+mass_distribution = State(np.zeros(100))
+forces = State(np.zeros((100, 3)))
+net_force = forces.sum(axis=0)
+```
+
+Each example above is one State; neither array becomes 100 or 300 nonlinear
+unknowns just because it has many elements. A Component updates an output by
+assigning `self.mass_distribution.value = new_masses` in `evaluate_states()`.
+The shape must remain fixed. `.sum()`, `.mean()`, `.at(index)`, and normal
+arithmetic create live derived States. Ordinary `State[index]` retrieves the
+current numerical element, not a State reference.
+
+`StateArray` is different: it holds a *fixed-shape collection of references* to
+individual scalar States. It does not own an independent numerical buffer:
+
+```python
+from fullflow import StateArray
+
+cells = StateArray.full(5, 293.15)
+cells.at(2).value = 300.0
+assert cells.value[2] == 300.0
+
+shared = StateArray([pressure_a, pressure_b])
+assert shared[0] is pressure_a
+```
+
+A single index returns the original member State, and slicing returns a group
+referencing the selected members. A group can be passed directly between
+Components through `self.setup()`, preserving those references. Assigning
+`cells.value` validates shape, bounds, member mutability, and repeated
+references before making changes.
+
+Groups are especially convenient for fields of *independent unknowns*:
+
+```python
+self.temperature = StateArray.full(5, 293.15)
+self.temperature_rate = State(np.zeros(5))
+
+@property
+def dynamics(self):
+    return [(self.temperature, self.temperature_rate)]
+```
+
+FullFlow expands the declaration into five existing scalar dynamic equations;
+there are five true thermal degrees of freedom, not one and not ten. The same
+pattern applies to grouped `balances`. Rate and residual sources must match
+the group's shape exactly. Declaring the same member as an unknown more than
+once is rejected. Direct nonscalar `State` solver variables are not supported
+in 4.0.3.
+
+Both numerical fields and groups export as the same kind of native HDF5 numeric
+array: `(time, *field_shape)` in full transient history. Positions and units
+are not inferred. See the [README](../../../README.md) for a complete example,
+[EXPORTS.md](../Exports/EXPORTS.md) for storage details, and the two scripts in
+[`examples/arrays`](../../../examples/arrays) for complete Components.
+
 ## Balance
 
 `Balance` is the user-facing way to add one custom algebraic equation to a network.

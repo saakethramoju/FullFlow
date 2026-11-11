@@ -124,7 +124,7 @@ Linearization results are stored under
 `/<network_name>/linearization/<solver_type>/`. Multiple operating points use
 its `points/<index>/` subgroup.
 
-New exports use HDF5 schema version 7. Existing files keep their old layout until
+New exports use HDF5 schema version 8. Existing files keep their old layout until
 the corresponding results are regenerated. Update older plotting paths by
 removing `/runs/base`.
 
@@ -212,3 +212,41 @@ GasMap = Map.from_hdf5(
     },
 )
 ```
+
+## Numerical field histories (FullFlow 4.0.3)
+
+When a Component exposes a fixed-shape numeric `State` or a `StateArray`
+group, both export to native HDF5 numeric datasets. No individual field cells
+need to be tracked or exported separately. The storage representation does not
+indicate whether the numbers came from calculated values or separate physical
+solver unknowns.
+
+In a full transient run, the dataset shape is `(n_time, *field_shape)`, so a
+40-cell mass distribution becomes `(n_time, 40)` and a three-component force
+at 40 stations becomes `(n_time, 40, 3)`. The existing paths are preserved:
+
+```text
+/<network>/transient/time
+/<network>/transient/components/<component>/<attribute>
+/<network>/transient/tracks/<name>
+```
+
+Native field datasets carry `time_axis=0` and a `time_dataset` path to help
+FullPlot understand their orientation. Separate spatial-coordinate arrays and
+units should be supplied by the model; they are not invented by the exporter.
+Fields recorded with missing time records use NaN fill values when a common
+numeric shape is available. Irregular-shape and nonnumeric histories remain
+text/JSON with the `encoding=text_or_json` marker. The writer's schema version
+is 8; scalar dataset names and existing run grouping remain unchanged.
+
+`history="full"` retains the accepted-step field histories. With
+`history="summary"`, only final values and available summary statistics are
+written, not a fabricated time series. Summary statistics for tracked array
+fields are stored as native datasets. Solution-table cells that correspond to
+array results contain references to native datasets instead of duplicating
+large arrays as JSON in the table.
+
+FullPlot 2.0.1 can plot these time-first numeric arrays directly with `map()`,
+`plot()` and `surface()`. It can also read compatible numeric JSON array
+histories from earlier FullFlow exports. FullFlow's minimum FullPlot dependency
+remains unchanged; field-specific plotting uses the newer FullPlot release.

@@ -18,7 +18,7 @@ import numpy as np
 HDF5_EXTENSIONS = {".h5", ".hdf5"}
 _STRING_DTYPE = h5py.string_dtype(encoding="utf-8")
 _FORMAT = "fullflow-simple-hdf5"
-_SCHEMA_VERSION = 7
+_SCHEMA_VERSION = 8
 
 
 @dataclass(frozen=True, slots=True)
@@ -237,7 +237,8 @@ def _write_dataset(parent: h5py.Group, name: str, value: Any, attrs: dict[str, A
     if name in parent:
         del parent[name]
 
-    value = _plain(value)
+    if not isinstance(value, np.ndarray):
+        value = _plain(value)
     attrs = {} if attrs is None else dict(attrs)
 
     if isinstance(value, (str, dict, list)) and not isinstance(value, (list, tuple)):
@@ -245,7 +246,10 @@ def _write_dataset(parent: h5py.Group, name: str, value: Any, attrs: dict[str, A
     elif value is None:
         dataset = parent.create_dataset(name, data="", dtype=_STRING_DTYPE)
     else:
-        array = np.asarray(value)
+        try:
+            array = np.asarray(value)
+        except ValueError:
+            array = np.asarray(_as_text(value))
         if array.dtype.kind in {"U", "S", "O"}:
             data = np.array([_as_text(item) for item in array.ravel()], dtype=object).reshape(array.shape)
             dataset = parent.create_dataset(name, data=data, dtype=_STRING_DTYPE)
@@ -284,6 +288,8 @@ def _write_table(parent: h5py.Group, name: str, rows: list[dict[str, Any]]) -> h
 
 
 def _numeric_value(value: Any) -> float | None:
+    if isinstance(value, np.ndarray) and value.ndim:
+        return None
     try:
         number = float(value)
     except Exception:
@@ -296,7 +302,8 @@ def solution_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     normalized: list[dict[str, Any]] = []
 
     for record in records:
-        row = {str(key): _plain(value) for key, value in record.items()}
+        row = {str(key): value if isinstance(value, np.ndarray) else _plain(value)
+               for key, value in record.items()}
         if "value" in row and "numeric_value" not in row:
             row["numeric_value"] = _numeric_value(row["value"])
         normalized.append(row)
@@ -360,11 +367,85 @@ def _ordered_times(rows: list[dict[str, Any]]) -> np.ndarray:
     return np.asarray(times, dtype=float)
 
 
+def _history_data(items, time_values):
+    """Stack fixed-shape numeric samples; retain JSON for irregular values."""
+    present = [row.get("value") for row in items if row.get("value") is not None]
+    arrays = []
+    for value in present:
+        try:
+            array = np.asarray(value)
+        except (TypeError, ValueError):
+            break
+        if array.dtype.kind not in "biufc":
+            break
+        arrays.append(array)
+    numeric = bool(arrays) and len(arrays) == len(present)
+    if numeric:
+        numeric = all(array.shape == arrays[0].shape for array in arrays)
+    time_index = {float(value): i for i, value in enumerate(time_values)}
+    if numeric:
+        dtype = np.result_type(*(array.dtype for array in arrays))
+        missing = len({float(row["time"]) for row in items if row.get("value") is not None}) < len(time_values)
+        if missing:
+            dtype = np.result_type(dtype, float)
+        data = np.empty((len(time_values),) + arrays[0].shape, dtype=dtype)
+        data.fill(np.nan if dtype.kind in "fc" else 0)
+        for row in items:
+            index = time_index.get(float(row["time"]))
+            if index is not None and row.get("value") is not None:
+                data[index] = row["value"]
+        return data
+    # Retain scalar numeric-string compatibility.
+    if present and all(_numeric_value(value) is not None for value in present):
+        data = np.full(len(time_values), np.nan)
+        for row in items:
+            index = time_index.get(float(row["time"]))
+            if index is not None:
+                data[index] = _as_float(row.get("value"))
+        return data
+    data = np.full(len(time_values), "", dtype=object)
+    for row in items:
+        index = time_index.get(float(row["time"]))
+        if index is not None:
+            data[index] = _as_text(row.get("value"))
+    return data
+
+
+def _history_dimensions(dataset, parent):
+    dataset.dims[0].label = "time"
+    dataset.attrs["time_axis"] = 0
+    dataset.attrs["time_dataset"] = parent["time"].name
+    if dataset.dtype.kind in "OSU":
+        dataset.attrs["encoding"] = "text_or_json"
+
+
+def _write_solution_table(parent, rows):
+    """Reference native array datasets rather than serializing their buffers twice."""
+    table_rows = []
+    time_index = {float(t): i for i, t in enumerate(parent["time"][()])} if "time" in parent else {}
+    for row in rows:
+        row = dict(row)
+        value = row.get("value")
+        if isinstance(value, (np.ndarray, list, tuple)):
+            section = "tracks" if row.get("component_type") == "TrackedState" else "components"
+            parts = [section]
+            if section == "components":
+                parts.append(safe_group_name(row.get("component_name", "<unknown>")))
+            parts.append(safe_group_name(row.get("attribute", "value")))
+            path = "/".join(parts)
+            if path in parent and parent[path].dtype.kind in "biufc":
+                reference = {"dataset": parent[path].name}
+                if "time" in row and time_index:
+                    reference["index"] = time_index.get(float(row["time"]))
+                row["value"] = reference
+        table_rows.append(row)
+    return _write_table(parent, "table", table_rows)
+
+
 def _write_component_history(parent: h5py.Group, rows: list[dict[str, Any]], time_values: np.ndarray) -> h5py.Group:
     components_group = _replace_group(parent, "components")
     components_group.attrs["kind"] = "component_histories"
 
-    time_index = {float(value): i for i, value in enumerate(time_values)}
     grouped: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
 
     for row in _records_without_tracks(solution_records(rows)):
@@ -376,27 +457,14 @@ def _write_component_history(parent: h5py.Group, rows: list[dict[str, Any]], tim
         grouped.setdefault(key, []).append(row)
 
     for (component_name, component_type, attribute), items in grouped.items():
-        numeric_values = [_as_float(row.get("numeric_value")) for row in items]
-        numeric = any(math.isfinite(value) for value in numeric_values)
 
         component_group = components_group.require_group(safe_group_name(component_name))
         component_group.attrs["name"] = component_name
         component_group.attrs["type"] = component_type
 
-        if numeric:
-            data = np.full(len(time_values), np.nan, dtype=float)
-            for row in items:
-                i = time_index.get(float(row["time"]))
-                if i is not None:
-                    data[i] = _as_float(row.get("numeric_value"))
-        else:
-            data = np.full(len(time_values), "", dtype=object)
-            for row in items:
-                i = time_index.get(float(row["time"]))
-                if i is not None:
-                    data[i] = _as_text(row.get("value"))
+        data = _history_data(items, time_values)
 
-        _write_dataset(
+        dataset = _write_dataset(
             component_group,
             attribute,
             data,
@@ -407,6 +475,8 @@ def _write_component_history(parent: h5py.Group, rows: list[dict[str, Any]], tim
             },
         )
 
+        _history_dimensions(dataset, parent)
+
     return components_group
 
 
@@ -414,7 +484,6 @@ def _write_tracks(parent: h5py.Group, rows: list[dict[str, Any]], time_values: n
     tracks_group = _replace_group(parent, "tracks")
     tracks_group.attrs["kind"] = "tracked_histories"
 
-    time_index = {float(value): i for i, value in enumerate(time_values)}
     grouped: dict[str, list[dict[str, Any]]] = {}
 
     for row in solution_records(rows):
@@ -422,23 +491,11 @@ def _write_tracks(parent: h5py.Group, rows: list[dict[str, Any]], time_values: n
         grouped.setdefault(track_name, []).append(row)
 
     for track_name, items in grouped.items():
-        numeric_values = [_as_float(row.get("numeric_value")) for row in items]
-        numeric = any(math.isfinite(value) for value in numeric_values)
 
-        if numeric:
-            data = np.full(len(time_values), np.nan, dtype=float)
-            for row in items:
-                i = time_index.get(float(row["time"]))
-                if i is not None:
-                    data[i] = _as_float(row.get("numeric_value"))
-        else:
-            data = np.full(len(time_values), "", dtype=object)
-            for row in items:
-                i = time_index.get(float(row["time"]))
-                if i is not None:
-                    data[i] = _as_text(row.get("value"))
+        data = _history_data(items, time_values)
 
-        _write_dataset(tracks_group, track_name, data, attrs={"name": track_name})
+        dataset = _write_dataset(tracks_group, track_name, data, attrs={"name": track_name})
+        _history_dimensions(dataset, parent)
 
     return tracks_group
 
@@ -736,7 +793,7 @@ def write_solution(
         _write_component_values(section_group, rows)
         _write_static_tracks(section_group, rows)
         _write_static_sensors(section_group, rows)
-        _write_table(section_group, "table", rows)
+        _write_solution_table(section_group, rows)
 
 
     return path
@@ -796,7 +853,7 @@ def write_transient_solution(
         _write_sensor_conditions(run_group, sensor_condition_trace_rows or [])
         _write_sequence_commands(run_group, sequence_command_trace_rows or [])
         _link_time_to_time_history_groups(run_group)
-        _write_table(run_group, "table", history_rows)
+        _write_solution_table(run_group, history_rows)
         _write_table(run_group, "diagnostics", step_rows)
         _write_sensor_events(run_group, sensor_event_rows or [])
 
@@ -812,7 +869,7 @@ def write_transient_solution(
         _write_component_values(final_group, final_rows)
         _write_static_tracks(final_group, final_rows)
         _write_static_sensors(final_group, final_rows)
-        _write_table(final_group, "table", final_rows)
+        _write_solution_table(final_group, final_rows)
 
 
     return path
@@ -870,6 +927,12 @@ def write_summary_solution(
             {"name": name, **values}
             for name, values in result.get("tracked", {}).items()
         ]
+        for row in summary_rows:
+            for key, value in tuple(row.items()):
+                if isinstance(value, np.ndarray) and value.ndim and value.dtype.kind in "biufc":
+                    group = run.require_group("tracked_summary").require_group(safe_group_name(row["name"]))
+                    dataset = _write_dataset(group, key, value)
+                    row[key] = {"dataset": dataset.name}
         _write_table(run, "summary", summary_rows)
         _write_table(run, "diagnostics", [result.get("solver", {})])
         _write_sensor_events(run, result.get("events", {}).get("sensor", []))
@@ -879,5 +942,5 @@ def write_summary_solution(
         _write_component_values(final, final_records)
         _write_static_tracks(final, final_records)
         _write_static_sensors(final, final_records)
-        _write_table(final, "table", final_records)
+        _write_solution_table(final, final_records)
     return path

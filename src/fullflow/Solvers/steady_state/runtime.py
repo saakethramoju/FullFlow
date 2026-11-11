@@ -11,11 +11,14 @@ from typing import Any
 import numpy as np
 
 from fullflow.System.Component import Component
+from fullflow.System.StateArray import StateArray
+from fullflow.Solvers.state_copy import array_state_change
 from fullflow.System.State import (
     State,
     is_assignable_state_like,
     is_state_like,
     resolve_value,
+    resolve_numeric,
 )
 from fullflow.Solvers.balance_filtering import filter_user_balances
 from fullflow.Exceptions import SensorDataStop, SolverSetupError
@@ -26,6 +29,7 @@ from fullflow.Solvers.equations import (
     component_balances,
     component_dynamics,
     evaluate_components_for_equation_discovery,
+    validate_group_ownership,
 )
 
 
@@ -82,6 +86,8 @@ class RuntimeCache:
             self.active_component_list,
             solve_mode="steady",
         )
+
+        validate_group_ownership(self.active_component_list + self.balance_list)
 
         self.component_dynamic_items = tuple(self._dynamic_iteration_items())
         self.component_balance_items = tuple(self._component_balance_iteration_items())
@@ -314,6 +320,11 @@ class RuntimeCache:
                 paths.append(path)
                 return
 
+            if isinstance(item, StateArray):
+                for index in np.ndindex(item.shape):
+                    suffix = ",".join(map(str, index))
+                    collect(item.at(index), f"{path}[{suffix}]")
+                return
             if is_state_like(item):
                 try:
                     collect(item.value, path)
@@ -444,6 +455,10 @@ class RuntimeCache:
 
         def collect(value: Any) -> None:
             """Collect matching states or paths from nested values."""
+            if isinstance(value, StateArray):
+                for member in value._members.flat:
+                    collect(member)
+                return
             if is_state_like(value):
                 add_state(value)
                 try:
@@ -478,9 +493,12 @@ class RuntimeCache:
             try:
                 if type(state) is State and state._expr is None:
                     raw = state._value
-                    value = float(raw) if raw is not None else None
                 else:
-                    value = float(state.value) if state.is_assigned else None
+                    raw = state.value if state.is_assigned else None
+                if isinstance(raw, np.ndarray):
+                    out[index] = raw.copy()
+                    continue
+                value = float(raw) if raw is not None else None
                 out[index] = value if value is not None and math.isfinite(value) else None
             except (TypeError, ValueError, OverflowError, AttributeError):
                 out[index] = None
@@ -491,6 +509,9 @@ class RuntimeCache:
         """Return the largest change between compact state arrays."""
         change = 0.0
         for before, after in zip(old, new):
+            if isinstance(after, np.ndarray):
+                change = max(change, array_state_change(before, after))
+                continue
             if after is None:
                 if before is not None:
                     return math.inf
@@ -565,6 +586,9 @@ class RuntimeCache:
         """Append normalized residual values from a source."""
         if type(residual_source) is float:
             append(residual_source)
+            return
+        if is_state_like(residual_source):
+            append(resolve_numeric(residual_source))
             return
         if callable(residual_source):
             residual_source = residual_source()
@@ -647,6 +671,10 @@ class RuntimeCache:
         for balance in self.balance_list:
             # Retain the normalizer's variable read before retrieving the residual.
             _variable, residual = balance.variable, balance._residual
-            append_residuals(residual, append)
+            if isinstance(_variable, StateArray):
+                for equation in balance_object_equations(balance):
+                    append_residuals(equation.residual, append)
+            else:
+                append_residuals(residual, append)
 
         return np.array(residuals, dtype=float)

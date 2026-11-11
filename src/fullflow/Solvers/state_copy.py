@@ -6,6 +6,7 @@ from types import ModuleType, FunctionType, MethodType
 from typing import Any
 
 from fullflow.System.State import State, is_state_like
+from fullflow.System.StateArray import StateArray
 from fullflow.System.Component import Component
 
 
@@ -38,7 +39,7 @@ def field_names(obj):
                 name = f"_{cls.__name__.lstrip('_')}{name}"
             if name not in names and hasattr(obj, name):
                 names.append(name)
-    return tuple(names)
+    return tuple(name for name in names if name != "_fullflow_equation_layouts")
 
 
 class NetworkStateSnapshot:
@@ -105,6 +106,10 @@ class NetworkStateSnapshot:
                 return
             seen_objects.add(value_id)
 
+            if isinstance(value, StateArray):
+                for member in value._members.flat:
+                    visit(member)
+                return
             if isinstance(value, State):
                 if value_id not in seen_states:
                     seen_states.add(value_id)
@@ -142,3 +147,16 @@ class NetworkStateSnapshot:
             state._value, state._previous, state._second_previous = snapshot_triplet(
                 value, previous, second_previous, self._snapshot_value,
             )
+
+
+def array_state_change(previous, current):
+    """Compare copied array fields during component fixed-point evaluation."""
+    import numpy as np
+
+    if not isinstance(previous, np.ndarray) or previous.shape != current.shape:
+        return float('inf')
+    if np.array_equal(previous, current, equal_nan=True):
+        return 0.0
+    with np.errstate(invalid='ignore', divide='ignore'):
+        delta = np.abs(current - previous) / np.maximum(np.abs(current), 1.)
+    return float(np.max(np.where(np.isfinite(delta), delta, np.inf), initial=0.))

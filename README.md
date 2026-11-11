@@ -106,9 +106,11 @@ For a broader reference on network, component, and state behavior, see
 
 ### State
 
-`State` is FullFlow's universal scalar container. Pressures, temperatures, mass
-flows, heat rates, commands, component outputs, nonlinear iteration variables,
-and integrated storage quantities are all represented with the same object.
+`State` holds a scalar value or a fixed-shape numeric array. Scalar States
+represent pressures, mass flows, commands, solver variables, and integrated
+quantities. Array-valued States are particularly useful for calculated
+distributions; independently solved cells can instead be grouped with
+`StateArray`, described after derived-State math below.
 
 ```python
 from fullflow import State
@@ -218,6 +220,129 @@ A derived state:
 To preserve a live dependency, use states directly in the expression. Writing
 `mass_flow.value / density.value` calculates an ordinary float immediately;
 writing `mass_flow / density` creates a derived `State`.
+
+#### Numerical fields and `StateArray`
+
+FullFlow has two ways to represent a distribution. Both expose numerical arrays
+through `.value`, so other Components can consume them with NumPy without
+unpacking individual cells.
+
+| Representation | What it holds | Typical use | Solver unknowns |
+| --- | --- | --- | --- |
+| `State(np.ndarray)` | One State whose value is an array of numbers | Mass, aerodynamic loads, heat flux, stiffness | Zero unless declared as a solve variable; nonscalar arrays cannot currently be solver variables |
+| `StateArray` | A fixed-shape group of references to individual scalar States | Independently integrated temperatures, pressures, or existing vector components | Only the scalar members declared in equations |
+
+**Calculated fields: one State, many numerical values.** For instance:
+
+```python
+import numpy as np
+from fullflow import State
+
+mass_distribution = State(np.zeros(40))
+aero_forces = State(np.zeros((40, 3)))
+
+mass_distribution.value = np.linspace(0.1, 0.5, 40)
+net_force = aero_forces.sum(axis=0)  # live, three-element derived State
+first_cell_mass = mass_distribution.at(0)  # live, derived scalar State
+```
+
+An array-valued output adds **no independent solver variables** unless the user
+declares it in `balances` or `dynamics`. As of 4.0.3, a nonscalar `State` is
+*not* a supported solve variable: use `StateArray` when the individual elements
+need equations. A calculated field can still change at every nonlinear
+iteration because its Component reads the current fluid, thermal, or flight
+States and assigns a fresh array in `evaluate_states()`.
+
+**Grouped scalar States: one interface, original members.** `StateArray` keeps
+references to its scalar members rather than copying their current numbers:
+
+```python
+from fullflow import State, StateArray
+
+vx, vy, vz = State(1.0), State(2.0), State(3.0)
+velocity = StateArray([vx, vy, vz])
+assert velocity.at(0) is vx
+assert np.allclose(velocity.value, [1.0, 2.0, 3.0])
+
+velocity.value = [4.0, 5.0, 6.0]  # updates vx, vy, and vz
+cells = StateArray.full((8,), 293.15)  # creates eight separate scalar States
+mean_temperature = cells.mean()  # live derived State
+```
+
+Grouping does not create or duplicate solver variables. `StateArray.at(i)` and
+`StateArray[i]` return the actual scalar member for an individual index; a
+slice gives another live `StateArray` view. By contrast, indexing a numerical
+`State` with `field[i]` returns a number or array, while `field.at(i)` returns a
+live derived State. The array math helpers `sum(axis=...)`, `mean(axis=...)`,
+and elementwise arithmetic create live derived States for either representation.
+For general NumPy calculations inside `evaluate_states()`, work with `.value`.
+
+**Grouped equations: concise declarations, scalar solver internals.** A thermal
+Component may create its temperatures with `StateArray.full` and declare one
+grouped dynamics entry:
+
+```python
+self.temperature = StateArray.full(8, 293.15)
+self.temperature_rate = State(np.zeros(8))
+
+# In evaluate_states():
+self.temperature_rate.value = self.heat_input.value / self.capacity.value
+
+# In dynamics:
+return [(self.temperature, self.temperature_rate)]
+```
+
+This expands into eight scalar dynamic equations. The derivative source must
+have exactly the same shape as the group, and can be a numeric array, an
+array-valued State, or a callable that returns matching values. Grouped
+`balances` follow the same shape rule for algebraic residuals. Scalar
+broadcasting, duplicate or overlapping equation ownership, and attempts to
+solve directly for a nonscalar `State` raise errors instead of silently
+altering the physical system. If 200 temperatures have separate energy
+balances, they are 200 physical degrees of freedom regardless of how they're
+grouped; 200 *calculated* mass cells add none.
+
+**Mutation and history.** Numerical fields have a fixed shape after their first
+assignment. Replace `field.value` with a newly calculated array in a
+Component; indexing assignment uses copy-on-write, and assigning to derived
+States is prohibited. `StateArray.value = values` checks the full array before
+updating its members (including bounds and repeated references). Snapshots,
+accepted-step histories, and linearization retain correct individual values.
+
+**HDF5 and plotting.** With `history="full"`, FullFlow writes both kinds of
+fields to native numeric HDF5 datasets, with **time on axis 0**:
+
+```text
+mass_distribution     (time, station)
+temperature           (time, station)
+aero_forces           (time, station, xyz)
+```
+
+The field's coordinate array (such as `stations`) can be another Component
+State. FullFlow records time-axis metadata but does not guess spatial
+coordinates or units; supply those explicitly when plotting. With
+`history="summary"`, only final fields and available summaries are retained,
+not a full time history. In FullPlot 2.0.1 or later:
+
+```python
+import fullplot as fplt
+
+run = fplt.open("1draining_tank.h5").at("Draining_Tank/transient")
+run.map(
+    z="components/LOX_Tank/mass_distribution",
+    x="time",
+    y="components/LOX_Tank/stations",
+)
+```
+
+Complete runnable examples are
+[`1draining_tank.py`](examples/arrays/1draining_tank.py) (calculated mass field
+and Layout) and [`2thermal_cells.py`](examples/arrays/2thermal_cells.py)
+(grouped temperature dynamics feeding calculated stiffness). From the FullFlow
+repository root, run `python examples/arrays/1draining_tank.py` or
+`python examples/arrays/2thermal_cells.py` after installing the local packages.
+The scripts write `1draining_tank.h5` and `2thermal_cells.h5`, respectively, in
+the current directory.
 
 #### Bounds and `keep_feasible`
 
@@ -2648,6 +2773,7 @@ The repository includes examples for:
 - Blowdown transients
 - Pump transients
 - Heat-transfer transients
+- Distributed mass fields and grouped thermal-cell dynamics (`examples/arrays/`)
 - Water hammer
 - Sensor events, commands, and test-data anchoring
 - Sampled PID rocket-engine throttle control and thrust-vector LQR

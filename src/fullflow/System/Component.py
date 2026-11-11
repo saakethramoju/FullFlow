@@ -154,7 +154,7 @@ class Component:
             references and isinstance(value, (Mapping, list, tuple, set, frozenset))
         ):
             return value
-        if isinstance(value, State):
+        if isinstance(value, State) or getattr(type(value), "_fullflow_state_array", False):
             return value
 
         as_state = getattr(type(value), "as_state", None)

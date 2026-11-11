@@ -1,5 +1,10 @@
 # Changelog
 
+## 4.0.3
+
+* Added live numeric State fields and StateArray groups with scalar equation expansion, shape/ownership validation, and safe histories, checkpoints and linearization.
+* Exported native time-first numeric HDF5 fields and compact array summaries; added draining-tank and thermal-cell examples and array documentation.
+
 ## 4.0.2
 
 * Simplified HDF5 solver and linearization paths by removing the redundant `runs/base` groups.

@@ -173,3 +173,17 @@ and [`examples/transient/30monte_carlo.py`](../../../examples/transient/30monte_
 - `steady_state/operations.py`: nonlinear solve, equation scaling, and final acceptance
 - `steady_state/settings.py`, `statistics.py`, `diagnostics.py`, `results.py`: settings and reporting
 - `equation_scaling.py`: shared numerical row-scaling implementation
+
+## Grouped algebraic equations
+
+`StateArray` can group existing scalar algebraic unknowns. A Component's
+`balances` property may return one pair of a group and a matching array of
+residuals; the equation assembler expands that pair into scalar equations.
+The residual source may be a numeric array, an array-valued State, or a
+callable returning the correct shape. Scalar broadcasting is not implicit, and
+overlapping group/scalar ownership is rejected.
+
+Array-valued `State` outputs are useful for calculated fields but are not
+valid nonscalar solver unknowns in 4.0.3. Grouped scalar members follow the
+same bounds, equation scaling and convergence rules as other scalar States.
+See [SYSTEM.md](../System/SYSTEM.md#numerical-arrays-and-statearray).

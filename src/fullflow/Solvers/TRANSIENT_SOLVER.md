@@ -232,3 +232,20 @@ Use `exceptions=[...]` to retain genuine transient integration for selected comp
 - `state_copy.py`: restorable State snapshots
 - `transient/settings.py`, `diagnostics.py`: step controls and reporting
 - `equation_scaling.py`: shared numerical row-scaling implementation
+
+## Grouped thermal and other distributed dynamics
+
+`StateArray` groups independently integrated scalar States without introducing
+another set of variables. One declaration such as
+`[(self.temperature, self.temperature_rate)]` expands into one ordinary
+dynamic equation per member; derivatives must have the same shape as the group.
+Declaring a calculated `State(np.ndarray)` as an independent integrated vector
+is not supported. Components may still produce array-valued outputs every
+nonlinear evaluation without adding solver equations.
+
+Grouped members retain their original identities, bound checks, accepted-step
+history and checkpoint restoration. Overlapping scalar/group ownership or an
+incompatible derivative shape raises a setup error. Full history exports both
+representations as native numeric HDF5 arrays; see
+[EXPORTS.md](../Exports/EXPORTS.md) and
+[`2thermal_cells.py`](../../../examples/arrays/2thermal_cells.py).

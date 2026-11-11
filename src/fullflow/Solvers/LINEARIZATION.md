@@ -242,3 +242,16 @@ The returned `diagnostics` currently includes:
 Before relying on a linearized production subsystem, compare the predicted response for small input perturbations against independently re-solved FullFlow operating points or a nonlinear transient. Verify matrix variable ordering, the operating mode, reasonable conditioning, and the range of perturbations for which errors remain acceptable.
 
 The core linearization implementation does not depend on a particular fluid-property package; its reliability still depends on the smoothness and repeatability of the equations provided by your components and property lookup functions.
+
+## Grouped States and linearization
+
+A `StateArray` is a live collection of original scalar States, not a single
+vector iteration variable. Grouped dynamics and balances are expanded into
+scalar equations before linearization. Indexed member names and the existing
+scalar ordering are retained in the linearized matrices and diagnostics.
+
+Calculated array-valued States remain derived field outputs; they do not add
+physical integrated states merely because they contain many values. The normal
+linearization input/output selection rules still apply: use individual scalar
+members where a scalar perturbation or output is required. See
+[SYSTEM.md](../System/SYSTEM.md#numerical-arrays-and-statearray).
