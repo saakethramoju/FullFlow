@@ -10,10 +10,10 @@ FullPlot is used for trace objects, command traces, sensor traces, map-generatio
 workflows, and HDF5 plotting/inspection workflows.
 
 Project:
-https://github.com/saakethramoju/FullPlot
+<https://github.com/saakethramoju/FullPlot>
 
 Package:
-https://pypi.org/project/fullplot/
+<https://pypi.org/project/fullplot/>
 
 License:
 See the FullPlot project license.
@@ -28,10 +28,10 @@ package does not import ThermoProp at top level, but users can install
 `fullflow[thermo]` or `fullflow[examples]` for ThermoProp-backed workflows.
 
 Project:
-https://github.com/saakethramoju/ThermoProp
+<https://github.com/saakethramoju/ThermoProp>
 
 Package:
-https://pypi.org/project/thermoprop/
+<https://pypi.org/project/thermoprop/>
 
 License:
 ThermoProp is released under the GNU General Public License version 3.
@@ -43,7 +43,7 @@ ThermoProp is released under the GNU General Public License version 3.
 NumPy is used for numerical arrays and scalar/vector calculations.
 
 Project:
-https://numpy.org/
+<https://numpy.org/>
 
 License:
 BSD 3-Clause License.
@@ -55,7 +55,7 @@ BSD 3-Clause License.
 SciPy is used for nonlinear least-squares solving and interpolation utilities.
 
 Project:
-https://scipy.org/
+<https://scipy.org/>
 
 License:
 BSD 3-Clause License.
@@ -67,7 +67,7 @@ BSD 3-Clause License.
 Rich is used for optional terminal diagnostics and solver tables.
 
 Project:
-https://github.com/Textualize/rich
+<https://github.com/Textualize/rich>
 
 License:
 MIT License.
@@ -79,7 +79,7 @@ MIT License.
 h5py is used for HDF5 export and result storage.
 
 Project:
-https://www.h5py.org/
+<https://www.h5py.org/>
 
 License:
 BSD-style license.

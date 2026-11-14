@@ -2,7 +2,7 @@
 FullFlow: fluid, thermal, and propulsion network simulation.
 """
 
-__version__ = "4.0.4"
+__version__ = "4.0.5"
 
 from fullflow.System import *
 from fullflow.Solvers import *

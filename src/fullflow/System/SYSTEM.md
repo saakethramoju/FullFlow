@@ -104,6 +104,22 @@ Components through `self.setup()`, preserving those references. Assigning
 `cells.value` validates shape, bounds, member mutability, and repeated
 references before making changes.
 
+`State` and `StateArray` support live matrix multiplication (`@`), transpose
+(`.T`), dot products (`.dot()`), cross products (`.cross()`), and norms
+(`.norm()`). Results are derived States, not new solver unknowns. A group can
+also derive all its existing scalar members in one statement:
+
+```python
+rotation = State(np.eye(3))
+source = StateArray([State(1.0), State(2.0), State(3.0)])
+output = StateArray.full((3,), 0.0)
+output <<= rotation @ source
+```
+
+The source must have the same shape as the destination. Derived members cannot
+be assigned directly or used as independent solve variables. For a complete
+example, see [`examples/arrays/3vector_math.py`](../../../examples/arrays/3vector_math.py).
+
 Groups are especially convenient for fields of *independent unknowns*:
 
 ```python

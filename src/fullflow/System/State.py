@@ -625,6 +625,31 @@ class State:
     def __rtruediv__(self, other: Any) -> "State":
         return self._rbinary(other, lambda a, b: a / b)
 
+    def __matmul__(self, other: Any) -> "State":
+        return self._binary(other, np.matmul)
+
+    def __rmatmul__(self, other: Any) -> "State":
+        return self._rbinary(other, np.matmul)
+
+    @property
+    def T(self) -> "State":
+        """Return a live transpose."""
+        return State._derived(lambda: np.asarray(self._math_value()).T)
+
+    def dot(self, other: Any) -> "State":
+        """Return a live dot product."""
+        return self._binary(other, np.dot)
+
+    def cross(self, other: Any) -> "State":
+        """Return a live vector cross product."""
+        return self._binary(other, np.cross)
+
+    def norm(self, axis=None, keepdims=False) -> "State":
+        """Return a live Euclidean or Frobenius norm."""
+        return State._derived(
+            lambda: np.linalg.norm(self._math_value(), axis=axis, keepdims=keepdims)
+        )
+
     def sum(self, axis=None) -> "State":
         """Return a live sum over the selected axes."""
         return State._derived(lambda: np.sum(self._math_value(), axis=axis))

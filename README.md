@@ -277,6 +277,32 @@ live derived State. The array math helpers `sum(axis=...)`, `mean(axis=...)`,
 and elementwise arithmetic create live derived States for either representation.
 For general NumPy calculations inside `evaluate_states()`, work with `.value`.
 
+**Live vector and matrix math.** `State` and `StateArray` support `@` for
+matrix products, `.T` for transpose, `.dot(...)`, `.cross(...)`, and
+`.norm(axis=None, keepdims=False)`. These operations return derived States,
+so changes to their inputs are reflected when their values are read. `StateArray`
+also supports powers and absolute values. NumPy shape rules apply.
+
+```python
+rotation = State(np.eye(3))
+force = StateArray([State(1.0), State(2.0), State(3.0)])
+arm = StateArray([State(0.0), State(0.5), State(0.0)])
+
+force_inertial = rotation @ force
+moment = arm.cross(force)
+magnitude = force.norm()
+
+result = StateArray([State(0.0), State(0.0), State(0.0)])
+result <<= force_inertial + moment
+```
+
+`StateArray <<= expression` connects each existing scalar member to the matching
+component of an array expression; it does not allocate solver unknowns. The
+expression must have exactly the same shape as the target group. Derived members
+are read-only and cannot be used as independent solve variables. Use ordinary
+`.value = values` for a calculated output that must be assigned each evaluation.
+See [`examples/arrays/3vector_math.py`](examples/arrays/3vector_math.py).
+
 **Grouped equations: concise declarations, scalar solver internals.** A thermal
 Component may create its temperatures with `StateArray.full` and declare one
 grouped dynamics entry:
@@ -2807,15 +2833,15 @@ Detailed reference guides:
 
 Full documentation:
 
-https://saakethramoju.github.io/softwares/fullflow/
+<https://saakethramoju.github.io/softwares/fullflow/>
 
 Source code:
 
-https://github.com/saakethramoju/FullFlow
+<https://github.com/saakethramoju/FullFlow>
 
 PyPI:
 
-https://pypi.org/project/fullflow/
+<https://pypi.org/project/fullflow/>
 
 ## License
 
