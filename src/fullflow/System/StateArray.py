@@ -58,6 +58,21 @@ class StateArray:
 
     @property
     def value(self):
+        source = getattr(self, "_whole_array_source", None)
+        if source is not None and all(
+            member._expr is expression
+            for member, expression in zip(self._members.flat, self._whole_array_expressions)
+        ):
+            try:
+                array = np.asarray(source.value)
+            except UnassignedStateError:
+                pass
+            else:
+                if array.shape != self.shape:
+                    raise ValueError(f"StateArray shape must be {self.shape}; got {array.shape}.")
+                if array.dtype.kind not in "biuf":
+                    raise TypeError("StateArray requires numeric values.")
+                return array.copy()
         values = []
         for state in self._members.flat:
             value = state.value
@@ -149,6 +164,8 @@ class StateArray:
                 raise ValueError("StateArray derivation contains a circular dependency.") from exc
             raise
 
+        self._whole_array_source = source
+        self._whole_array_expressions = tuple(member._expr for member in members)
         return self
 
     def __ilshift__(self, source):
