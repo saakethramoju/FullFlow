@@ -9,7 +9,7 @@ transient = Transient(network)
 result = transient.solve(dt=0.01, t_final=1.0)
 ```
 
-The user chooses the nominal timestep. FullFlow can shorten steps at known schedule times or after a failed step; it does not automatically increase the nominal step.
+The user chooses the nominal timestep. FullFlow can shorten steps at known schedule times or after a failed step; it does not automatically increase the nominal step. Custom components can read `self.dt` for the active trial step; it is zero during initialization and zero-duration event reconciliation. `State.previous` and `StateArray.previous` provide the last accepted values for backward differences.
 
 ## Accuracy
 

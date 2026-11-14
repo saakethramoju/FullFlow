@@ -386,7 +386,12 @@ states:
 ```python
 state.previous
 state.second_previous
+state_array.previous
+state_array.second_previous
 ```
+
+For `StateArray`, history is returned as a NumPy array with the same shape as
+`.value`. History is unavailable until the required accepted steps exist.
 
 Component authors normally do not call `store_previous()` themselves. The
 transient solver advances history only after a timestep has passed the residual
@@ -840,14 +845,15 @@ class MyController(Component):
 Such a component remains active in transient solves but is skipped by steady
 state.
 
-Components that need the current trial timestep can override
-`set_transient_context()`:
+Components can read the current trial timestep from the public `dt` property:
 
 ```python
-def set_transient_context(self, *, dt):
-    super().set_transient_context(dt=dt)
-    # self._transient_dt now contains the current trial dt
+dt = self.dt
 ```
+
+It is zero during initialization and zero-duration event reconciliation, and
+may retain its last value after a transient solve completes. Components that override `set_transient_context()` must still call
+`super().set_transient_context(dt=dt)` to preserve the property.
 
 This is useful for rate limits and discrete-time behavior. Remember that a trial
 step can fail and be retried, so permanent state changes should not be committed

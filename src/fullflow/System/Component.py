@@ -199,6 +199,11 @@ class Component:
         self._transient_dt = float(dt)
 
     @property
+    def dt(self) -> float:
+        """Most recent transient timestep supplied by the solver."""
+        return self._transient_dt
+
+    @property
     def ignored_export_attributes(self) -> set[str]:
         """Attribute names to omit from HDF5/record exports for this component."""
         return set()

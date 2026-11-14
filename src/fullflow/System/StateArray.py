@@ -66,6 +66,16 @@ class StateArray:
             values.append(value)
         return np.asarray(values).reshape(self.shape)
 
+    @property
+    def previous(self):
+        """Values from the most recently accepted transient step."""
+        return np.asarray([state.previous for state in self._members.flat]).reshape(self.shape)
+
+    @property
+    def second_previous(self):
+        """Values from one accepted step before ``previous``."""
+        return np.asarray([state.second_previous for state in self._members.flat]).reshape(self.shape)
+
     @value.setter
     def value(self, value):
         values = np.asarray(value)

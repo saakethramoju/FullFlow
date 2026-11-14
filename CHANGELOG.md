@@ -1,5 +1,9 @@
 # Changelog
 
+## 4.0.4
+
+* Exposed the current transient timestep as `Component.dt` and accepted-step history arrays through `StateArray.previous` and `StateArray.second_previous`.
+
 ## 4.0.3
 
 * Added live numeric State fields and StateArray groups with scalar equation expansion, shape/ownership validation, and safe histories, checkpoints and linearization.

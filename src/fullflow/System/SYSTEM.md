@@ -94,6 +94,10 @@ shared = StateArray([pressure_a, pressure_b])
 assert shared[0] is pressure_a
 ```
 
+After accepted transient steps, `StateArray.previous` and
+`StateArray.second_previous` return same-shaped numerical history arrays,
+mirroring the history properties of individual States.
+
 A single index returns the original member State, and slicing returns a group
 referencing the selected members. A group can be passed directly between
 Components through `self.setup()`, preserving those references. Assigning

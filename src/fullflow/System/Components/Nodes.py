@@ -211,7 +211,7 @@ class Volume(Component):
         return self.pressure.value
 
     def _volume_derivative(self) -> float:
-        dt = float(self._transient_dt)
+        dt = self.dt
 
         if dt <= 0.0:
             return 0.0
