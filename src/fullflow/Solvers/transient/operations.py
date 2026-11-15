@@ -100,7 +100,6 @@ class TransientStepSolve:
         self._newton_jacobian_method: str | None = None
         self._newton_cache_id: int | None = None
         self._newton_control_values = ()
-        self._newton_reuse_age = 0
 
     def _reset_prediction_history(self) -> None:
         """Forget prior accepted steps at the beginning of a new solve."""
@@ -212,10 +211,8 @@ class TransientStepSolve:
     def _record_accepted_step(
         self, cache, previous_x: np.ndarray, t_new: float, dt: float, residual_count: int,
         *, jacobian=None, jacobian_scale=None, jacobian_method=None,
-        jacobian_reused=False, jacobian_rebuilt=False,
     ) -> None:
         """Store history after an accepted step."""
-        reuse_age = self._newton_reuse_age + 1 if jacobian_reused and not jacobian_rebuilt else 0
         self._clear_newton_jacobian()
         self._previous_step_x = np.array(previous_x, dtype=float, copy=True)
         self._accepted_step_x = cache.iteration_value_array().copy()
@@ -248,7 +245,6 @@ class TransientStepSolve:
                 self._newton_jacobian_method = jacobian_method
                 self._newton_cache_id = id(cache)
                 self._newton_control_values = self._accepted_control_values
-                self._newton_reuse_age = reuse_age
 
     def _control_values(self, cache) -> tuple:
         """Return the current transient control values."""
@@ -318,8 +314,7 @@ class TransientStepSolve:
                 or self._active_equation_scaling.scales is None):
             return None, None
         valid = (
-            self._newton_reuse_age < 8
-            and self._newton_cache_id == id(cache)
+            self._newton_cache_id == id(cache)
             and self._newton_jacobian_method == jacobian_method
             and self._accepted_step_time is not None
             and abs(self._accepted_step_time - old_time) <= 1.0e-12 * max(1.0, abs(old_time))
@@ -352,9 +347,7 @@ class TransientStepSolve:
                 else:
                     probe_error = float("inf")
 
-        if (probe_error is not None and (not np.isfinite(probe_error) or probe_error > 0.65)) or (
-            self._newton_reuse_age >= 4 and (probe_error is None or probe_error > 0.35)
-        ):
+        if probe_error is not None and (not np.isfinite(probe_error) or probe_error > 0.65):
             self._clear_newton_jacobian()
             return None, None
         return self._newton_jacobian, self._newton_jacobian_scale
@@ -950,8 +943,6 @@ class TransientStepSolve:
                         jacobian=newton_sol.jacobian,
                         jacobian_scale=newton_sol.jacobian_scale,
                         jacobian_method=step_settings.jacobian_method,
-                        jacobian_reused=newton_sol.jacobian_reused,
-                        jacobian_rebuilt=newton_sol.jacobian_rebuilt,
                     )
                     newton_sol.fun = accepted_residual
                     newton_sol.cost = 0.5 * float(np.dot(accepted_residual, accepted_residual))

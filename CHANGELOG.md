@@ -2,7 +2,9 @@
 
 ## 4.0.6
 
-- Avoid repeated evaluation of shared live array expressions when reading derived `StateArray` groups, preserving scalar-member behavior and shape validation.
+* Improved adaptive numerical Jacobian coloring and prediction-verified reuse without fixed network-size or timestep-age gates.
+* Reduced redundant live-array evaluation during transient fixed-point convergence checks.
+* Avoid repeated evaluation of shared live array expressions when reading derived `StateArray` groups, preserving scalar-member behavior and shape validation.
 
 ## 4.0.5
 

@@ -18,9 +18,6 @@ class JacobianStructure:
 
     def observe(self, jac):
         rows, columns = jac.shape
-        if columns < 48:
-            self.groups, self.supports, self.shape = (), (), jac.shape
-            return
         magnitude = np.max(np.abs(jac), axis=0)
         support = np.abs(jac) > (np.maximum(magnitude, 1e-15) * 1e-9)[None, :]
         groups = []
@@ -35,7 +32,8 @@ class JacobianStructure:
             else:
                 groups.append([column])
                 occupied.append(col_support.copy())
-        if len(groups) * 3 >= columns or not np.any(support):
+        probes = max(2, (columns - 1).bit_length()) + 1
+        if not np.any(support) or len(groups) * 2 + probes >= columns * 2:
             self.groups, self.supports = (), ()
         else:
             self.groups = tuple(np.asarray(group, dtype=np.intp) for group in groups)
@@ -44,6 +42,10 @@ class JacobianStructure:
 
     def build(self, current_y, current_f, evaluate, eps, method):
         if not self.groups or self.shape != (len(current_f), len(current_y)):
+            return None
+        probe_count = max(2, (len(current_y) - 1).bit_length()) + 1
+        multiplier = 2 if method == "3-point" else 1
+        if multiplier * len(self.groups) + probe_count >= multiplier * len(current_y):
             return None
         jac = np.zeros(self.shape)
         step = eps * np.maximum(np.abs(current_y), 1.0)
@@ -60,11 +62,12 @@ class JacobianStructure:
             for column in group:
                 rows = self.supports[column]
                 jac[rows, column] = difference[rows] / step[column]
-        # Probe all columns simultaneously with independent signed perturbations.
-        # This detects newly active dependencies, including those within a color.
-        for seed in (17, 43):
-            rng = np.random.default_rng(seed)
-            direction = rng.choice((-1.0, 1.0), len(current_y))
+        indices = np.arange(len(current_y), dtype=np.intp)
+        for probe in range(probe_count):
+            if probe == probe_count - 1:
+                direction = np.random.default_rng(17).choice((-1.0, 1.0), len(current_y))
+            else:
+                direction = np.where((indices >> probe) & 1, 1.0, -1.0)
             delta = step * direction
             actual = evaluate(current_y + delta) - current_f
             expected = jac @ delta

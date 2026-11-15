@@ -173,6 +173,7 @@ class TransientRuntimeCache:
 
 
         self.state_refs = self._collect_state_refs()
+        self._setup_settling_groups()
 
 
         self.all_state_refs = self._collect_all_state_refs()
@@ -369,6 +370,7 @@ class TransientRuntimeCache:
         self.iteration_count = len(self.iteration_variables)
 
         self.state_refs = self._collect_state_refs()
+        self._setup_settling_groups()
         self.all_state_refs = self._collect_all_state_refs()
         self._history_state_refs = self._states_with_history()
 
@@ -1346,10 +1348,68 @@ class TransientRuntimeCache:
         except Exception:
             return None
 
+    def _setup_settling_groups(self) -> None:
+        indexes = {id(state): index for index, state in enumerate(self.state_refs)}
+        groups = []
+        covered = set()
+        visited = set()
+
+        def visit(value):
+            if not isinstance(value, (StateArray, dict, list, tuple, set, frozenset)):
+                return
+            if id(value) in visited:
+                return
+            visited.add(id(value))
+            if isinstance(value, StateArray):
+                source = getattr(value, "_whole_array_source", None)
+                expressions = getattr(value, "_whole_array_expressions", ())
+                members = tuple(value._members.flat)
+                if source is not None and len(members) == len(expressions) and all(
+                    member._expr is expression for member, expression in zip(members, expressions)
+                ):
+                    positions = tuple(
+                        (offset, indexes[id(member)])
+                        for offset, member in enumerate(members)
+                        if id(member) in indexes and indexes[id(member)] not in covered
+                    )
+                    if len(positions) > 1:
+                        groups.append((value, positions))
+                        covered.update(index for _, index in positions)
+            elif isinstance(value, dict):
+                for key, item in value.items():
+                    visit(key)
+                    visit(item)
+            else:
+                for item in value:
+                    visit(item)
+
+        for owner in self.component_list + self.balance_list:
+            for value in owner.__dict__.values():
+                visit(value)
+
+        self._settling_groups = tuple(groups)
+        self._settling_individual = tuple(
+            index for index in range(len(self.state_refs)) if index not in covered
+        )
+
+    def _fill_compact_state_values(self, output: list) -> None:
+        read_value = self._settling_value
+        for array, positions in self._settling_groups:
+            try:
+                values = array.value.flat
+                for offset, index in positions:
+                    output[index] = float(values[offset])
+            except Exception:
+                for _, index in positions:
+                    output[index] = read_value(self.state_refs[index])
+        for index in self._settling_individual:
+            output[index] = read_value(self.state_refs[index])
+
     def _collect_state_values_compact(self) -> list[float | None]:
         """Snapshot non-iteration States in cached reference order."""
-        read_value = self._settling_value
-        return [read_value(state) for state in self.state_refs]
+        result = [None] * len(self.state_refs)
+        self._fill_compact_state_values(result)
+        return result
 
     def _collect_state_values_compact_change(
         self,
@@ -1357,15 +1417,11 @@ class TransientRuntimeCache:
         output_values: list[float | None],
     ) -> float:
         """Update a reusable snapshot while calculating the fixed-point change."""
+        self._fill_compact_state_values(output_values)
         max_change = 0.0
-        read_value = self._settling_value
-        for index, state in enumerate(self.state_refs):
-            value = read_value(state)
-            output_values[index] = value
+        for value, previous in zip(output_values, previous_values):
             if value is None:
                 continue
-
-            previous = previous_values[index]
             if isinstance(value, np.ndarray):
                 max_change = max(max_change, array_state_change(previous, value))
                 continue
@@ -1374,10 +1430,8 @@ class TransientRuntimeCache:
             else:
                 scale = max(abs(value), 1.0)
                 change = abs(value - previous) / scale
-
             if change > max_change:
                 max_change = change
-
         return max_change
 
     @staticmethod
